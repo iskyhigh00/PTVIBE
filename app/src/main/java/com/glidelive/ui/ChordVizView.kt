@@ -140,7 +140,7 @@ class ChordVizView(context: Context) : View(context) {
             }
 
             // Playhead fijo con puntos brillantes y la nota a su derecha.
-            grid.color = 0x99FFFFFF
+            grid.color = 0x99FFFFFF.toInt()
             c.drawLine(playX, 0f, playX, h, grid)
             val active = tl.spans.filter { it.activeAt(now) }.sortedByDescending { it.pitchAt(now) }
             var rank = 0; var lastP = Float.NaN
