@@ -20,6 +20,10 @@ import kotlinx.coroutines.launch
 import com.glidelive.viz.EventHub
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.systemGestures
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.windowInsetsPadding
 import com.glidelive.ui.components.AppBackground
 import com.glidelive.ui.components.CapsuleBar
@@ -99,7 +103,7 @@ class MainActivity : ComponentActivity() {
                         if (fullscreen) c.hide(WindowInsetsCompat.Type.systemBars()) else c.show(WindowInsetsCompat.Type.systemBars())
                     }
                     Box(Modifier.fillMaxSize()) {
-                        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                        Column(Modifier.fillMaxSize().windowInsetsPadding(playInsets)) {
                             if (!fullscreen) {
                                 TopBar(mode, { mode = it }, chordsVm, soloVm, vm, sessionVm, panel, { panel = !panel }, { fullscreen = true })
                                 TransportBar(transportVm)
@@ -152,7 +156,7 @@ class MainActivity : ComponentActivity() {
                         if (fullscreen) {
                             TextButton(
                                 onClick = { fullscreen = false },
-                                modifier = Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.safeDrawing),
+                                modifier = Modifier.align(Alignment.TopEnd).windowInsetsPadding(playInsets),
                             ) { Text("⤡ Salir") }
                         }
                     }
@@ -182,6 +186,10 @@ class MainActivity : ComponentActivity() {
         super.onPause()
     }
 }
+
+/** Zona segura para tocar: barras del sistema, recortes de pantalla y los bordes laterales reservados al gesto de volver. */
+val playInsets: WindowInsets
+    @Composable get() = WindowInsets.safeDrawing.union(WindowInsets.systemGestures.only(WindowInsetsSides.Horizontal))
 
 enum class Mode(val label: String) {
     ACORDES("Acordes"), VOCES("Voces"), DUO("Voces + Solista"), SOLISTA("Solista"), BATERIA("Batería"), MIXTO("Mixto")
