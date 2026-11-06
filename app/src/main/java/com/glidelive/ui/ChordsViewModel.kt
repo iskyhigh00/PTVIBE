@@ -68,11 +68,15 @@ class ChordsViewModel : ViewModel() {
 
     private val player = ChordPlayer({ NativeEngine.synth(it) })
 
-    init { push(_ui.value) }
+    init { push(_ui.value); publishKey(_ui.value) }
+
+    private fun publishKey(u: ChordsUi) =
+        SharedHarmony.update { it.copy(tonic = u.tonic, scale = u.scale) }
 
     fun edit(f: (ChordsUi) -> ChordsUi) {
         _ui.update(f)
         push(_ui.value)
+        publishKey(_ui.value)
     }
 
     private fun push(u: ChordsUi) {
@@ -100,6 +104,7 @@ class ChordsViewModel : ViewModel() {
         val tones = chord.tones
         val inv = e.inversion.coerceIn(0, tones.size - 1)
         player.play(tones, if (inv > 0) inv else null, e.fixed, e.octave, u.rangeLo, u.rangeHi)
+        SharedHarmony.update { it.copy(chordPcs = tones) }
         _ui.update { it.copy(activeId = id) }
     }
 
@@ -110,6 +115,7 @@ class ChordsViewModel : ViewModel() {
 
     fun stopAll() {
         player.stopAll()
+        SharedHarmony.update { it.copy(chordPcs = emptyList()) }
         _ui.update { it.copy(activeId = null) }
     }
 

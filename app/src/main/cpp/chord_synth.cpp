@@ -41,6 +41,12 @@ inline float adv(float& ph, float inc) {
 
 void SynthEngine::init(int sampleRate) {
     sr_ = sampleRate;
+    for (int i = 0; i < kSoloVoices; ++i) {
+        soloPitch_[i].store(60.0f);
+        soloFilter_[i].store(1.0f);
+        soloVib_[i].store(0.0f);
+        soloVol_[i].store(1.0f);
+    }
     chorus_.init(sampleRate);
     reverb_.init(sampleRate);
     reset();
@@ -115,21 +121,60 @@ void SynthEngine::releaseAll() {
     for (int i = 0; i < kVoices; ++i) release(i);
 }
 
+void SynthEngine::setSolo(int idx, float pitch, float filter, float vib, float vol) {
+    if (idx < 0 || idx >= kSoloVoices) return;
+    soloPitch_[idx].store(pitch, std::memory_order_relaxed);
+    soloFilter_[idx].store(filter, std::memory_order_relaxed);
+    soloVib_[idx].store(vib, std::memory_order_relaxed);
+    soloVol_[idx].store(vol, std::memory_order_relaxed);
+}
+
+void SynthEngine::soloOn(int idx, float midi, const SynthParams& p) {
+    if (idx < 0 || idx >= kSoloVoices) return;
+    soloPitch_[idx].store(midi, std::memory_order_relaxed);
+    noteOn(kSoloBase + idx, midi, p);
+    voices_[kSoloBase + idx].vibPhase = 0;
+}
+
+void SynthEngine::soloOff(int idx) {
+    if (idx < 0 || idx >= kSoloVoices) return;
+    release(kSoloBase + idx);
+}
+
 void SynthEngine::render(float* outL, float* outR, int n, const SynthParams& p) {
-    const int ii = std::min(std::max(p.instrument, 0), 4);
-    const Inst& in = kInst[ii];
     const float invSr = 1.0f / sr_;
     for (int i = 0; i < n; ++i) mono_[i] = 0;
+    const float soloCoef = 1.0f - std::exp(-1.0f / (std::max(p.soloGlideMs, 0.5f) * 0.001f * sr_));
 
-    const float baseCut = 150.0f * std::exp2(p.cutoff * 7.0f) * in.cutMul;
-    const float susMul = std::exp(-in.susK * invSr);
-
-    for (auto& v : voices_) {
+    for (int vi = 0; vi < kVoices; ++vi) {
+        Voice& v = voices_[vi];
         if (!v.active) continue;
-        v.filter.set(baseCut, p.resonance, static_cast<float>(sr_));
+        const bool solo = vi >= kSoloBase;
+        const int ii = std::min(std::max(solo ? p.soloInstrument : p.instrument, 0), 4);
+        const Inst& in = kInst[ii];
+        const float volScale = solo ? p.soloVolume : p.volume;
+        const float susMul = std::exp(-in.susK * invSr);
+
+        float target = 0, vibMod = 0, volMod = 1, filterMod = 1;
+        if (solo) {
+            const int k = vi - kSoloBase;
+            target = soloPitch_[k].load(std::memory_order_relaxed);
+            filterMod = soloFilter_[k].load(std::memory_order_relaxed);
+            vibMod = soloVib_[k].load(std::memory_order_relaxed);
+            volMod = soloVol_[k].load(std::memory_order_relaxed);
+        }
+        const float cut = 150.0f * std::exp2(p.cutoff * 7.0f) * in.cutMul *
+                          (solo ? std::exp2((filterMod - 1.0f) * 5.0f) : 1.0f);
+        v.filter.set(cut, p.resonance, static_cast<float>(sr_));
+        const float vg = volScale * (solo ? volMod * volMod : 1.0f);
+
         for (int i = 0; i < n; ++i) {
-            // Glide continuo en el dominio de altura (semitonos).
-            if (v.prog < 1.0f) {
+            if (solo) {
+                v.midi += (target - v.midi) * soloCoef;
+                v.vibPhase += 5.5f * invSr;
+                if (v.vibPhase >= 1.0f) v.vibPhase -= 1.0f;
+            } else if (v.prog < 1.0f) {
+                // Glide continuo en el dominio de altura (semitonos).
                 v.prog += v.progStep;
                 if (v.prog >= 1.0f) {
                     v.prog = 1.0f;
@@ -144,7 +189,6 @@ void SynthEngine::render(float* outL, float* outR, int n, const SynthParams& p) 
                 }
             }
 
-            // Envolvente.
             switch (v.stage) {
                 case 0:
                     v.env += 1.0f / (in.a * sr_);
@@ -165,7 +209,8 @@ void SynthEngine::render(float* outL, float* outR, int n, const SynthParams& p) 
             }
             if (!v.active) break;
 
-            const float f = 440.0f * std::exp2((v.midi - 69.0f) / 12.0f);
+            const float pitch = solo ? v.midi + vibMod * 0.6f * std::sin(kTwoPi * v.vibPhase) : v.midi;
+            const float f = 440.0f * std::exp2((pitch - 69.0f) / 12.0f);
             const float dt = std::min(f * invSr, 0.45f);
             const float t = v.age;
             v.age += invSr;
@@ -208,11 +253,10 @@ void SynthEngine::render(float* outL, float* outR, int n, const SynthParams& p) 
                     break;
                 }
             }
-            mono_[i] += v.filter.lp(s) * v.env * v.vel * in.gain;
+            mono_[i] += v.filter.lp(s) * v.env * v.vel * in.gain * vg;
         }
     }
 
-    const float vol = p.volume;
     for (int i = 0; i < n; ++i) {
         const float x = mono_[i];
         float cl, cr;
@@ -226,7 +270,7 @@ void SynthEngine::render(float* outL, float* outR, int n, const SynthParams& p) 
             l += wl * p.room * 1.6f;
             r += wr * p.room * 1.6f;
         }
-        outL[i] += l * vol;
-        outR[i] += r * vol;
+        outL[i] += l;
+        outR[i] += r;
     }
 }

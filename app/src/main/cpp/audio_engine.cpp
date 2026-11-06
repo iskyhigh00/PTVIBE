@@ -42,6 +42,8 @@ AudioEngine::AudioEngine() {
     params_[kInstrument].store(0.0f);
     params_[kGlideMs].store(250.0f);
     params_[kGlideCurve].store(1.0f);
+    params_[kSoloInstrument].store(4.0f);
+    params_[kSoloGlide].store(20.0f);
 }
 
 bool AudioEngine::start() {
@@ -172,6 +174,9 @@ SynthParams AudioEngine::synthParams() const {
     p.resonance = param(kResonance);
     p.chorus = param(kChorusMix);
     p.room = param(kSynthRoom);
+    p.soloInstrument = static_cast<int>(param(kSoloInstrument));
+    p.soloVolume = param(kSoloVol);
+    p.soloGlideMs = param(kSoloGlide);
     return p;
 }
 
@@ -185,6 +190,8 @@ void AudioEngine::handleEvent(const PadEvent& ev, int64_t now) {
         case 13: synth_.glideTo(ev.a, ev.f, p, true); break;
         case 14: synth_.release(ev.a); break;
         case 15: synth_.releaseAll(); break;
+        case 16: synth_.soloOn(ev.a, ev.f, p); break;
+        case 17: synth_.soloOff(ev.a); break;
         default: break;
     }
 }

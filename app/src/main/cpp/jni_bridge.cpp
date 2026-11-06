@@ -45,6 +45,12 @@ Java_com_glidelive_audio_NativeEngine_nativeGetLevel(JNIEnv*, jobject) {
 }
 
 JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeSoloSet(JNIEnv*, jobject, jint idx, jfloat pitch,
+                                                    jfloat filter, jfloat vib, jfloat vol) {
+    g_engine.soloSet(idx, pitch, filter, vib, vol);
+}
+
+JNIEXPORT void JNICALL
 Java_com_glidelive_audio_NativeEngine_nativeSetBursts(JNIEnv*, jobject, jint bursts) {
     g_engine.setBursts(bursts);
 }

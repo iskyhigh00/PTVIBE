@@ -39,6 +39,8 @@ enum Param {
     kInstrument = 28,
     kGlideMs = 29,
     kGlideCurve = 30,
+    kSoloInstrument = 31,
+    kSoloGlide = 32,
     kParamCount = 40
 };
 
@@ -57,6 +59,9 @@ public:
     void choke(int pad, int64_t eventNs);
     void setParam(int id, float value);
     void synthCmd(int type, int a, int b, float f);
+    void soloSet(int idx, float pitch, float filter, float vib, float vol) {
+        synth_.setSolo(idx, pitch, filter, vib, vol);
+    }
 
     void setBursts(int bursts);
     void autoTune();

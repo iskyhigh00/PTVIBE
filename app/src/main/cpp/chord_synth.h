@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <cstdint>
 #include "dsp.h"
 
@@ -11,6 +12,9 @@ struct SynthParams {
     float resonance = 0.15f;
     float chorus = 0.35f;
     float room = 0.3f;
+    int soloInstrument = 4;
+    float soloVolume = 0.8f;
+    float soloGlideMs = 20;  // suavizado del pitch del solista
 };
 
 // Sintetizador polifónico (16 voces) con glide continuo por voz.
@@ -32,6 +36,13 @@ public:
     // Suma estéreo en outL/outR (n <= kMaxBlock). No asigna memoria.
     void render(float* outL, float* outR, int n, const SynthParams& p);
 
+    // Solista: 8 dedos (slots 8..15). El pitch y la expresión se leen de atómicos (último valor gana).
+    static constexpr int kSoloVoices = 8;
+    static constexpr int kSoloBase = 8;
+    void setSolo(int idx, float pitch, float filter, float vib, float vol);
+    void soloOn(int idx, float midi, const SynthParams& p);
+    void soloOff(int idx);
+
     float currentMidi(int slot) const { return voices_[slot].midi; }
     bool isActive(int slot) const { return voices_[slot].active; }
 
@@ -46,6 +57,7 @@ private:
         int curve = 1;
         float vel = 0.8f;
         float age = 0;
+        float vibPhase = 0;
         float ph[9] = {};
         Svf filter;
     };
@@ -57,4 +69,8 @@ private:
     Chorus chorus_;
     Reverb reverb_;
     float mono_[kMaxBlock];
+    std::atomic<float> soloPitch_[kSoloVoices];
+    std::atomic<float> soloFilter_[kSoloVoices];
+    std::atomic<float> soloVib_[kSoloVoices];
+    std::atomic<float> soloVol_[kSoloVoices];
 };

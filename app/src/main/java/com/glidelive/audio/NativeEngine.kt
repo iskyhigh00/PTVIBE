@@ -52,6 +52,15 @@ object NativeEngine {
         SynthCommand.ReleaseAll -> nativeSynthCmd(15, 0, 0, 0f)
     }
 
+    const val P_SOLO_INSTRUMENT = 31
+    const val P_SOLO_GLIDE = 32
+
+    // Solista: idx 0..7 (un dedo = una voz).
+    fun soloOn(idx: Int, midi: Float) = nativeSynthCmd(16, idx, 0, midi)
+    fun soloOff(idx: Int) = nativeSynthCmd(17, idx, 0, 0f)
+    fun soloSet(idx: Int, pitch: Float, filter: Float, vib: Float, vol: Float) =
+        nativeSoloSet(idx, pitch, filter, vib, vol)
+
     const val P_CHORD_VOL = 21
     const val P_SOLO_VOL = 22
     const val P_DRUM_VOL = 23
@@ -95,6 +104,7 @@ object NativeEngine {
     private external fun nativeSetParam(id: Int, value: Float)
     private external fun nativeSynthCmd(type: Int, a: Int, b: Int, f: Float)
     private external fun nativeGetLevel(): Float
+    private external fun nativeSoloSet(idx: Int, pitch: Float, filter: Float, vib: Float, vol: Float)
     private external fun nativeSetBursts(bursts: Int)
     private external fun nativeAutoTune()
     private external fun nativeResetStats()

@@ -57,6 +57,7 @@ class MainActivity : ComponentActivity() {
     private val vm: EngineViewModel by viewModels()
     private val updateVm: UpdateViewModel by viewModels()
     private val chordsVm: ChordsViewModel by viewModels()
+    private val soloVm: SoloViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -75,10 +76,11 @@ class MainActivity : ComponentActivity() {
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             Column(Modifier.weight(1f).fillMaxHeight()) {
-                                if (mode != Mode.BATERIA) {
+                                if (mode == Mode.ACORDES || mode == Mode.MIXTO) {
                                     ChordsScreen(chordsVm, compact = mode == Mode.MIXTO, Modifier.weight(1f))
                                 }
-                                if (mode != Mode.ACORDES) {
+                                if (mode == Mode.SOLISTA) SoloHost(soloVm, Modifier.weight(1f))
+                                if (mode == Mode.BATERIA || mode == Mode.MIXTO) {
                                     AndroidView(
                                         factory = { DrumPadsView(it) },
                                         update = { it.pressureSensitivity = kit.pressure },
@@ -88,7 +90,7 @@ class MainActivity : ComponentActivity() {
                             }
                             if (panel) {
                                 GlassCard(Modifier.width(300.dp).fillMaxHeight().padding(bottom = 8.dp), padding = 0.dp) {
-                                    SidePanel(vm, updateVm, chordsVm)
+                                    SidePanel(vm, updateVm, chordsVm, soloVm)
                                 }
                             }
                         }
@@ -110,7 +112,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-enum class Mode(val label: String) { ACORDES("Acordes"), BATERIA("Batería"), MIXTO("Mixto") }
+enum class Mode(val label: String) { ACORDES("Acordes"), SOLISTA("Solista"), BATERIA("Batería"), MIXTO("Mixto") }
 
 @Composable
 private fun TopBar(
@@ -180,23 +182,25 @@ private fun CalibrationPanel(vm: EngineViewModel) {
 }
 
 @Composable
-private fun SidePanel(vm: EngineViewModel, updateVm: UpdateViewModel, chordsVm: ChordsViewModel) {
+private fun SidePanel(vm: EngineViewModel, updateVm: UpdateViewModel, chordsVm: ChordsViewModel, soloVm: SoloViewModel) {
     val up by updateVm.state.collectAsState()
     var tab by remember { mutableIntStateOf(0) }
     Column(Modifier.fillMaxSize()) {
         ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp, containerColor = Color.Transparent) {
-            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Sonido") })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Batería") })
-            Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Latencia") })
+            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Acordes") })
+            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Solista") })
+            Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Batería") })
+            Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("Latencia") })
             Tab(
-                selected = tab == 3, onClick = { tab = 3 },
+                selected = tab == 4, onClick = { tab = 4 },
                 text = { Text(if (up is UpdateState.Available) "Actualizar •" else "Actualizar") },
             )
         }
         when (tab) {
             0 -> SoundPanel(chordsVm)
-            1 -> KitPanel(vm)
-            2 -> CalibrationPanel(vm)
+            1 -> SoloPanel(soloVm)
+            2 -> KitPanel(vm)
+            3 -> CalibrationPanel(vm)
             else -> UpdatePanel(updateVm)
         }
     }
