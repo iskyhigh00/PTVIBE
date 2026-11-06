@@ -38,6 +38,7 @@ import com.glidelive.audio.NativeEngine
 
 class MainActivity : ComponentActivity() {
     private val vm: EngineViewModel by viewModels()
+    private val updateVm: UpdateViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,7 +53,7 @@ class MainActivity : ComponentActivity() {
                             update = { it.pressureSensitivity = kit.pressure },
                             modifier = Modifier.weight(1f).fillMaxHeight(),
                         )
-                        SidePanel(vm)
+                        SidePanel(vm, updateVm)
                     }
                 }
             }
@@ -118,14 +119,23 @@ private fun CalibrationPanel(vm: EngineViewModel) {
 }
 
 @Composable
-private fun SidePanel(vm: EngineViewModel) {
+private fun SidePanel(vm: EngineViewModel, updateVm: UpdateViewModel) {
+    val up by updateVm.state.collectAsState()
     var tab by remember { mutableIntStateOf(0) }
     Column(Modifier.width(280.dp).fillMaxHeight()) {
         TabRow(selectedTabIndex = tab) {
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Kit") })
             Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Latencia") })
+            Tab(
+                selected = tab == 2, onClick = { tab = 2 },
+                text = { Text(if (up is UpdateState.Available) "Update •" else "Update") },
+            )
         }
-        if (tab == 0) KitPanel(vm) else CalibrationPanel(vm)
+        when (tab) {
+            0 -> KitPanel(vm)
+            1 -> CalibrationPanel(vm)
+            else -> UpdatePanel(updateVm)
+        }
     }
 }
 
@@ -154,5 +164,31 @@ private fun KitPanel(vm: EngineViewModel) {
                 vm.editKit { it.copy(padVolume = it.padVolume.toMutableList().also { l -> l[i] = v }) }
             }
         }
+    }
+}
+
+@Composable
+private fun UpdatePanel(vm: UpdateViewModel) {
+    val st by vm.state.collectAsState()
+    Column(
+        Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("Versión instalada: build ${vm.currentBuild}")
+        when (val s = st) {
+            UpdateState.Idle -> {}
+            UpdateState.Checking -> Text("Buscando actualización…")
+            UpdateState.UpToDate -> Text("Estás en la última versión.")
+            is UpdateState.Available -> {
+                Text("Nueva versión: build ${s.build}")
+                Button(onClick = vm::downloadAndInstall) { Text("Descargar e instalar") }
+            }
+            is UpdateState.Downloading -> Text("Descargando… ${s.percent}%")
+            UpdateState.NeedsPermission ->
+                Text("Activa \"Permitir de esta fuente\" y vuelve a pulsar instalar.")
+            is UpdateState.Error -> Text("Error: ${s.message}", color = Color(0xFFFF6E6E))
+        }
+        Button(onClick = vm::check) { Text("Buscar actualización") }
+        if (st is UpdateState.NeedsPermission) Button(onClick = vm::check) { Text("Reintentar") }
     }
 }
