@@ -1,6 +1,7 @@
 package com.glidelive.ui
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.glidelive.audio.ChordPlayer
 import com.glidelive.audio.NativeEngine
 import com.glidelive.theory.Bank
@@ -10,9 +11,13 @@ import com.glidelive.theory.ChordType
 import com.glidelive.theory.PadDef
 import com.glidelive.theory.Scale
 import com.glidelive.theory.VoiceLeading
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 enum class TriggerMode(val label: String) { HOLD("Sostener"), LATCH("Alternar"), GATE("Mientras toco") }
 enum class GlideCurve(val label: String) { LINEAR("Recta"), SMOOTH("Suave"), SLOW("Arranque lento") }
@@ -53,13 +58,35 @@ data class ChordsUi(
 ) {
     val tonic: Int get() = Math.floorMod(key + transpose, 12)
 
-    val rows: List<List<PadDef>>
-        get() = when (bank) {
+    /** Filas de pads: se calculan una sola vez por combinación de tono/escala/banco/calidad/transposición. */
+    val rows: List<List<PadDef>> get() = PadRows.get(tonic, scale, bank, quality, transpose).rows
+
+    fun padById(id: String): PadDef? = PadRows.get(tonic, scale, bank, quality, transpose).byId[id]
+
+    fun chordOf(def: PadDef): Chord = Chord(def.chord.rootPc, edits[def.id]?.type ?: def.chord.type)
+}
+
+/** Memoiza las filas de pads (y el mapa id -> pad) de la última combinación pedida. */
+internal object PadRows {
+    class Entry(val rows: List<List<PadDef>>, val byId: Map<String, PadDef>)
+    private data class Key(val tonic: Int, val scale: Scale, val bank: Bank, val quality: ChordType?, val transpose: Int)
+
+    private var key: Key? = null
+    private var entry: Entry? = null
+
+    @Synchronized
+    fun get(tonic: Int, scale: Scale, bank: Bank, quality: ChordType?, transpose: Int): Entry {
+        val k = Key(tonic, scale, bank, quality, transpose)
+        entry?.let { if (k == key) return it }
+        val rows = when (bank) {
             Bank.DIATONIC -> ChordBanks.diatonic(tonic, scale, quality)
             Bank.II_V_I -> ChordBanks.iiVI(transpose)
         }
-
-    fun chordOf(def: PadDef): Chord = Chord(def.chord.rootPc, edits[def.id]?.type ?: def.chord.type)
+        val e = Entry(rows, rows.flatten().associateBy { it.id })
+        key = k
+        entry = e
+        return e
+    }
 }
 
 class ChordsViewModel : ViewModel() {
@@ -68,7 +95,19 @@ class ChordsViewModel : ViewModel() {
 
     private val player = ChordPlayer({ NativeEngine.synth(it) })
 
-    init { push(_ui.value); publishKey(_ui.value) }
+    /** Hay un acorde diferido esperando el próximo tiempo/compás (cuantización de acordes). */
+    private val _pending = MutableStateFlow(false)
+    val pending: StateFlow<Boolean> = _pending
+
+    init {
+        push(_ui.value); publishKey(_ui.value)
+        viewModelScope.launch(Dispatchers.Default) {
+            while (isActive) {
+                _pending.value = NativeEngine.seqStatus()[9] > 0.5
+                delay(100)
+            }
+        }
+    }
 
     private fun publishKey(u: ChordsUi) =
         SharedHarmony.update { it.copy(tonic = u.tonic, scale = u.scale) }
@@ -90,7 +129,7 @@ class ChordsViewModel : ViewModel() {
         NativeEngine.setParam(NativeEngine.P_SYNTH_ROOM, u.room)
     }
 
-    private fun findPad(u: ChordsUi, id: String): PadDef? = u.rows.flatten().firstOrNull { it.id == id }
+    private fun findPad(u: ChordsUi, id: String): PadDef? = u.padById(id)
 
     fun padDown(id: String) {
         val u = _ui.value

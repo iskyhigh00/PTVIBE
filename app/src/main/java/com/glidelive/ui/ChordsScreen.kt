@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -83,8 +84,13 @@ fun ChordsScreen(vm: ChordsViewModel, compact: Boolean, modifier: Modifier = Mod
             }
         }
 
-        val rows = u.rows.map { row -> row.map { PadUi(it.id, u.chordOf(it).name(), it.roman + " · " + u.chordOf(it).type.plain) } }
+        val padRows = u.rows
+        val rows = remember(padRows, u.edits) {
+            padRows.map { row -> row.map { PadUi(it.id, u.chordOf(it).name(), it.roman + " · " + u.chordOf(it).type.plain) } }
+        }
         val edited = u.edits.keys
+        val pending by vm.pending.collectAsState()
+        Box(Modifier.weight(1f).fillMaxWidth()) {
         AndroidView(
             factory = { ChordPadsView(it) },
             update = {
@@ -94,8 +100,13 @@ fun ChordsScreen(vm: ChordsViewModel, compact: Boolean, modifier: Modifier = Mod
                 it.editMode = u.editMode
                 it.setData(rows, u.activeId, edited)
             },
-            modifier = Modifier.weight(1f).fillMaxWidth(),
+            modifier = Modifier.fillMaxSize(),
         )
+        if (pending) {
+            Text("acorde en espera…", Modifier.align(Alignment.TopEnd).padding(end = 14.dp, top = 2.dp),
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+        }
+        }
 
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp),

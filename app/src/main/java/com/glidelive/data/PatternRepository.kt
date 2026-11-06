@@ -13,6 +13,7 @@ object PatternRepository {
     private var user: List<DrumPattern> = emptyList()
     private var factory: List<DrumPattern> = emptyList()
 
+    @Synchronized
     fun load(ctx: Context) {
         factory = runCatching {
             DrumPattern.parseAll(ctx.assets.open("patterns.json").bufferedReader().use { it.readText() }, true)
@@ -24,6 +25,7 @@ object PatternRepository {
 
     private fun publish() { _all.value = factory + user }
 
+    @Synchronized
     fun saveUser(ctx: Context, p: DrumPattern) {
         val mine = p.copy(factory = false)
         user = if (user.any { it.id == mine.id }) user.map { if (it.id == mine.id) mine else it } else user + mine
@@ -31,6 +33,7 @@ object PatternRepository {
         publish()
     }
 
+    @Synchronized
     fun deleteUser(ctx: Context, id: String) {
         user = user.filterNot { it.id == id }
         File(ctx.filesDir, "user_patterns.json").writeText(DrumPattern.toJsonAll(user))

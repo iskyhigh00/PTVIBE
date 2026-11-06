@@ -60,32 +60,81 @@ object VoiceLeading {
         hi: Int,
     ): Result? {
         val n = tones.size
+        val candArr = Array(n) { cands[it].toIntArray() }
+        val prevArr = prev.toIntArray()
         val pick = IntArray(n)
+        val order = IntArray(n)      // índices de tono ordenados por altura
+        val sorted = IntArray(n)     // alturas ordenadas
+        val dp = IntArray(prevArr.size * n)
+        val bassIdx = bass ?: -1
         var best: Result? = null
         var bestScore = Double.MAX_VALUE
         val center = (lo + hi) / 2.0
 
         fun evaluate() {
-            val order = (0 until n).sortedBy { pick[it] }
-            val notes = order.map { pick[it] }
-            if (notes.zipWithNext().any { (a, b) -> a == b }) return
-            if (bass != null && order[0] != bass) return
-            val (links, cost) = align(prev, notes)
-            val spread = notes.last() - notes.first()
+            if (bassIdx >= 0) {
+                val b = pick[bassIdx]
+                for (j in 0 until n) if (j != bassIdx && pick[j] <= b) return  // el bajo debe ser la nota más grave
+            }
+            for (i in 0 until n) {  // inserción estable (n <= 16)
+                var j = i
+                val v = pick[i]
+                while (j > 0 && sorted[j - 1] > v) { sorted[j] = sorted[j - 1]; order[j] = order[j - 1]; j-- }
+                sorted[j] = v
+                order[j] = i
+            }
+            val cost = costOnly(prevArr, sorted, n, dp)
+            val spread = sorted[n - 1] - sorted[0]
             var score = cost + 0.01 * spread
-            if (prev.isEmpty()) score += 0.05 * abs(notes.average() - center)
+            if (prevArr.isEmpty()) {
+                var sum = 0L
+                for (v in sorted) sum += v
+                score += 0.05 * abs(sum.toDouble() / n - center)
+            }
             if (score < bestScore) {
                 bestScore = score
-                best = Result(notes, order, links, cost)
+                val notes = sorted.toList()
+                val (links, c) = align(prev, notes)
+                best = Result(notes, order.toList(), links, c)
             }
         }
 
         fun rec(i: Int) {
             if (i == n) { evaluate(); return }
-            for (c in cands[i]) { pick[i] = c; rec(i + 1) }
+            val cs = candArr[i]
+            for (k in cs.indices) {
+                val c = cs[k]
+                var skip = false
+                for (j in 0 until i) if (pick[j] == c) { skip = true; break }  // alturas repetidas
+                if (skip) continue
+                if (bassIdx in 0 until i && c <= pick[bassIdx]) continue        // por debajo del bajo
+                pick[i] = c
+                rec(i + 1)
+            }
         }
         rec(0)
         return best
+    }
+
+    /** Mismo coste que [align] pero sin construir listas (se usa para cada combinación candidata). */
+    private fun costOnly(prev: IntArray, notes: IntArray, m: Int, dp: IntArray): Int {
+        val n = prev.size
+        if (n == 0) return 0
+        if (n == m) {
+            var s = 0
+            for (i in 0 until n) s += abs(prev[i] - notes[i])
+            return s
+        }
+        val inf = Int.MAX_VALUE / 4
+        for (i in 0 until n) for (j in 0 until m) {
+            val d = abs(prev[i] - notes[j])
+            dp[i * m + j] = d + if (i == 0 && j == 0) 0 else minOf(
+                if (i > 0 && j > 0) dp[(i - 1) * m + j - 1] else inf,
+                if (i > 0) dp[(i - 1) * m + j] else inf,
+                if (j > 0) dp[i * m + j - 1] else inf,
+            )
+        }
+        return dp[(n - 1) * m + m - 1]
     }
 
     /** Alineación monótona prev -> nuevas notas (DTW); 1 a 1 si los tamaños coinciden. */

@@ -59,16 +59,33 @@ fun TransportBar(vm: TransportViewModel) {
         TonalButton("Tap", vm::tap)
         Picker("Compás ${u.meter.label}", Meter.all, { it.label }) { m -> vm.edit { it.copy(meter = m) } }
         FilterChip(selected = u.metro, onClick = { vm.edit { it.copy(metro = !it.metro) } }, label = { Text("Metrónomo") })
-        if (u.playing) Text("Compás ${u.bar} · tiempo ${u.beat}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (u.playing) BarBeatText(vm)
         FilterChip(
             selected = u.recDrum, onClick = vm::toggleRecDrum,
-            label = { Text(if (u.recDrum) "● Grabando batería (${u.drumEvents})" else "● Grabar batería") },
+            label = { RecLabel(vm, drum = true, recording = u.recDrum) },
         )
         FilterChip(
             selected = u.recChord, onClick = vm::toggleRecChord,
-            label = { Text(if (u.recChord) "● Grabando acordes (${u.chordEvents})" else "● Grabar acordes") },
+            label = { RecLabel(vm, drum = false, recording = u.recChord) },
         )
     }
+}
+
+/** Solo este texto se recompone a cada tiempo. */
+@Composable
+private fun BarBeatText(vm: TransportViewModel) {
+    val pos by vm.pos.collectAsState()
+    Text("Compás ${pos.bar} · tiempo ${pos.beat}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+@Composable
+private fun RecLabel(vm: TransportViewModel, drum: Boolean, recording: Boolean) {
+    if (!recording) {
+        Text(if (drum) "● Grabar batería" else "● Grabar acordes")
+        return
+    }
+    val pos by vm.pos.collectAsState()
+    Text(if (drum) "● Grabando batería (${pos.drumEvents})" else "● Grabando acordes (${pos.chordEvents})")
 }
 
 /** Bases de batería: elegir base, variación (A/B/C), relleno, final, silenciar por instrumento. */

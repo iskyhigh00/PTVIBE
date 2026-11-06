@@ -21,6 +21,9 @@ object EventHub {
     val timeline = ChordTimeline()
     @Volatile var ghostLoopMs: Double = 0.0
 
+    /** Se incrementa con cada evento de acordes: las vistas en reposo lo usan para despertar. */
+    @Volatile var chordSeq: Long = 0
+
     private val listeners = ArrayList<(EngineEvent) -> Unit>()
     private var job: Job? = null
     private val buf = DoubleArray(6 * 128)
@@ -39,7 +42,10 @@ object EventHub {
                         type = buf[o].toInt(), a = buf[o + 1].toInt(), b = curveBits shr 8, f = buf[o + 2].toFloat(),
                         glideMs = buf[o + 3].toFloat(), curve = curveBits and 0xFF, tMs = buf[o + 5],
                     )
-                    if (ev.type >= 10) timeline.onEvent(ev.type, ev.a, ev.b, ev.f, ev.glideMs, ev.curve, ev.tMs)
+                    if (ev.type >= 10) {
+                        timeline.onEvent(ev.type, ev.a, ev.b, ev.f, ev.glideMs, ev.curve, ev.tMs)
+                        chordSeq++
+                    }
                     val snapshot = synchronized(this@EventHub) { listeners.toList() }
                     for (l in snapshot) l(ev)
                 }

@@ -46,6 +46,7 @@ abstract class SoloTouchView(context: Context) : View(context) {
         set(v) { field = v; invalidate() }
 
     protected val touches = SparseArray<Touch>()
+    private val touchPool = arrayOfNulls<Touch>(8)  // un Touch reutilizable por dedo (índice de voz)
     private var usedMask = 0
     protected val dp = resources.displayMetrics.density
 
@@ -71,10 +72,14 @@ abstract class SoloTouchView(context: Context) : View(context) {
     }
 
     private fun down(e: MotionEvent, i: Int) {
-        val idx = (0 until 8).firstOrNull { usedMask and (1 shl it) == 0 } ?: return
-        usedMask = usedMask or (1 shl idx)
-        val t = Touch(idx, dp)
         val x = e.getX(i); val y = e.getY(i)
+        if (x < 0f || y < 0f || x > width || y > height) return  // fuera de la vista (p. ej. Mixto con varias vistas)
+        var idx = 0
+        while (idx < 8 && usedMask and (1 shl idx) != 0) idx++
+        if (idx >= 8) return
+        usedMask = usedMask or (1 shl idx)
+        val t = touchPool[idx] ?: Touch(idx, dp).also { touchPool[idx] = it }
+        t.row = 0; t.pitch = 60f; t.filter = 1f; t.vib = 0f; t.vol = 1f
         t.wiggle.reset(x)
         begin(t, x, y)
         solve(t, x, y)
@@ -114,9 +119,17 @@ abstract class SoloTouchView(context: Context) : View(context) {
     protected val rect = RectF()
     protected fun alpha(c: Int, a: Float) = (c and 0x00FFFFFF) or ((a.coerceIn(0f, 1f) * 255).toInt() shl 24)
 
+    private var glassShader: Shader? = null
+    protected var tintShader: Shader? = null
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        glassShader = LinearGradient(0f, 0f, 0f, h.toFloat(), 0xFF1E1E2A.toInt(), 0xFF12121A.toInt(), Shader.TileMode.CLAMP)
+        tintShader = LinearGradient(0f, 0f, 0f, h.toFloat(), alpha(MINT, 0.10f), 0x00000000, Shader.TileMode.CLAMP)
+    }
+
     protected fun drawGlass(c: Canvas) {
         rect.set(0f, 0f, width.toFloat(), height.toFloat())
-        glass.shader = LinearGradient(0f, 0f, 0f, height.toFloat(), 0xFF1E1E2A.toInt(), 0xFF12121A.toInt(), Shader.TileMode.CLAMP)
+        glass.shader = glassShader
         c.drawRoundRect(rect, 28f, 28f, glass)
         line.shader = null
         line.strokeWidth = 2.5f
@@ -142,6 +155,12 @@ abstract class SoloTouchView(context: Context) : View(context) {
 
 /** Superficie continua: horizontal = altura (sin teclas), vertical = expresión. */
 class SoloSurfaceView(context: Context) : SoloTouchView(context) {
+    private val midiLabels = arrayOfNulls<String>(128)
+    private fun midiLabel(pitch: Int): String {
+        if (pitch !in 0..127) return NoteNames.midiName(pitch)
+        return midiLabels[pitch] ?: NoteNames.midiName(pitch).also { midiLabels[pitch] = it }
+    }
+
     override fun begin(t: Touch, x: Float, y: Float) {}
 
     override fun solve(t: Touch, x: Float, y: Float) {
@@ -167,7 +186,7 @@ class SoloSurfaceView(context: Context) : SoloTouchView(context) {
         val cfg = config
         val total = 12 * cfg.octaves
         // Tinte vertical: arriba = más expresión.
-        dot.shader = LinearGradient(0f, 0f, 0f, height.toFloat(), alpha(MINT, 0.10f), 0x00000000, Shader.TileMode.CLAMP)
+        dot.shader = tintShader
         c.drawRect(0f, 0f, width.toFloat(), height.toFloat(), dot)
         dot.shader = null
 
@@ -182,7 +201,7 @@ class SoloSurfaceView(context: Context) : SoloTouchView(context) {
             c.drawLine(x, 14f, x, height - 14f, line)
             if (tonic) {
                 label.color = alpha(MINT, 0.95f)
-                c.drawText(NoteNames.midiName(pitch), x, height - 20f * dp / 2, label)
+                c.drawText(midiLabel(pitch), x, height - 20f * dp / 2, label)
             }
         }
         for (i in 0 until touches.size()) drawFinger(c, touches.valueAt(i))
@@ -191,6 +210,14 @@ class SoloSurfaceView(context: Context) : SoloTouchView(context) {
 
 /** Diapasón: cuerdas horizontales, deslizar = altura continua, empujar arriba/abajo = bend. */
 class FingerboardView(context: Context) : SoloTouchView(context) {
+    private val fretLabels = Array(64) { it.toString() }
+    private fun fretLabel(f: Int) = if (f in fretLabels.indices) fretLabels[f] else f.toString()
+
+    private fun rowActive(row: Int): Boolean {
+        for (i in 0 until touches.size()) if (touches.valueAt(i).row == row) return true
+        return false
+    }
+
     private val padL get() = 28f * dp
     private val padR get() = 12f * dp
     private fun rowH(): Float = height / max(config.strings.size, 1).toFloat()
@@ -232,19 +259,19 @@ class FingerboardView(context: Context) : SoloTouchView(context) {
             val x = padL + f.toFloat() / cfg.frets * nw
             line.strokeWidth = 1.5f; line.color = alpha(0xFFFFFFFF.toInt(), 0.12f)
             c.drawLine(x, 10f, x, height - 10f, line)
-            if (f % 12 == 0 || f in intArrayOf(3, 5, 7, 9)) {
+            if (f % 12 == 0 || f == 3 || f == 5 || f == 7 || f == 9) {
                 dot.color = alpha(0xFFFFFFFF.toInt(), 0.10f)
                 c.drawCircle(x - nw / cfg.frets / 2, height / 2f, 6f * dp, dot)
             }
             label.color = alpha(0xFF9AA3B8.toInt(), 0.7f)
-            if (f % 3 == 0) c.drawText("$f", x, height - 4f * dp, label)
+            if (f % 3 == 0) c.drawText(fretLabel(f), x, height - 4f * dp, label)
         }
         // Cuerdas y notas de la escala
         for (row in 0 until n) {
             val y = rowCenter(row)
             val open = openOf(row)
             val thick = 1.5f + (row.toFloat() / n) * 3f
-            val active = (0 until touches.size()).any { touches.valueAt(it).row == row }
+            val active = rowActive(row)
             line.strokeWidth = thick * dp / 2
             line.color = if (active) alpha(PINK, 0.9f) else alpha(0xFFFFFFFF.toInt(), 0.35f)
             c.drawLine(padL, y, width - padR, y, line)

@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class Meter(val beats: Int, val unit: Int) {
     val label get() = "$beats/$unit"
@@ -48,8 +49,6 @@ data class TransportUi(
     val metro: Boolean = false,
     val metroVol: Float = 0.6f,
     val playing: Boolean = false,
-    val bar: Int = 1,
-    val beat: Int = 1,
     val patterns: List<DrumPattern> = emptyList(),
     val patternId: String? = null,
     val variation: Int = 0,
@@ -61,8 +60,6 @@ data class TransportUi(
     val adoptPattern: Boolean = true,
     val recDrum: Boolean = false,
     val recChord: Boolean = false,
-    val drumEvents: Int = 0,
-    val chordEvents: Int = 0,
     val drumBars: Int = 1,
     val drumMeter: Meter = Meter(4, 4),
     val chordBars: Int = 4,
@@ -76,12 +73,18 @@ data class TransportUi(
     val pattern: DrumPattern? get() = patterns.firstOrNull { it.id == patternId }
 }
 
+/** Posición y contadores que cambian a cada tiempo: viven aparte para no recomponer toda la barra. */
+data class TransportPos(val bar: Int = 1, val beat: Int = 1, val drumEvents: Int = 0, val chordEvents: Int = 0)
+
 class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
     private val _ui = MutableStateFlow(TransportUi())
     val ui: StateFlow<TransportUi> = _ui
 
+    private val _pos = MutableStateFlow(TransportPos())
+    val pos: StateFlow<TransportPos> = _pos
+
     private val taps = ArrayList<Long>()
-    private var lastPass = 0
+    @Volatile private var lastPass = 0
 
     init {
         PatternRepository.load(app)
@@ -93,7 +96,7 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
             PatternRepository.all.collect { l -> _ui.update { it.copy(patterns = l) } }
         }
         viewModelScope.launch(Dispatchers.Default) {
-            while (isActive) { poll(); delay(40) }
+            while (isActive) { poll(); delay(if (_ui.value.playing) 40L else 100L) }
         }
     }
 
@@ -262,31 +265,38 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
     // ---- sondeo del estado nativo ----
     private fun poll() {
         val s = NativeEngine.seqStatus()
-        val u = _ui.value
+        val snap = _ui.value
         val pos = s[0].toLong()
-        val bt = u.meter.barTicks
-        val beatTicks = 384 / u.meter.unit
-        val bar = (pos / bt).toInt() + 1
-        val beat = ((pos % bt) / beatTicks).toInt() + 1
+        val bt = snap.meter.barTicks
+        val beatTicks = 384 / snap.meter.unit
+        _pos.value = TransportPos(
+            bar = (pos / bt).toInt() + 1,
+            beat = ((pos % bt) / beatTicks).toInt() + 1,
+            drumEvents = s[5].toInt(), chordEvents = s[6].toInt(),
+        )
         val pass = s[2].toInt()
-        var fillOn = u.fillOn
-        if (fillOn && pass > lastPass) {
-            u.pattern?.let { p -> sendPattern(p, p.variations[u.variation.coerceIn(0, p.variations.size - 1)].tracks, false) }
-            fillOn = false
-        }
-        var patternOn = u.patternOn
-        var endPending = u.endPending
-        if (endPending && s[8] < 0.5) { patternOn = false; endPending = false }
-        EventHub.ghostLoopMs = if (u.chordLoopOn && s[6] > 0 && s[1] > 0.5)
-            u.chordBars * u.chordMeter.barTicks * 60000.0 / (u.bpm * 96.0) else 0.0
-        _ui.update {
-            it.copy(
-                playing = s[1] > 0.5, bar = bar, beat = beat,
+        EventHub.ghostLoopMs = if (snap.chordLoopOn && s[6] > 0 && s[1] > 0.5)
+            snap.chordBars * snap.chordMeter.barTicks * 60000.0 / (snap.bpm * 96.0) else 0.0
+        // El cálculo parte del estado más reciente (sin copias obsoletas); el efecto lateral se hace después.
+        var revert: DrumPattern? = null
+        var revertVariation = 0
+        _ui.update { u ->
+            revert = null
+            var fillOn = u.fillOn
+            if (fillOn && pass > lastPass) {
+                u.pattern?.let { revert = it; revertVariation = u.variation }
+                fillOn = false
+            }
+            var patternOn = u.patternOn
+            var endPending = u.endPending
+            if (endPending && s[8] < 0.5) { patternOn = false; endPending = false }
+            u.copy(
+                playing = s[1] > 0.5,
                 recDrum = s[3] > 0.5, recChord = s[4] > 0.5,
-                drumEvents = s[5].toInt(), chordEvents = s[6].toInt(),
                 fillOn = fillOn, patternOn = patternOn, endPending = endPending,
             )
         }
+        revert?.let { p -> sendPattern(p, p.variations[revertVariation.coerceIn(0, p.variations.size - 1)].tracks, false) }
     }
 
     // ---- secuenciador por pasos ----
@@ -361,14 +371,16 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun editorSave() {
         val e = _ui.value.editor ?: return
-        PatternRepository.saveUser(app, e.pattern)
+        viewModelScope.launch(Dispatchers.IO) { PatternRepository.saveUser(app, e.pattern) }
         _ui.update { it.copy(patternId = e.pattern.id, editor = e.copy(pattern = e.pattern.copy(factory = false))) }
         sendPattern(e.pattern, e.pattern.variations[0].tracks, restart = true)
     }
 
     fun deleteUserPattern(id: String) {
-        PatternRepository.deleteUser(app, id)
-        val first = PatternRepository.all.value.firstOrNull()
-        if (_ui.value.patternId == id && first != null) selectPattern(first)
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { PatternRepository.deleteUser(app, id) }
+            val first = PatternRepository.all.value.firstOrNull()
+            if (_ui.value.patternId == id && first != null) selectPattern(first)
+        }
     }
 }

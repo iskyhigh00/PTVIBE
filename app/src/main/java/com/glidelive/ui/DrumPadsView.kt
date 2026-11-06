@@ -13,8 +13,6 @@ import android.util.SparseIntArray
 import android.view.MotionEvent
 import android.view.View
 import com.glidelive.audio.NativeEngine
-import kotlin.math.abs
-import kotlin.math.hypot
 import kotlin.math.min
 
 object Pads {
@@ -37,6 +35,9 @@ object Pads {
         "BOMBO", "CAJA", "AROS\n(rim)", "HI-HAT\nCERRADO", "HI-HAT\nABIERTO", "PEDAL\nHI-HAT",
         "TOM 1", "TOM 2", "TOM DE\nPISO", "CRASH", "RIDE", "CAMPANA\nRIDE", "SPLASH\n/ CHINA",
     )
+
+    /** Líneas de cada nombre, calculadas una sola vez (onDraw no debe asignar memoria). */
+    val lines: Array<Array<String>> = Array(COUNT) { names[it].split("\n").toTypedArray() }
 
     // x, y, w, h normalizados: vista superior de una batería.
     val layout = arrayOf(
@@ -90,6 +91,8 @@ class DrumPadsView(context: Context) : View(context) {
         pathEffect = android.graphics.DashPathEffect(floatArrayOf(10f, 8f), 0f)
     }
     private val tmp = RectF()
+    private var baseText = 12f
+    private val order = IntArray(n)  // pads de menor a mayor área (orden de prueba del toque)
     private val headShaders = arrayOfNulls<Shader>(n)
     private val rimShaders = arrayOfNulls<Shader>(n)
 
@@ -105,14 +108,9 @@ class DrumPadsView(context: Context) : View(context) {
     private fun elliptical(i: Int) = Pads.isCymbal(i) || Pads.isHat(i)
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        val gap = 6f * dp
+        DrumHit.geometry(w, h, 6f * dp, cx, cy, rx, ry)
+        DrumHit.orderByArea(rx, ry, order)
         for (i in 0 until n) {
-            val l = Pads.layout[i]
-            val x0 = l[0] * w + gap; val y0 = l[1] * h + gap
-            val x1 = (l[0] + l[2]) * w - gap; val y1 = (l[1] + l[3]) * h - gap
-            cx[i] = (x0 + x1) / 2; cy[i] = (y0 + y1) / 2
-            if (elliptical(i)) { rx[i] = (x1 - x0) / 2; ry[i] = (y1 - y0) / 2 }
-            else { val r = min(x1 - x0, y1 - y0) / 2; rx[i] = r; ry[i] = r }
             val acc = accent(i)
             val base = 0xFF14141E.toInt()
             headShaders[i] = RadialGradient(
@@ -125,7 +123,8 @@ class DrumPadsView(context: Context) : View(context) {
                 withAlpha(acc, 0.95f), withAlpha(0xFFFFFFFF.toInt(), 0.25f), Shader.TileMode.CLAMP,
             )
         }
-        text.textSize = (min(w, h) * 0.036f).coerceAtLeast(12f * dp)
+        baseText = (min(w, h) * 0.036f).coerceAtLeast(12f * dp)
+        text.textSize = baseText
     }
 
     private fun blend(a: Int, b: Int, t: Float): Int {
@@ -152,46 +151,47 @@ class DrumPadsView(context: Context) : View(context) {
         return true
     }
 
+    private fun isPressed(pad: Int): Boolean {
+        for (k in 0 until pressed.size()) if (pressed.valueAt(k) == pad) return true
+        return false
+    }
+
     private fun down(e: MotionEvent, idx: Int) {
         val x = e.getX(idx)
         val y = e.getY(idx)
-        // Los pads pequeños (aros, campana) se prueban primero para que no los tape uno grande.
-        val order = (0 until n).sortedBy { rx[it] * ry[it] }
-        for (i in order) {
-            val dx = (x - cx[i]) / rx[i]
-            val dy = (y - cy[i]) / ry[i]
-            val d = hypot(dx, dy)
-            if (d > 1.06f) continue
-            val dd = d.coerceIn(0f, 1f)
-            // Centro = fuerte, borde = suave.
-            var vel = if (dd < 0.5f) 1f - 0.3f * dd else 0.85f - 1.1f * (dd - 0.5f)
-            // Zona de ghost notes: franja inferior de la caja.
-            if (i == Pads.SNARE && dy > 0.62f) vel = 0.18f
-            if (pressureSensitivity) vel *= 0.4f + 0.6f * e.getPressure(idx).coerceIn(0f, 1f)
-            NativeEngine.trigger(i, vel.coerceIn(0.05f, 1f), e.eventTime)
-            val id = e.getPointerId(idx)
-            pressed.put(id, i)
-            flash[i] = 1f
-            if (Pads.isCymbal(i)) {  // toque largo = choke
-                val run = Runnable {
-                    if (pressed.get(id, -1) == i) {
-                        NativeEngine.choke(i, SystemClock.uptimeMillis())
-                        flash[i] = 0.3f
-                        invalidate()
-                    }
+        if (x < 0f || y < 0f || x > width || y > height) return  // fuera de la vista (p. ej. Mixto con varias vistas)
+        val i = DrumHit.hitTest(x, y, cx, cy, rx, ry, order)
+        if (i < 0) return
+        val dy = (y - cy[i]) / ry[i]
+        val d = DrumHit.normDist(x, y, cx, cy, rx, ry, i)
+        val dd = d.coerceIn(0f, 1f)
+        // Centro = fuerte, borde = suave.
+        var vel = if (dd < 0.5f) 1f - 0.3f * dd else 0.85f - 1.1f * (dd - 0.5f)
+        // Zona de ghost notes: franja inferior de la caja.
+        if (i == Pads.SNARE && dy > 0.62f && d <= DrumHit.INSIDE) vel = 0.28f
+        if (pressureSensitivity) vel *= 0.4f + 0.6f * e.getPressure(idx).coerceIn(0f, 1f)
+        NativeEngine.trigger(i, vel.coerceIn(0.05f, 1f), e.eventTime)
+        val id = e.getPointerId(idx)
+        pressed.put(id, i)
+        flash[i] = 1f
+        if (Pads.isCymbal(i)) {  // toque largo = choke
+            val run = Runnable {
+                if (pressed.get(id, -1) == i) {
+                    NativeEngine.choke(i, SystemClock.uptimeMillis())
+                    flash[i] = 0.3f
+                    invalidate()
                 }
-                chokeRunnables.put(id, run)
-                postDelayed(run, CHOKE_MS)
             }
-            invalidate()
-            return
+            chokeRunnables.put(id, run)
+            postDelayed(run, CHOKE_MS)
         }
+        invalidate()
     }
 
     override fun onDraw(c: Canvas) {
         var animating = false
         for (i in 0 until n) {
-            val active = (0 until pressed.size()).any { pressed.valueAt(it) == i }
+            val active = isPressed(i)
             val f = if (active) 1f else flash[i]
             val acc = accent(i)
             val pulse = f * 4f * dp  // micro pulso al sonar
@@ -217,7 +217,8 @@ class DrumPadsView(context: Context) : View(context) {
             // Detalles según instrumento
             when {
                 Pads.isCymbal(i) -> {  // surcos concéntricos y cúpula
-                    for (k in intArrayOf(70, 45)) {
+                    for (q in CYMBAL_RINGS.indices) {
+                        val k = CYMBAL_RINGS[q]
                         tmp.set(cx[i] - rx[i] * k / 100f, cy[i] - ry[i] * k / 100f, cx[i] + rx[i] * k / 100f, cy[i] + ry[i] * k / 100f)
                         c.drawOval(tmp, ring)
                     }
@@ -225,7 +226,8 @@ class DrumPadsView(context: Context) : View(context) {
                     c.drawCircle(cx[i], cy[i], min(rx[i], ry[i]) * 0.16f, shine)
                 }
                 Pads.isHat(i) -> {  // láminas del hi-hat
-                    for (k in intArrayOf(75, 50)) {
+                    for (q in HAT_RINGS.indices) {
+                        val k = HAT_RINGS[q]
                         tmp.set(cx[i] - rx[i] * k / 100f, cy[i] - ry[i] * k / 100f, cx[i] + rx[i] * k / 100f, cy[i] + ry[i] * k / 100f)
                         c.drawOval(tmp, ring)
                     }
@@ -239,13 +241,13 @@ class DrumPadsView(context: Context) : View(context) {
                 val half = rx[i] * 0.78f
                 c.drawLine(cx[i] - half, gy, cx[i] + half, gy, ghost)
             }
-            val lines = Pads.names[i].split("\n")
-            val size = text.textSize * (if (min(rx[i], ry[i]) < 38f * dp) 0.8f else 1f)
+            val lines = Pads.lines[i]
+            val size = baseText * (if (min(rx[i], ry[i]) < 38f * dp) 0.8f else 1f)
             text.textSize = size
             val lh = size * 1.15f
             var y = cy[i] + size / 3 - lh * (lines.size - 1) / 2
-            for (ln in lines) { c.drawText(ln, cx[i], y, text); y += lh }
-            text.textSize = (min(width, height) * 0.036f).coerceAtLeast(12f * dp)
+            for (q in lines.indices) { c.drawText(lines[q], cx[i], y, text); y += lh }
+            text.textSize = baseText
             if (!active && flash[i] > 0f) {
                 flash[i] = (flash[i] - 0.09f).coerceAtLeast(0f)
                 animating = true
@@ -256,6 +258,8 @@ class DrumPadsView(context: Context) : View(context) {
 
     private companion object {
         const val CHOKE_MS = 350L
+        val CYMBAL_RINGS = intArrayOf(70, 45)
+        val HAT_RINGS = intArrayOf(75, 50)
         const val VIOLET = 0xFF6B4EFF.toInt()
         const val PINK = 0xFFFF6B9D.toInt()
         const val MINT = 0xFF00E5A0.toInt()

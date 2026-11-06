@@ -45,13 +45,22 @@ class ChordPadsView(context: Context) : View(context) {
     private var baseTitle = 18f
 
     fun setData(rows: List<List<PadUi>>, activeId: String?, edited: Set<String>) {
-        if (this.rows != rows || this.activeId != activeId || this.edited != edited) {
+        val rowsChanged = this.rows != rows
+        if (!rowsChanged && this.activeId == activeId && this.edited == edited) return
+        this.activeId = activeId
+        this.edited = edited
+        if (rowsChanged) {
+            val sameShape = this.rows.size == rows.size && rows.indices.all { this.rows[it].size == rows[it].size }
             this.rows = rows
-            this.activeId = activeId
-            this.edited = edited
-            layoutPads()
-            invalidate()
+            if (sameShape && rects.isNotEmpty() && width > 0) {
+                // Misma cuadrícula: solo cambian los textos; no se recrean rectángulos ni shaders.
+                var k = 0
+                for (row in rows) for (pad in row) { rects[k] = pad to rects[k].second; k++ }
+            } else {
+                layoutPads()
+            }
         }
+        invalidate()
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) = layoutPads()
@@ -79,7 +88,18 @@ class ChordPadsView(context: Context) : View(context) {
         sub.textSize = baseTitle * 0.55f
     }
 
-    private fun hit(x: Float, y: Float): String? = rects.firstOrNull { it.second.contains(x, y) }?.first?.id
+    private fun hit(x: Float, y: Float): String? {
+        for (i in 0 until rects.size) {
+            val e = rects[i]
+            if (e.second.contains(x, y)) return e.first.id
+        }
+        return null
+    }
+
+    private fun isHeld(id: String): Boolean {
+        for (i in 0 until pressed.size()) if (pressed.valueAt(i) == id) return true
+        return false
+    }
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
         when (e.actionMasked) {
@@ -96,7 +116,10 @@ class ChordPadsView(context: Context) : View(context) {
     }
 
     private fun down(e: MotionEvent, idx: Int) {
-        val id = hit(e.getX(idx), e.getY(idx)) ?: return
+        val x = e.getX(idx)
+        val y = e.getY(idx)
+        if (x < 0f || y < 0f || x > width || y > height) return  // fuera de la vista (p. ej. Mixto con varias vistas)
+        val id = hit(x, y) ?: return
         if (editMode) { onEdit(id); return }
         val pid = e.getPointerId(idx)
         pressed.put(pid, id)
@@ -118,9 +141,11 @@ class ChordPadsView(context: Context) : View(context) {
     }
 
     override fun onDraw(c: Canvas) {
-        for ((idx, entry) in rects.withIndex()) {
-            val (pad, r) = entry
-            val held = (0 until pressed.size()).any { pressed.valueAt(it) == pad.id }
+        for (idx in 0 until rects.size) {
+            val entry = rects[idx]
+            val pad = entry.first
+            val r = entry.second
+            val held = isHeld(pad.id)
             val on = held || pad.id == activeId
             val grow = if (held) 3f else 0f
             tmp.set(r.left - grow, r.top - grow, r.right + grow, r.bottom + grow)
