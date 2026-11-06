@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -32,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.glidelive.theory.Bank
+import com.glidelive.ui.components.GradientButton
 import com.glidelive.theory.ChordType
 import com.glidelive.theory.NoteNames
 import com.glidelive.theory.Scale
@@ -106,7 +106,7 @@ fun ChordsScreen(vm: ChordsViewModel, compact: Boolean, modifier: Modifier = Mod
                 valueRange = 0f..2000f,
                 modifier = Modifier.weight(1f),
             )
-            Button(onClick = vm::stopAll) { Text("Stop") }
+            GradientButton("Stop", vm::stopAll, glyph = "■")
         }
         if (!compact) {
             Row(
@@ -220,7 +220,7 @@ fun SoundPanel(vm: ChordsViewModel) {
             onValueChange = { v -> vm.edit { it.copy(rangeLo = v.toInt().coerceAtMost(it.rangeHi - 12)) } })
         Slider(value = u.rangeHi.toFloat(), valueRange = 60f..96f,
             onValueChange = { v -> vm.edit { it.copy(rangeHi = v.toInt().coerceAtLeast(it.rangeLo + 12)) } })
-        Text("Mantén un pad para editar tipo, inversión, octava y notas.", color = Color(0xFFB9A593),
+        Text("Mantén un pad para editar tipo, inversión, octava y notas.", color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall)
     }
 }

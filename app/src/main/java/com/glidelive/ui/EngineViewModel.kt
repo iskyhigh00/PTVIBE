@@ -38,7 +38,16 @@ class EngineViewModel(app: Application) : AndroidViewModel(app) {
     private val _kit = MutableStateFlow(KitSettings())
     val kit: StateFlow<KitSettings> = _kit
 
+    /** Nivel de salida 0..1 para los visualizadores (~30 Hz). */
+    val level = MutableStateFlow(0f)
+
     init {
+        viewModelScope.launch(Dispatchers.Default) {
+            while (isActive) {
+                level.value = NativeEngine.level()
+                delay(33)
+            }
+        }
         pushKit(_kit.value)
         viewModelScope.launch(Dispatchers.Default) {
             while (isActive) {

@@ -355,6 +355,7 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*, void* aud
     // Bus de acordes/solista y mezcla final.
     const SynthParams sp = synthParams();
     const float master = param(kMaster);
+    float peak = 0;
     for (int32_t off = 0; off < numFrames; off += SynthEngine::kMaxBlock) {
         const int n = std::min<int32_t>(SynthEngine::kMaxBlock, numFrames - off);
         std::fill(synthL_, synthL_ + n, 0.0f);
@@ -364,8 +365,10 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*, void* aud
             float* o = out + 2 * (off + i);
             o[0] = softClip((o[0] + synthL_[i]) * master);
             o[1] = softClip((o[1] + synthR_[i]) * master);
+            peak = std::max(peak, std::max(std::fabs(o[0]), std::fabs(o[1])));
         }
     }
+    level_.store(std::max(peak, level_.load(std::memory_order_relaxed) * 0.85f), std::memory_order_relaxed);
     return oboe::DataCallbackResult::Continue;
 }
 

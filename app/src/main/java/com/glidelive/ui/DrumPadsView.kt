@@ -2,7 +2,9 @@ package com.glidelive.ui
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.Shader
 import android.graphics.RectF
 import android.util.SparseArray
 import android.util.SparseIntArray
@@ -67,25 +69,39 @@ class DrumPadsView(context: Context) : View(context) {
     private val chokeRunnables = SparseArray<Runnable>()
 
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val tint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = 3f; color = 0xFF6B5A4A.toInt()
+        style = Paint.Style.STROKE; strokeWidth = 2.5f
     }
     private val ghost = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeWidth = 2f; color = 0x55FFFFFF
     }
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFEFE6DC.toInt(); textAlign = Paint.Align.CENTER; isFakeBoldText = true
+        color = 0xFFF1F0FA.toInt(); textAlign = Paint.Align.CENTER; isFakeBoldText = true
+    }
+    private val tmp = RectF()
+    private val fillShaders = arrayOfNulls<Shader>(Pads.COUNT)
+    private val strokeShaders = arrayOfNulls<Shader>(Pads.COUNT)
+
+    private fun accent(i: Int) = when {
+        Pads.isCymbal(i) -> PINK
+        Pads.isHat(i) -> MINT
+        else -> VIOLET
     }
 
-    init {
-        setBackgroundColor(0xFF140E0A.toInt())
-    }
+    private fun withAlpha(c: Int, a: Float) = (c and 0x00FFFFFF) or ((a.coerceIn(0f, 1f) * 255).toInt() shl 24)
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         val gap = 5f
         for (i in rects.indices) {
             val l = Pads.layout[i]
-            rects[i].set(l[0] * w + gap, l[1] * h + gap, (l[0] + l[2]) * w - gap, (l[1] + l[3]) * h - gap)
+            val r = rects[i]
+            r.set(l[0] * w + gap, l[1] * h + gap, (l[0] + l[2]) * w - gap, (l[1] + l[3]) * h - gap)
+            fillShaders[i] = LinearGradient(0f, r.top, 0f, r.bottom, 0xFF1E1E2A.toInt(), 0xFF12121A.toInt(), Shader.TileMode.CLAMP)
+            strokeShaders[i] = LinearGradient(
+                r.left, r.top, r.right, r.bottom, withAlpha(accent(i), 0.7f), 0x24FFFFFF, Shader.TileMode.CLAMP,
+            )
         }
         text.textSize = (minOf(w, h) * 0.04f).coerceAtLeast(18f)
     }
@@ -155,34 +171,46 @@ class DrumPadsView(context: Context) : View(context) {
         for (i in rects.indices) {
             val active = (0 until pressed.size()).any { pressed.valueAt(it) == i }
             val f = if (active) 1f else flash[i]
-            val base = when {
-                Pads.isCymbal(i) -> 0xFF2B2415.toInt()
-                Pads.isHat(i) -> 0xFF2A2218.toInt()
-                else -> 0xFF2A1D14.toInt()
-            }
-            fill.color = blend(base, 0xFFFF9A3C.toInt(), f)
+            val acc = accent(i)
             val r = rects[i]
-            if (Pads.isCymbal(i)) c.drawOval(r, fill) else c.drawRoundRect(r, 24f, 24f, fill)
-            if (Pads.isCymbal(i)) c.drawOval(r, stroke) else c.drawRoundRect(r, 24f, 24f, stroke)
+            val pulse = f * 5f  // micro pulso al sonar
+            tmp.set(r.left - pulse, r.top - pulse, r.right + pulse, r.bottom + pulse)
+            val cym = Pads.isCymbal(i)
+
+            if (f > 0.01f) {
+                for (k in 1..3) {
+                    glow.color = withAlpha(acc, 0.28f * f / k)
+                    glow.strokeWidth = 7f * k
+                    if (cym) c.drawOval(tmp, glow) else c.drawRoundRect(tmp, 24f, 24f, glow)
+                }
+            }
+            fill.shader = fillShaders[i]
+            tint.color = withAlpha(acc, 0.10f + 0.55f * f)
+            stroke.shader = strokeShaders[i]
+            if (cym) {
+                c.drawOval(tmp, fill); c.drawOval(tmp, tint); c.drawOval(tmp, stroke)
+            } else {
+                c.drawRoundRect(tmp, 24f, 24f, fill)
+                c.drawRoundRect(tmp, 24f, 24f, tint)
+                c.drawRoundRect(tmp, 24f, 24f, stroke)
+            }
             if (i == Pads.SNARE) {
                 val gy = r.top + r.height() * 0.78f
-                c.drawLine(r.left + 12f, gy, r.right - 12f, gy, ghost)
+                c.drawLine(r.left + 14f, gy, r.right - 14f, gy, ghost)
             }
             c.drawText(Pads.names[i], r.centerX(), r.centerY() + text.textSize / 3, text)
             if (!active && flash[i] > 0f) {
-                flash[i] = (flash[i] - 0.12f).coerceAtLeast(0f)
+                flash[i] = (flash[i] - 0.09f).coerceAtLeast(0f)
                 animating = true
             }
         }
         if (animating) postInvalidateOnAnimation()
     }
 
-    private fun blend(a: Int, b: Int, t: Float): Int {
-        fun ch(s: Int) = ((a shr s and 0xFF) + ((b shr s and 0xFF) - (a shr s and 0xFF)) * t).toInt()
-        return (0xFF shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
-    }
-
     private companion object {
         const val CHOKE_MS = 350L
+        const val VIOLET = 0xFF6B4EFF.toInt()
+        const val PINK = 0xFFFF6B9D.toInt()
+        const val MINT = 0xFF00E5A0.toInt()
     }
 }

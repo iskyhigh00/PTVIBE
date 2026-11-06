@@ -5,6 +5,17 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import com.glidelive.ui.components.AppBackground
+import com.glidelive.ui.components.CapsuleBar
+import com.glidelive.ui.components.EqBars
+import com.glidelive.ui.components.GlassCard
+import com.glidelive.ui.components.GradientButton
+import com.glidelive.ui.components.TonalButton
+import com.glidelive.ui.theme.AppTheme
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -50,15 +61,19 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        enableEdgeToEdge()
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme(primary = Color(0xFFFF9A3C))) {
-                Surface(Modifier.fillMaxSize(), color = Color(0xFF140E0A)) {
+            AppTheme {
+                AppBackground {
                     var mode by rememberSaveable { mutableStateOf(Mode.ACORDES) }
                     var panel by rememberSaveable { mutableStateOf(true) }
                     val kit by vm.kit.collectAsState()
-                    Column(Modifier.fillMaxSize()) {
-                        TopBar(mode, { mode = it }, chordsVm, panel) { panel = !panel }
-                        Row(Modifier.weight(1f).fillMaxWidth()) {
+                    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                        TopBar(mode, { mode = it }, chordsVm, vm, panel) { panel = !panel }
+                        Row(
+                            Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
                             Column(Modifier.weight(1f).fillMaxHeight()) {
                                 if (mode != Mode.BATERIA) {
                                     ChordsScreen(chordsVm, compact = mode == Mode.MIXTO, Modifier.weight(1f))
@@ -71,7 +86,11 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                             }
-                            if (panel) SidePanel(vm, updateVm, chordsVm)
+                            if (panel) {
+                                GlassCard(Modifier.width(300.dp).fillMaxHeight().padding(bottom = 8.dp), padding = 0.dp) {
+                                    SidePanel(vm, updateVm, chordsVm)
+                                }
+                            }
                         }
                     }
                 }
@@ -94,16 +113,22 @@ class MainActivity : ComponentActivity() {
 enum class Mode(val label: String) { ACORDES("Acordes"), BATERIA("Batería"), MIXTO("Mixto") }
 
 @Composable
-private fun TopBar(mode: Mode, onMode: (Mode) -> Unit, chords: ChordsViewModel, panel: Boolean, onPanel: () -> Unit) {
+private fun TopBar(
+    mode: Mode,
+    onMode: (Mode) -> Unit,
+    chords: ChordsViewModel,
+    engine: EngineViewModel,
+    panel: Boolean,
+    onPanel: () -> Unit,
+) {
     Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Mode.entries.forEach { m ->
-            FilterChip(selected = mode == m, onClick = { onMode(m) }, label = { Text(m.label) })
-        }
+        CapsuleBar(Mode.entries, mode, { it.label }, onMode)
         if (mode != Mode.BATERIA) KeyControls(chords)
+        EqBars(level = { engine.level.value })
         TextButton(onClick = onPanel) { Text(if (panel) "Ocultar ajustes" else "Ajustes") }
     }
 }
@@ -129,7 +154,7 @@ private fun CalibrationPanel(vm: EngineViewModel) {
         Text(
             "Toque→sonido (est.): " + if (s.totalMs >= 0) "%.1f ms".format(s.totalMs) else "n/d",
             style = MaterialTheme.typography.titleSmall,
-            color = if (s.totalMs in 0.0..15.0) Color(0xFF7CD67C) else Color(0xFFFFB74D),
+            color = if (s.totalMs in 0.0..15.0) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.tertiary,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             for (n in 1..3) {
@@ -146,7 +171,7 @@ private fun CalibrationPanel(vm: EngineViewModel) {
             Text(
                 "Auriculares Bluetooth detectados: añaden 100–250 ms de retraso. " +
                     "Usa cable o USB.",
-                color = Color(0xFFFF6E6E),
+                color = MaterialTheme.colorScheme.error,
             )
         } else {
             Text("Recomendado: auriculares con cable o USB.")
@@ -159,8 +184,8 @@ private fun CalibrationPanel(vm: EngineViewModel) {
 private fun SidePanel(vm: EngineViewModel, updateVm: UpdateViewModel, chordsVm: ChordsViewModel) {
     val up by updateVm.state.collectAsState()
     var tab by remember { mutableIntStateOf(0) }
-    Column(Modifier.width(300.dp).fillMaxHeight()) {
-        ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp) {
+    Column(Modifier.fillMaxSize()) {
+        ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp, containerColor = Color.Transparent) {
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Sonido") })
             Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Kit") })
             Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Latencia") })
@@ -220,14 +245,14 @@ private fun UpdatePanel(vm: UpdateViewModel) {
             UpdateState.UpToDate -> Text("Estás en la última versión.")
             is UpdateState.Available -> {
                 Text("Nueva versión: build ${s.build}")
-                Button(onClick = vm::downloadAndInstall) { Text("Descargar e instalar") }
+                GradientButton("Descargar e instalar", vm::downloadAndInstall, glyph = "↓")
             }
             is UpdateState.Downloading -> Text("Descargando… ${s.percent}%")
             UpdateState.NeedsPermission ->
                 Text("Activa \"Permitir de esta fuente\" y vuelve a pulsar instalar.")
-            is UpdateState.Error -> Text("Error: ${s.message}", color = Color(0xFFFF6E6E))
+            is UpdateState.Error -> Text("Error: ${s.message}", color = MaterialTheme.colorScheme.error)
         }
-        Button(onClick = vm::check) { Text("Buscar actualización") }
-        if (st is UpdateState.NeedsPermission) Button(onClick = vm::check) { Text("Reintentar") }
+        TonalButton("Buscar actualización", vm::check)
+        if (st is UpdateState.NeedsPermission) TonalButton("Reintentar", vm::check)
     }
 }

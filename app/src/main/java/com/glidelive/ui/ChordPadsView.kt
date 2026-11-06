@@ -2,7 +2,9 @@ package com.glidelive.ui
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.Shader
 import android.graphics.RectF
 import android.util.SparseArray
 import android.util.SparseIntArray
@@ -25,18 +27,20 @@ class ChordPadsView(context: Context) : View(context) {
     private val longPress = SparseArray<Runnable>()
 
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = 3f; color = 0xFF6B5A4A.toInt()
-    }
+    private val active = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2.5f }
     private val title = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFEFE6DC.toInt(); textAlign = Paint.Align.CENTER; isFakeBoldText = true
+        color = 0xFFF1F0FA.toInt(); textAlign = Paint.Align.CENTER; isFakeBoldText = true
     }
     private val sub = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFB9A593.toInt(); textAlign = Paint.Align.CENTER
+        color = 0xFF9AA3B8.toInt(); textAlign = Paint.Align.CENTER
     }
-    private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFF9A3C.toInt() }
-
-    init { setBackgroundColor(0xFF140E0A.toInt()) }
+    private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF00E5A0.toInt() }
+    private val fillShaders = ArrayList<Shader>()
+    private val strokeShaders = ArrayList<Shader>()
+    private val activeShaders = ArrayList<Shader>()
+    private val tmp = RectF()
 
     fun setData(rows: List<List<PadUi>>, activeId: String?, edited: Set<String>) {
         if (this.rows != rows || this.activeId != activeId || this.edited != edited) {
@@ -52,6 +56,7 @@ class ChordPadsView(context: Context) : View(context) {
 
     private fun layoutPads() {
         rects.clear()
+        fillShaders.clear(); strokeShaders.clear(); activeShaders.clear()
         if (rows.isEmpty() || width == 0) return
         val gap = 8f
         val rh = (height - gap * (rows.size + 1)) / rows.size
@@ -60,7 +65,11 @@ class ChordPadsView(context: Context) : View(context) {
             row.forEachIndexed { c, pad ->
                 val l = gap + c * (cw + gap)
                 val t = gap + r * (rh + gap)
-                rects.add(pad to RectF(l, t, l + cw, t + rh))
+                val rect = RectF(l, t, l + cw, t + rh)
+                rects.add(pad to rect)
+                fillShaders.add(LinearGradient(0f, t, 0f, t + rh, 0xFF1E1E2A.toInt(), 0xFF12121A.toInt(), Shader.TileMode.CLAMP))
+                strokeShaders.add(LinearGradient(l, t, l + cw, t + rh, 0xB36B4EFF.toInt(), 0x24FFFFFF, Shader.TileMode.CLAMP))
+                activeShaders.add(LinearGradient(l, t, l + cw, t, 0xFF6B4EFF.toInt(), 0xFFFF6B9D.toInt(), Shader.TileMode.CLAMP))
             }
         }
         title.textSize = (minOf(width / 9f, height / rows.size.toFloat()) * 0.32f).coerceAtLeast(18f)
@@ -106,14 +115,28 @@ class ChordPadsView(context: Context) : View(context) {
     }
 
     override fun onDraw(c: Canvas) {
-        for ((pad, r) in rects) {
+        for ((idx, entry) in rects.withIndex()) {
+            val (pad, r) = entry
             val held = (0 until pressed.size()).any { pressed.valueAt(it) == pad.id }
             val on = held || pad.id == activeId
-            fill.color = if (on) 0xFFFF9A3C.toInt() else 0xFF2A1D14.toInt()
-            c.drawRoundRect(r, 20f, 20f, fill)
-            c.drawRoundRect(r, 20f, 20f, stroke)
-            title.color = if (on) 0xFF140E0A.toInt() else 0xFFEFE6DC.toInt()
-            sub.color = if (on) 0xFF3A2A1C.toInt() else 0xFFB9A593.toInt()
+            val grow = if (held) 3f else 0f
+            tmp.set(r.left - grow, r.top - grow, r.right + grow, r.bottom + grow)
+            if (on) {
+                for (k in 1..3) {
+                    glow.color = (0x6B4EFF) or ((0.30f / k * 255).toInt() shl 24)
+                    glow.strokeWidth = 8f * k
+                    c.drawRoundRect(tmp, 22f, 22f, glow)
+                }
+                active.shader = activeShaders[idx]
+                c.drawRoundRect(tmp, 22f, 22f, active)
+            } else {
+                fill.shader = fillShaders[idx]
+                c.drawRoundRect(tmp, 22f, 22f, fill)
+            }
+            stroke.shader = strokeShaders[idx]
+            c.drawRoundRect(tmp, 22f, 22f, stroke)
+            title.color = if (on) 0xFFFFFFFF.toInt() else 0xFFF1F0FA.toInt()
+            sub.color = if (on) 0xCCFFFFFF.toInt() else 0xFF9AA3B8.toInt()
             c.drawText(pad.title, r.centerX(), r.centerY() + title.textSize * 0.1f, title)
             c.drawText(pad.subtitle, r.centerX(), r.centerY() + title.textSize * 0.1f + sub.textSize * 1.4f, sub)
             if (pad.id in edited) c.drawCircle(r.right - 18f, r.top + 18f, 6f, dot)

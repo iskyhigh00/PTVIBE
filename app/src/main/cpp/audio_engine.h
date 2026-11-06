@@ -62,6 +62,7 @@ public:
     void autoTune();
     void resetStats();
     void getStats(double* out) const;
+    float level() const { return level_.load(std::memory_order_relaxed); }
 
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream* stream, void* audioData,
                                           int32_t numFrames) override;
@@ -109,6 +110,7 @@ private:
     float synthL_[SynthEngine::kMaxBlock];
     float synthR_[SynthEngine::kMaxBlock];
 
+    std::atomic<float> level_{0};
     std::atomic<bool> running_{false};
     std::atomic<int> bursts_{1};
     int lastXruns_ = 0;
