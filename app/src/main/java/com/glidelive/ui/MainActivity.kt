@@ -69,12 +69,14 @@ class MainActivity : ComponentActivity() {
     private val chordsVm: ChordsViewModel by viewModels()
     private val soloVm: SoloViewModel by viewModels()
     private val transportVm: TransportViewModel by viewModels()
+    private val sessionVm: SessionViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         enableEdgeToEdge()
         EventHub.start(lifecycleScope)
+        sessionVm.attach(chordsVm, soloVm, vm, transportVm)
         setContent {
             AppTheme {
                 AppBackground {
@@ -91,7 +93,7 @@ class MainActivity : ComponentActivity() {
                     Box(Modifier.fillMaxSize()) {
                         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                             if (!fullscreen) {
-                                TopBar(mode, { mode = it }, chordsVm, soloVm, vm, transportVm, panel, { panel = !panel }, { fullscreen = true })
+                                TopBar(mode, { mode = it }, chordsVm, soloVm, vm, sessionVm, panel, { panel = !panel }, { fullscreen = true })
                                 TransportBar(transportVm)
                                 if (mode == Mode.BATERIA || mode == Mode.MIXTO) PatternBar(transportVm)
                                 if (mode == Mode.MIXTO) {
@@ -126,7 +128,7 @@ class MainActivity : ComponentActivity() {
                                 }
                                 if (panel && !fullscreen) {
                                     GlassCard(Modifier.width(300.dp).fillMaxHeight().padding(bottom = 8.dp), padding = 0.dp) {
-                                        SidePanel(vm, updateVm, chordsVm, soloVm, transportVm)
+                                        SidePanel(vm, updateVm, chordsVm, soloVm, transportVm, sessionVm)
                                     }
                                 }
                             }
@@ -175,7 +177,7 @@ private fun TopBar(
     chords: ChordsViewModel,
     solo: SoloViewModel,
     engine: EngineViewModel,
-    transport: TransportViewModel,
+    session: SessionViewModel,
     panel: Boolean,
     onPanel: () -> Unit,
     onFullscreen: () -> Unit,
@@ -188,10 +190,17 @@ private fun TopBar(
         CapsuleBar(Mode.entries, mode, { it.label }, onMode)
         if (mode != Mode.BATERIA) KeyControls(chords)
         MixerMenu(engine, chords, solo)
+        ScenesMenu(session)
         EqBars(level = { engine.level.value })
         TextButton(onClick = onPanel) { Text(if (panel) "Ocultar ajustes" else "Ajustes") }
         TextButton(onClick = onFullscreen) { Text("⤢ Pantalla completa") }
     }
+}
+
+@Composable
+private fun ScenesMenu(session: SessionViewModel) {
+    val names by (session.scenes?.names ?: kotlinx.coroutines.flow.MutableStateFlow(List(8) { "" })).collectAsState()
+    Picker("Escenas", (0..7).toList(), { "${it + 1} · " + names.getOrElse(it) { "" } }) { session.scenes?.load(it) }
 }
 
 /** Mezclador rápido: volumen de cada instrumento y general. */
@@ -260,7 +269,7 @@ private fun CalibrationPanel(vm: EngineViewModel) {
 }
 
 @Composable
-private fun SidePanel(vm: EngineViewModel, updateVm: UpdateViewModel, chordsVm: ChordsViewModel, soloVm: SoloViewModel, transportVm: TransportViewModel) {
+private fun SidePanel(vm: EngineViewModel, updateVm: UpdateViewModel, chordsVm: ChordsViewModel, soloVm: SoloViewModel, transportVm: TransportViewModel, sessionVm: SessionViewModel) {
     val up by updateVm.state.collectAsState()
     var tab by remember { mutableIntStateOf(0) }
     Column(Modifier.fillMaxSize()) {
@@ -269,9 +278,10 @@ private fun SidePanel(vm: EngineViewModel, updateVm: UpdateViewModel, chordsVm: 
             Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Solista") })
             Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Batería") })
             Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("Bucles") })
-            Tab(selected = tab == 4, onClick = { tab = 4 }, text = { Text("Latencia") })
+            Tab(selected = tab == 4, onClick = { tab = 4 }, text = { Text("Sesión") })
+            Tab(selected = tab == 5, onClick = { tab = 5 }, text = { Text("Latencia") })
             Tab(
-                selected = tab == 5, onClick = { tab = 5 },
+                selected = tab == 6, onClick = { tab = 6 },
                 text = { Text(if (up is UpdateState.Available) "Actualizar •" else "Actualizar") },
             )
         }
@@ -280,7 +290,8 @@ private fun SidePanel(vm: EngineViewModel, updateVm: UpdateViewModel, chordsVm: 
             1 -> SoloPanel(soloVm)
             2 -> KitPanel(vm)
             3 -> LoopsPanel(transportVm)
-            4 -> CalibrationPanel(vm)
+            4 -> SessionPanel(sessionVm, vm, transportVm)
+            5 -> CalibrationPanel(vm)
             else -> UpdatePanel(updateVm)
         }
     }

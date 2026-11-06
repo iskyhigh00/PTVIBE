@@ -1,5 +1,7 @@
 package com.glidelive.audio
 
+import com.glidelive.session.SessionLog
+
 data class LatencyStats(
     val sampleRate: Int = 0,
     val framesPerBurst: Int = 0,
@@ -30,10 +32,12 @@ object NativeEngine {
     fun stop() = nativeStop()
 
     /** eventTimeMs: MotionEvent.getEventTime() (reloj monotónico). */
-    fun trigger(pad: Int, velocity: Float, eventTimeMs: Long) =
-        nativeTrigger(pad, velocity, eventTimeMs * 1_000_000L)
+    private val pushLock = Any()
 
-    fun choke(pad: Int, eventTimeMs: Long) = nativeChoke(pad, eventTimeMs * 1_000_000L)
+    fun trigger(pad: Int, velocity: Float, eventTimeMs: Long) =
+        synchronized(pushLock) { nativeTrigger(pad, velocity, eventTimeMs * 1_000_000L) }
+
+    fun choke(pad: Int, eventTimeMs: Long) = synchronized(pushLock) { nativeChoke(pad, eventTimeMs * 1_000_000L) }
     fun setParam(id: Int, value: Float) = nativeSetParam(id, value)
 
     const val P_SNARE_TUNE = 0
@@ -44,22 +48,24 @@ object NativeEngine {
     const val P_PAD_VOL = 8
 
     fun synth(cmd: SynthCommand) = when (cmd) {
-        is SynthCommand.NoteOn -> nativeSynthCmd(10, cmd.slot, 0, cmd.midi.toFloat())
-        is SynthCommand.GlideTo -> nativeSynthCmd(11, cmd.slot, 0, cmd.midi.toFloat())
-        is SynthCommand.Spawn -> nativeSynthCmd(12, cmd.slot, cmd.fromSlot, cmd.midi.toFloat())
-        is SynthCommand.GlideRelease -> nativeSynthCmd(13, cmd.slot, 0, cmd.midi.toFloat())
-        is SynthCommand.Release -> nativeSynthCmd(14, cmd.slot, 0, 0f)
-        SynthCommand.ReleaseAll -> nativeSynthCmd(15, 0, 0, 0f)
+        is SynthCommand.NoteOn -> seq(10, cmd.slot, 0, cmd.midi.toFloat())
+        is SynthCommand.GlideTo -> seq(11, cmd.slot, 0, cmd.midi.toFloat())
+        is SynthCommand.Spawn -> seq(12, cmd.slot, cmd.fromSlot, cmd.midi.toFloat())
+        is SynthCommand.GlideRelease -> seq(13, cmd.slot, 0, cmd.midi.toFloat())
+        is SynthCommand.Release -> seq(14, cmd.slot, 0, 0f)
+        SynthCommand.ReleaseAll -> seq(15, 0, 0, 0f)
     }
 
     const val P_SOLO_INSTRUMENT = 31
     const val P_SOLO_GLIDE = 32
 
     // Solista: idx 0..7 (un dedo = una voz).
-    fun soloOn(idx: Int, midi: Float) = nativeSynthCmd(16, idx, 0, midi)
-    fun soloOff(idx: Int) = nativeSynthCmd(17, idx, 0, 0f)
-    fun soloSet(idx: Int, pitch: Float, filter: Float, vib: Float, vol: Float) =
+    fun soloOn(idx: Int, midi: Float) { SessionLog.solo(idx, 0, midi); seq(16, idx, 0, midi) }
+    fun soloOff(idx: Int) { SessionLog.solo(idx, 2, 0f); seq(17, idx, 0, 0f) }
+    fun soloSet(idx: Int, pitch: Float, filter: Float, vib: Float, vol: Float) {
+        SessionLog.solo(idx, 1, pitch)
         nativeSoloSet(idx, pitch, filter, vib, vol)
+    }
 
     const val P_CHORD_VOL = 21
     const val P_SOLO_VOL = 22
@@ -98,7 +104,7 @@ object NativeEngine {
     const val P_CHORD_QUANT = 40
     const val P_MUTE_MASK = 41
 
-    fun seq(cmd: Int, a: Int = 0, b: Int = 0, f: Float = 0f) = nativeSynthCmd(cmd, a, b, f)
+    fun seq(cmd: Int, a: Int = 0, b: Int = 0, f: Float = 0f) = synchronized(pushLock) { nativeSynthCmd(cmd, a, b, f) }
 
     fun setPattern(ticks: IntArray, pads: IntArray, vels: FloatArray, length: Int, restart: Boolean, oneShot: Boolean) =
         nativeSetPattern(ticks, pads, vels, ticks.size, length, restart, oneShot)

@@ -144,13 +144,31 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
         NativeEngine.setEndPattern(e.ticks, e.pads, e.vels, p.barTicks)
     }
 
-    fun selectPattern(p: DrumPattern) {
+    fun selectPattern(p: DrumPattern, adopt: Boolean = _ui.value.adoptPattern) {
         _ui.update { it.copy(patternId = p.id, variation = 0, fillOn = false, endPending = false) }
-        if (_ui.value.adoptPattern) {
+        if (adopt) {
             edit { it.copy(bpm = p.bpmDefault, meter = Meter(p.beats, p.beatUnit)) }
         }
         sendPattern(p, p.variations[0].tracks, restart = true)
         lastPass = 0
+    }
+
+    /** Carga de escena: no corta el sonido; el patrón se cambia sin tocar el transporte. */
+    fun applyScene(
+        bpm: Int?, meter: Meter?, swing: Float?, metro: Boolean?, patternId: String?, variation: Int?,
+        recQuant: RecQuant?, chordQuant: ChordQuant?,
+    ) {
+        edit {
+            it.copy(
+                bpm = bpm ?: it.bpm, meter = meter ?: it.meter, swing = swing ?: it.swing, metro = metro ?: it.metro,
+                recQuant = recQuant ?: it.recQuant, chordQuant = chordQuant ?: it.chordQuant,
+            )
+        }
+        val p = _ui.value.patterns.firstOrNull { it.id == patternId }
+        if (p != null) {
+            if (_ui.value.patternId != p.id) selectPattern(p, adopt = false)
+            variation?.let { selectVariation(it.coerceIn(0, p.variations.size - 1)) }
+        }
     }
 
     fun selectVariation(i: Int) {
