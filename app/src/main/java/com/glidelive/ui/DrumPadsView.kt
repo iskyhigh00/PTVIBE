@@ -30,8 +30,8 @@ object Pads {
     const val COUNT = 13
 
     val names = arrayOf(
-        "BOMBO", "CAJA", "RIM", "HH CERR.", "HH ABIER.", "HH PEDAL",
-        "TOM 1", "TOM 2", "FLOOR", "CRASH", "RIDE", "CAMPANA", "SPLASH",
+        "BOMBO", "CAJA", "AROS\n(rim)", "HI-HAT\nCERRADO", "HI-HAT\nABIERTO", "PEDAL\nHI-HAT",
+        "TOM 1", "TOM 2", "TOM DE\nPISO", "CRASH", "RIDE", "CAMPANA\nRIDE", "SPLASH\n/ CHINA",
     )
 
     // x, y, w, h normalizados: distribución tipo batería.
@@ -198,7 +198,10 @@ class DrumPadsView(context: Context) : View(context) {
                 val gy = r.top + r.height() * 0.78f
                 c.drawLine(r.left + 14f, gy, r.right - 14f, gy, ghost)
             }
-            c.drawText(Pads.names[i], r.centerX(), r.centerY() + text.textSize / 3, text)
+            val lines = Pads.names[i].split("\n")
+            val lh = text.textSize * 1.15f
+            var y = r.centerY() + text.textSize / 3 - lh * (lines.size - 1) / 2
+            for (ln in lines) { c.drawText(ln, r.centerX(), y, text); y += lh }
             if (!active && flash[i] > 0f) {
                 flash[i] = (flash[i] - 0.09f).coerceAtLeast(0f)
                 animating = true

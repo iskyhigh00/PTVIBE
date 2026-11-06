@@ -52,13 +52,13 @@ fun <T> Picker(label: String, items: List<T>, text: (T) -> String, onPick: (T) -
 fun KeyControls(vm: ChordsViewModel) {
     val u by vm.ui.collectAsState()
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Picker("Tono: ${NoteNames.name(u.key)}", (0..11).toList(), { NoteNames.name(it) }) { k ->
+        Picker("Tonalidad: ${NoteNames.name(u.key)}", (0..11).toList(), { NoteNames.name(it) }) { k ->
             vm.edit { it.copy(key = k) }
         }
         Picker("Escala: ${u.scale.label}", Scale.entries, { it.label }) { s -> vm.edit { it.copy(scale = s) } }
-        Picker("Banco: ${u.bank.label}", Bank.entries, { it.label }) { b -> vm.edit { it.copy(bank = b) } }
+        Picker("Acordes: ${u.bank.label}", Bank.entries, { it.label }) { b -> vm.edit { it.copy(bank = b) } }
         TextButton(onClick = { vm.edit { it.copy(transpose = (it.transpose - 1).coerceAtLeast(-12)) } }) { Text("−") }
-        Text("T%+d".format(u.transpose))
+        Text("Subir/bajar %+d".format(u.transpose))
         TextButton(onClick = { vm.edit { it.copy(transpose = (it.transpose + 1).coerceAtMost(12)) } }) { Text("+") }
     }
 }
@@ -72,16 +72,18 @@ fun ChordsScreen(vm: ChordsViewModel, compact: Boolean, modifier: Modifier = Mod
                 Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                Text("Variante:", Modifier.align(Alignment.CenterVertically),
+                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 FilterChip(selected = u.quality == null, onClick = { vm.edit { it.copy(quality = null) } },
-                    label = { Text("Auto") })
+                    label = { Text("Normal") })
                 ChordType.extensions.forEach { t ->
                     FilterChip(selected = u.quality == t, onClick = { vm.edit { it.copy(quality = t) } },
-                        label = { Text(t.label) })
+                        label = { Text(t.short) })
                 }
             }
         }
 
-        val rows = u.rows.map { row -> row.map { PadUi(it.id, u.chordOf(it).name(), it.roman) } }
+        val rows = u.rows.map { row -> row.map { PadUi(it.id, u.chordOf(it).name(), it.roman + " · " + u.chordOf(it).type.plain) } }
         val edited = u.edits.keys
         AndroidView(
             factory = { ChordPadsView(it) },
@@ -100,7 +102,7 @@ fun ChordsScreen(vm: ChordsViewModel, compact: Boolean, modifier: Modifier = Mod
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("Glide ${u.glideMs} ms", style = MaterialTheme.typography.labelMedium)
+            Text("Deslizar ${u.glideMs} ms", style = MaterialTheme.typography.labelMedium)
             Slider(
                 value = u.glideMs.toFloat(),
                 onValueChange = { v -> vm.edit { it.copy(glideMs = v.toInt()) } },
@@ -110,19 +112,23 @@ fun ChordsScreen(vm: ChordsViewModel, compact: Boolean, modifier: Modifier = Mod
             FilterChip(
                 selected = u.editMode,
                 onClick = { vm.edit { it.copy(editMode = !it.editMode) } },
-                label = { Text("✎ Editar") },
+                label = { Text("✎ Editar acordes") },
             )
-            GradientButton("Stop", vm::stopAll, glyph = "■")
+            GradientButton("Silenciar", vm::stopAll, glyph = "■")
         }
         if (!compact) {
             Row(
                 Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                Text("Curva:", Modifier.align(Alignment.CenterVertically),
+                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 GlideCurve.entries.forEach { c ->
                     FilterChip(selected = u.curve == c, onClick = { vm.edit { it.copy(curve = c) } },
                         label = { Text(c.label) })
                 }
+                Text("Al tocar:", Modifier.align(Alignment.CenterVertically),
+                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TriggerMode.entries.forEach { t ->
                     FilterChip(selected = u.trigger == t, onClick = { vm.edit { it.copy(trigger = t) } },
                         label = { Text(t.label) })
@@ -152,43 +158,43 @@ private fun PadEditDialog(vm: ChordsViewModel) {
         title = { Text("Editar ${chord.name()}") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Tipo", style = MaterialTheme.typography.labelLarge)
+                Text("Tipo de acorde", style = MaterialTheme.typography.labelLarge)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     ChordType.entries.forEach { t ->
                         FilterChip(
                             selected = chord.type == t,
                             onClick = { vm.updateEdit(id) { it.copy(type = t, fixed = emptyMap(), inversion = 0) } },
-                            label = { Text(t.label) },
+                            label = { Text(t.friendly) },
                         )
                     }
                 }
-                Text("Inversión", style = MaterialTheme.typography.labelLarge)
+                Text("Inversión (qué nota va en el bajo)", style = MaterialTheme.typography.labelLarge)
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     for (i in 0 until minOf(chord.tones.size, 4)) {
                         FilterChip(selected = edit.inversion == i,
                             onClick = { vm.updateEdit(id) { it.copy(inversion = i) } },
-                            label = { Text(if (i == 0) "Fund." else "$i") })
+                            label = { Text(when (i) { 0 -> "Base"; 1 -> "1ª"; 2 -> "2ª"; else -> "3ª" }) })
                     }
                 }
-                Text("Octava", style = MaterialTheme.typography.labelLarge)
+                Text("Altura del acorde", style = MaterialTheme.typography.labelLarge)
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     for (o in -1..1) {
                         FilterChip(selected = edit.octave == o,
                             onClick = { vm.updateEdit(id) { it.copy(octave = o) } },
-                            label = { Text("%+d".format(o)) })
+                            label = { Text(when (o) { -1 -> "Más grave"; 0 -> "Normal"; else -> "Más agudo" }) })
                     }
                 }
-                Text("Notas (candado = nota fija)", style = MaterialTheme.typography.labelLarge)
+                Text("Notas: ajusta cada una; el candado la deja fija", style = MaterialTheme.typography.labelLarge)
                 preview?.let { (notes, pcs) ->
                     notes.forEachIndexed { i, note ->
                         val pc = pcs[i]
                         val locked = edit.fixed.containsKey(pc)
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(NoteNames.midiName(note), Modifier.padding(end = 8.dp))
-                            TextButton(onClick = { vm.updateEdit(id) { it.copy(fixed = it.fixed + (pc to note - 12)) } }) { Text("−8") }
-                            TextButton(onClick = { vm.updateEdit(id) { it.copy(fixed = it.fixed + (pc to note - 1)) } }) { Text("−1") }
-                            TextButton(onClick = { vm.updateEdit(id) { it.copy(fixed = it.fixed + (pc to note + 1)) } }) { Text("+1") }
-                            TextButton(onClick = { vm.updateEdit(id) { it.copy(fixed = it.fixed + (pc to note + 12)) } }) { Text("+8") }
+                            TextButton(onClick = { vm.updateEdit(id) { it.copy(fixed = it.fixed + (pc to note - 12)) } }) { Text("−oct") }
+                            TextButton(onClick = { vm.updateEdit(id) { it.copy(fixed = it.fixed + (pc to note - 1)) } }) { Text("−½") }
+                            TextButton(onClick = { vm.updateEdit(id) { it.copy(fixed = it.fixed + (pc to note + 1)) } }) { Text("+½") }
+                            TextButton(onClick = { vm.updateEdit(id) { it.copy(fixed = it.fixed + (pc to note + 12)) } }) { Text("+oct") }
                             TextButton(onClick = {
                                 vm.updateEdit(id) { it.copy(fixed = if (locked) it.fixed - pc else it.fixed + (pc to note)) }
                             }) { Text(if (locked) "🔒" else "🔓") }
@@ -215,18 +221,18 @@ fun SoundPanel(vm: ChordsViewModel) {
                     label = { Text(n) })
             }
         }
-        LabeledSlider("Volumen acordes", u.volume, 0f..1f) { v -> vm.edit { it.copy(volume = v) } }
-        LabeledSlider("Filtro", u.cutoff, 0f..1f) { v -> vm.edit { it.copy(cutoff = v) } }
-        LabeledSlider("Resonancia", u.resonance, 0f..1f) { v -> vm.edit { it.copy(resonance = v) } }
-        LabeledSlider("Chorus", u.chorus, 0f..1f) { v -> vm.edit { it.copy(chorus = v) } }
-        LabeledSlider("Reverb", u.room, 0f..1f) { v -> vm.edit { it.copy(room = v) } }
-        Text("Rango: ${NoteNames.midiName(u.rangeLo)} – ${NoteNames.midiName(u.rangeHi)}",
+        LabeledSlider("Volumen de acordes", u.volume, 0f..1f) { v -> vm.edit { it.copy(volume = v) } }
+        LabeledSlider("Brillo (filtro)", u.cutoff, 0f..1f) { v -> vm.edit { it.copy(cutoff = v) } }
+        LabeledSlider("Énfasis del filtro", u.resonance, 0f..1f) { v -> vm.edit { it.copy(resonance = v) } }
+        LabeledSlider("Chorus (sonido más ancho)", u.chorus, 0f..1f) { v -> vm.edit { it.copy(chorus = v) } }
+        LabeledSlider("Reverb (efecto de espacio)", u.room, 0f..1f) { v -> vm.edit { it.copy(room = v) } }
+        Text("Rango de notas: ${NoteNames.midiName(u.rangeLo)} – ${NoteNames.midiName(u.rangeHi)}",
             style = MaterialTheme.typography.labelMedium)
         Slider(value = u.rangeLo.toFloat(), valueRange = 28f..60f,
             onValueChange = { v -> vm.edit { it.copy(rangeLo = v.toInt().coerceAtMost(it.rangeHi - 12)) } })
         Slider(value = u.rangeHi.toFloat(), valueRange = 60f..96f,
             onValueChange = { v -> vm.edit { it.copy(rangeHi = v.toInt().coerceAtLeast(it.rangeLo + 12)) } })
-        Text("Pulsa «Editar» y toca un pad para cambiar tipo, inversión, octava y notas.", color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Text("Pulsa «Editar acordes» y toca un pad para cambiarlo. «½» = medio tono, «oct» = una octava.", color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall)
     }
 }

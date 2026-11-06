@@ -22,6 +22,31 @@ enum class ChordType(val symbol: String, val label: String, val intervals: List<
     DIM7("dim7", "dim7", listOf(0, 3, 6, 9)),
     MMAJ7("m(maj7)", "mMaj7", listOf(0, 3, 7, 11));
 
+    /** Descripción corta en palabras, para el subtítulo del pad. */
+    val plain: String
+        get() = when (this) {
+            MAJ -> "mayor"; MIN -> "menor"; DIM -> "disminuido"; AUG -> "aumentado"
+            DOM7 -> "dominante"; MAJ7 -> "mayor 7ª"; MIN7 -> "menor 7ª"
+            MIN9 -> "menor 9ª"; MAJ9 -> "mayor 9ª"; DOM7B9 -> "tenso ♭9"
+            M7B5 -> "semidisminuido"; SUS2 -> "suspendido 2"; SUS4 -> "suspendido"
+            ADD9 -> "mayor + 9ª"; SIX -> "mayor 6ª"; MIN6 -> "menor 6ª"
+            DOM11 -> "dominante 11ª"; DOM13 -> "dominante 13ª"
+            DIM7 -> "disminuido 7ª"; MMAJ7 -> "menor-mayor 7ª"
+        }
+
+    /** Nombre para botones: palabras primero, símbolo entre paréntesis. */
+    val friendly: String
+        get() = if (symbol.isEmpty()) "Mayor" else "${plain.replaceFirstChar { it.uppercase() }} ($symbol)"
+
+    /** Versión corta para los botones de variante. */
+    val short: String
+        get() = when (this) {
+            DOM7 -> "Dominante 7"; MAJ7 -> "Mayor 7"; MIN7 -> "Menor 7"; MIN9 -> "Menor 9"
+            MAJ9 -> "Mayor 9"; DOM7B9 -> "Tenso ♭9"; M7B5 -> "Semidism."; SUS4 -> "Suspendido"
+            ADD9 -> "Con 9ª"; SIX -> "Con 6ª"; DOM11 -> "11ª"; DOM13 -> "13ª"
+            else -> plain.replaceFirstChar { it.uppercase() }
+        }
+
     val pitchClasses: List<Int> get() = intervals.map { it % 12 }.distinct()
 
     companion object {

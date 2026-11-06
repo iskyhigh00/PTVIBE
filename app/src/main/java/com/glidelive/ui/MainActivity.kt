@@ -143,16 +143,15 @@ private fun CalibrationPanel(vm: EngineViewModel) {
         Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text("Calibración / tap test", style = MaterialTheme.typography.titleMedium)
+        Text("Latencia (retraso del sonido)", style = MaterialTheme.typography.titleMedium)
         Text(if (s.running) "Audio activo" else "Audio detenido")
-        Text("API: ${if (s.aaudio) "AAudio" else "OpenSL ES"}  MMAP: ${if (s.mmap) "sí" else "no"}  " +
-            "Exclusivo: ${if (s.exclusive) "sí" else "no"}")
-        Text("%d Hz · burst %d fr (%.1f ms)".format(s.sampleRate, s.framesPerBurst, s.burstMs))
-        Text("Buffer %d fr · %d burst(s) · xruns %d".format(s.bufferFrames, s.bursts, s.xruns))
-        Text("Salida hw/buffer: " + if (s.outputLatencyMs >= 0) "%.1f ms".format(s.outputLatencyMs) else "n/d")
-        Text("Toque→callback: último %.1f · prom %.1f · máx %.1f ms".format(s.lastTouchMs, s.avgTouchMs, s.maxTouchMs))
+        Text("Audio rápido: ${if (s.aaudio) "sí" else "no"} · Acceso directo: ${if (s.mmap) "sí" else "no"} · Exclusivo: ${if (s.exclusive) "sí" else "no"}")
+        Text("Frecuencia %d Hz · bloque de %d muestras (%.1f ms)".format(s.sampleRate, s.framesPerBurst, s.burstMs))
+        Text("Colchón: %d muestras (%d bloques) · cortes de audio: %d".format(s.bufferFrames, s.bursts, s.xruns))
+        Text("Retraso de salida del teléfono: " + if (s.outputLatencyMs >= 0) "%.1f ms".format(s.outputLatencyMs) else "n/d")
+        Text("Del toque al motor: último %.1f · medio %.1f · peor %.1f ms".format(s.lastTouchMs, s.avgTouchMs, s.maxTouchMs))
         Text(
-            "Toque→sonido (est.): " + if (s.totalMs >= 0) "%.1f ms".format(s.totalMs) else "n/d",
+            "Retraso total estimado (toque → sonido): " + if (s.totalMs >= 0) "%.1f ms".format(s.totalMs) else "n/d",
             style = MaterialTheme.typography.titleSmall,
             color = if (s.totalMs in 0.0..15.0) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.tertiary,
         )
@@ -163,7 +162,7 @@ private fun CalibrationPanel(vm: EngineViewModel) {
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Auto")
+            Text("Ajuste automático del colchón")
             Switch(checked = auto, onCheckedChange = vm::setAuto)
         }
         Button(onClick = vm::reset) { Text("Reiniciar medición") }
@@ -176,7 +175,7 @@ private fun CalibrationPanel(vm: EngineViewModel) {
         } else {
             Text("Recomendado: auriculares con cable o USB.")
         }
-        Text("Toca los pads para medir.")
+        Text("Toca los pads de la batería para medir. Colchón: 1 = menos retraso, 3 = más estable.")
     }
 }
 
@@ -187,11 +186,11 @@ private fun SidePanel(vm: EngineViewModel, updateVm: UpdateViewModel, chordsVm: 
     Column(Modifier.fillMaxSize()) {
         ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp, containerColor = Color.Transparent) {
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Sonido") })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Kit") })
+            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Batería") })
             Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Latencia") })
             Tab(
                 selected = tab == 3, onClick = { tab = 3 },
-                text = { Text(if (up is UpdateState.Available) "Update •" else "Update") },
+                text = { Text(if (up is UpdateState.Available) "Actualizar •" else "Actualizar") },
             )
         }
         when (tab) {
@@ -213,18 +212,18 @@ internal fun LabeledSlider(label: String, value: Float, range: ClosedFloatingPoi
 private fun KitPanel(vm: EngineViewModel) {
     val k by vm.kit.collectAsState()
     Column(Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState())) {
-        LabeledSlider("Master", k.master, 0f..1f) { v -> vm.editKit { it.copy(master = v) } }
-        LabeledSlider("Afinación caja (st)", k.snareTune, -6f..6f) { v -> vm.editKit { it.copy(snareTune = v) } }
-        LabeledSlider("Afinación toms (st)", k.tomTune, -6f..6f) { v -> vm.editKit { it.copy(tomTune = v) } }
-        LabeledSlider("Ambiente (room)", k.room, 0f..1f) { v -> vm.editKit { it.copy(room = v) } }
-        LabeledSlider("Compresión", k.comp, 0f..1f) { v -> vm.editKit { it.copy(comp = v) } }
+        LabeledSlider("Volumen general", k.master, 0f..1f) { v -> vm.editKit { it.copy(master = v) } }
+        LabeledSlider("Afinación de la caja (semitonos)", k.snareTune, -6f..6f) { v -> vm.editKit { it.copy(snareTune = v) } }
+        LabeledSlider("Afinación de los toms (semitonos)", k.tomTune, -6f..6f) { v -> vm.editKit { it.copy(tomTune = v) } }
+        LabeledSlider("Ambiente de sala", k.room, 0f..1f) { v -> vm.editKit { it.copy(room = v) } }
+        LabeledSlider("Compresión (sonido más compacto)", k.comp, 0f..1f) { v -> vm.editKit { it.copy(comp = v) } }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Sensib. por presión")
+            Text("Sensible a la fuerza del toque")
             Switch(checked = k.pressure, onCheckedChange = { v -> vm.editKit { it.copy(pressure = v) } })
         }
-        Text("Volumen por pad", style = MaterialTheme.typography.titleSmall)
+        Text("Volumen de cada pad", style = MaterialTheme.typography.titleSmall)
         for (i in 0 until Pads.COUNT) {
-            LabeledSlider(Pads.names[i], k.padVolume[i], 0f..1.5f) { v ->
+            LabeledSlider(Pads.names[i].replace("\n", " "), k.padVolume[i], 0f..1.5f) { v ->
                 vm.editKit { it.copy(padVolume = it.padVolume.toMutableList().also { l -> l[i] = v }) }
             }
         }

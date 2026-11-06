@@ -14,8 +14,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 
-enum class TriggerMode(val label: String) { HOLD("Hold"), LATCH("Latch"), GATE("Gate") }
-enum class GlideCurve(val label: String) { LINEAR("Lineal"), SMOOTH("S suave"), SLOW("Lenta al inicio") }
+enum class TriggerMode(val label: String) { HOLD("Sostener"), LATCH("Alternar"), GATE("Mientras toco") }
+enum class GlideCurve(val label: String) { LINEAR("Recta"), SMOOTH("Suave"), SLOW("Arranque lento") }
 
 val INSTRUMENTS = listOf("Piano eléctrico", "Órgano", "Pad", "Cuerdas", "Lead")
 

@@ -3,7 +3,7 @@ package com.glidelive.theory
 data class PadDef(val id: String, val chord: Chord, val roman: String)
 
 enum class Bank(val label: String) {
-    DIATONIC("Diatónico"),
+    DIATONIC("Del tono"),
     II_V_I("Cadena ii–V–I"),
 }
 
