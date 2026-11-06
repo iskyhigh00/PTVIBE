@@ -9,6 +9,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.FilterChip
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -34,6 +35,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -84,7 +86,10 @@ class MainActivity : ComponentActivity() {
             AppTheme {
                 AppBackground {
                     var mode by rememberSaveable { mutableStateOf(Mode.ACORDES) }
-                    var panel by rememberSaveable { mutableStateOf(true) }
+                    val cfg = LocalConfiguration.current
+                    // En pantallas estrechas el panel de ajustes empieza cerrado para dejar sitio a los pads.
+                    var panel by rememberSaveable { mutableStateOf(cfg.screenWidthDp >= 900) }
+                    val shortScreen = cfg.screenHeightDp < 480
                     var fullscreen by rememberSaveable { mutableStateOf(false) }
                     var soloLayer by rememberSaveable { mutableStateOf(false) }
                     val kit by vm.kit.collectAsState()
@@ -122,7 +127,14 @@ class MainActivity : ComponentActivity() {
                                         }
                                         Mode.SOLISTA -> SoloHost(soloVm, Modifier.weight(1f))
                                         Mode.BATERIA -> DrumsHost(kit.pressure, Modifier.weight(1f))
-                                        Mode.MIXTO -> {
+                                        Mode.MIXTO -> if (shortScreen) {
+                                            // Poca altura: acordes y batería lado a lado en vez de apilados.
+                                            Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                ChordsScreen(chordsVm, compact = true, Modifier.weight(1f))
+                                                if (soloLayer) SoloHost(soloVm, Modifier.weight(0.8f))
+                                                DrumsHost(kit.pressure, Modifier.weight(1f))
+                                            }
+                                        } else {
                                             ChordsScreen(chordsVm, compact = true, Modifier.weight(1f))
                                             if (soloLayer) SoloHost(soloVm, Modifier.weight(0.8f))
                                             DrumsHost(kit.pressure, Modifier.weight(1f))
@@ -163,6 +175,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        sessionVm.stopIfRecording(transportVm.ui.value.bpm)
         chordsVm.stopAll()
         NativeEngine.stop()
         super.onPause()
@@ -178,7 +191,7 @@ private fun DrumsHost(pressure: Boolean, modifier: Modifier) {
     AndroidView(
         factory = { DrumPadsView(it) },
         update = { it.pressureSensitivity = pressure },
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().heightIn(min = 160.dp),
     )
 }
 

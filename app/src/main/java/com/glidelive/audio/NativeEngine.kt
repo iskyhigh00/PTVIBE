@@ -17,6 +17,7 @@ data class LatencyStats(
     val running: Boolean = false,
     val aaudio: Boolean = false,
     val dropped: Int = 0,
+    val recDropped: Int = 0,
 ) {
     val burstMs: Double get() = if (sampleRate > 0) framesPerBurst * 1000.0 / sampleRate else 0.0
     val totalMs: Double get() = if (outputLatencyMs >= 0) avgTouchMs + outputLatencyMs else -1.0
@@ -27,7 +28,7 @@ object NativeEngine {
         System.loadLibrary("glidelive")
     }
 
-    private val buf = DoubleArray(14)
+    private val buf = DoubleArray(15)
 
     fun start(): Boolean = nativeStart()
     fun stop() = nativeStop()
@@ -161,6 +162,7 @@ object NativeEngine {
             running = buf[11] > 0,
             aaudio = buf[12] > 0,
             dropped = buf[13].toInt(),
+            recDropped = buf[14].toInt(),
         )
     }
 

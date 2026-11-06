@@ -39,6 +39,10 @@ fun SessionPanel(session: SessionViewModel, engine: EngineViewModel, transport: 
             { session.toggleRecord(t.bpm, stats.sampleRate) },
             glyph = if (s.recording) "■" else "●",
         )
+        if (stats.recDropped > 0) {
+            Text("Se perdieron ${stats.recDropped / 2} muestras de audio en la grabación.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
         s.last?.let { r ->
             Text("Guardado: ${r.wav.name}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

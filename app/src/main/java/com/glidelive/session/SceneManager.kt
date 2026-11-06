@@ -168,13 +168,13 @@ class SceneManager(
         o.optJSONObject("transport")?.let { j ->
             transport.applyScene(
                 bpm = if (j.has("bpm")) j.getInt("bpm") else null,
-                meter = if (j.has("beats")) Meter(j.getInt("beats"), j.getInt("unit")) else null,
+                meter = if (j.has("beats") || j.has("unit")) Meter(j.optInt("beats", 4), j.optInt("unit", 4)) else null,
                 swing = if (j.has("swing")) j.getDouble("swing").toFloat() else null,
                 metro = if (j.has("metro")) j.getBoolean("metro") else null,
                 patternId = j.optString("pattern").ifEmpty { null },
                 variation = if (j.has("variation")) j.getInt("variation") else null,
-                recQuant = pick { RecQuant.valueOf(j.getString("recQuant")) },
-                chordQuant = pick { ChordQuant.valueOf(j.getString("chordQuant")) },
+                recQuant = pick { RecQuant.valueOf(j.getString("recQuant")) } ?: RecQuant.FREE,
+                chordQuant = pick { ChordQuant.valueOf(j.getString("chordQuant")) } ?: ChordQuant.OFF,
             )
         }
     }
@@ -183,7 +183,14 @@ class SceneManager(
 /** Escenas de fábrica: las 8 escenas arrancan con estos ajustes (se pueden sobrescribir). */
 object Presets {
     private fun scene(name: String, chords: String, solo: String, transport: String, kit: String = "{}") =
-        JSONObject("""{"name":"$name","chords":$chords,"solo":$solo,"transport":$transport,"kit":$kit}""")
+        JSONObject("""{"name":"$name","chords":$chords,"solo":$solo,"transport":$transport,"kit":$kit}""").also { o ->
+            // Todas las escenas de fábrica entran sin cuantizar (acordes inmediatos, grabación libre),
+            // salvo que la escena lo pida expresamente (el poliritmo mantiene "BAR").
+            o.getJSONObject("transport").apply {
+                if (!has("chordQuant")) put("chordQuant", "OFF")
+                if (!has("recQuant")) put("recQuant", "FREE")
+            }
+        }
 
     val all: List<JSONObject> = listOf(
         scene("Cadena ii–V–I · piano eléctrico",

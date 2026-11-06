@@ -353,6 +353,7 @@ void AudioEngine::getStats(double* out) const {
     out[8] = avgMs_.load();
     out[9] = maxMs_.load();
     out[13] = dropped_.load(std::memory_order_relaxed);
+    out[14] = recDropped_.load(std::memory_order_relaxed);
 }
 
 uint32_t AudioEngine::rnd() {
@@ -474,6 +475,7 @@ int AudioEngine::pollViz(double* out, int maxEvents) {
 void AudioEngine::setRecording(bool on) {
     if (on) {
         recTail_.store(recHead_.load());
+        recDropped_.store(0, std::memory_order_relaxed);
     }
     recording_.store(on, std::memory_order_release);
 }
@@ -680,7 +682,10 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*, void* aud
         const size_t t = recTail_.load(std::memory_order_acquire);
         for (int32_t i = 0; i < numFrames * 2; ++i) {
             const size_t nh = (h + 1) & (cap - 1);
-            if (nh == t) break;  // lleno: el lector no da abasto
+            if (nh == t) {  // lleno: el lector no da abasto
+                recDropped_.fetch_add(numFrames * 2 - i, std::memory_order_relaxed);
+                break;
+            }
             recBuf_[h] = out[i];
             h = nh;
         }

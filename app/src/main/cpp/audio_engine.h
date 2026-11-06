@@ -68,7 +68,7 @@ enum Param {
 class AudioEngine final : public oboe::AudioStreamDataCallback,
                           public oboe::AudioStreamErrorCallback {
 public:
-    static constexpr int kStatCount = 14;
+    static constexpr int kStatCount = 15;
 
     AudioEngine();
 
@@ -193,6 +193,7 @@ private:
     std::atomic<bool> kitLoading_{false};
     std::atomic<int64_t> kitLoadingSinceNs_{0};
     std::atomic<int64_t> warmupUntilNs_{0};
+    std::atomic<int> recDropped_{0};  // muestras de la grabación perdidas por anillo lleno
     std::atomic<int> dropped_{0};  // eventos descartados (motor parado o cola llena)
 
     std::atomic<double> lastMs_{0};

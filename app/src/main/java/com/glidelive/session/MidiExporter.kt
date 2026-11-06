@@ -6,7 +6,7 @@ import kotlin.math.roundToInt
 
 /**
  * Exporta la sesión a un archivo MIDI (formato 1): un canal por voz de acorde (0-7) con pitch bend para el glide,
- * batería en el canal 10 con el mapa General MIDI y un canal por dedo del solista (11-16).
+ * batería en el canal 10 con el mapa General MIDI y un canal por dedo del solista (11-16; el dedo 7 usa el 9 y el 8 se ignora).
  */
 object MidiExporter {
     const val PPQ = 480
@@ -32,26 +32,64 @@ object MidiExporter {
         val used = BooleanArray(16)
         var seq = 0
 
-        fun add(c: Int, t: Long, b: ByteArray) { used[c] = true; ch[c].add(Ev(t, seq++, b)) }
+        fun add(c: Int, t: Long, b: ByteArray): Ev { used[c] = true; val ev = Ev(t, seq++, b); ch[c].add(ev); return ev }
 
         // Estado por voz de acorde
         val note = IntArray(8) { -1 }
         val pitch = FloatArray(8)
+
+        /** Glide en curso de una voz: sus eventos se pueden retirar si otro evento lo interrumpe. */
+        class Glide(val t0: Double, val ms: Float, val curve: Int, val from: Float, val to: Float, val oldNote: Int, val endTick: Long) {
+            val evs = ArrayList<Ev>()
+        }
+        val pending = arrayOfNulls<Glide>(8)
+
+        fun glidePitch(g: Glide, tMs: Double): Float {
+            if (g.ms <= 0f) return g.to
+            val p = ((tMs - g.t0) / g.ms).toFloat().coerceIn(0f, 1f)
+            return g.from + (g.to - g.from) * curveK(g.curve, p)
+        }
+        fun curPitch(s: Int, tMs: Double): Float = pending[s]?.let { glidePitch(it, tMs) } ?: pitch[s]
+
+        /** Un evento nuevo en la voz: si el glide anterior no había terminado, se corta en ese instante. */
+        fun settle(s: Int, t: Long, tMs: Double) {
+            val g = pending[s] ?: return
+            pending[s] = null
+            if (t >= g.endTick) return
+            val drop = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Ev, Boolean>())
+            for (ev in g.evs) if (ev.tick > t) drop.add(ev)
+            ch[s].removeAll(drop)
+            pitch[s] = glidePitch(g, tMs)
+            note[s] = g.oldNote
+        }
+
         fun chordOff(s: Int, t: Long) { if (note[s] >= 0) { add(s, t, off(s, note[s])); note[s] = -1 } }
-        fun glide(s: Int, t0: Double, ms: Float, curve: Int, to: Float) {
+
+        /** Glide con pitch bend; al terminar se re-articula (legato) para que el bend no se sature a ±12 semitonos. */
+        fun glide(s: Int, t0: Double, ms: Float, curve: Int, to: Float, rearticulate: Boolean) {
             val from = pitch[s]
             val steps = (ms / 15f).toInt().coerceIn(1, 400)
+            val endT = tick(t0 + ms)
+            val g = Glide(t0, ms, curve, from, to, note[s], endT)
             for (i in 1..steps) {
                 val p = i.toFloat() / steps
                 val v = from + (to - from) * curveK(curve, p)
-                add(s, tick(t0 + ms * p), bend(s, note[s], v))
+                g.evs.add(add(s, tick(t0 + ms * p), bend(s, note[s], v)))
             }
             pitch[s] = to
+            val target = to.roundToInt()
+            if (rearticulate && target != note[s]) {
+                g.evs.add(add(s, endT, off(s, note[s])))
+                note[s] = target
+                g.evs.add(add(s, endT, bend(s, target, to)))
+                g.evs.add(add(s, endT, on(s, target, 80)))
+            }
+            pending[s] = g
         }
 
-        val soloNote = IntArray(6) { -1 }
-        val soloPitch = FloatArray(6)
-        val soloT = LongArray(6)
+        val soloNote = IntArray(8) { -1 }
+        val soloPitch = FloatArray(8)
+        val soloT = LongArray(8)
 
         for (e in events) {
             when (e) {
@@ -61,24 +99,32 @@ object MidiExporter {
                     val t = tick(e.tMs)
                     when (e.type) {
                         10 -> {
+                            settle(s, t, e.tMs)
                             chordOff(s, t)
                             note[s] = e.midi.roundToInt(); pitch[s] = e.midi
                             add(s, t, bend(s, note[s], e.midi)); add(s, t, on(s, note[s], 80))
                         }
                         11, 13 -> {
+                            settle(s, t, e.tMs)
                             if (note[s] < 0) { note[s] = e.midi.roundToInt(); pitch[s] = e.midi; add(s, t, on(s, note[s], 80)) }
-                            else glide(s, e.tMs, e.glideMs, e.curve, e.midi)
-                            if (e.type == 13) chordOff(s, tick(e.tMs + e.glideMs))
+                            else glide(s, e.tMs, e.glideMs, e.curve, e.midi, rearticulate = e.type == 11)
+                            if (e.type == 13 && note[s] >= 0) {
+                                val endT = tick(e.tMs + e.glideMs)
+                                val g = pending[s] ?: Glide(e.tMs, e.glideMs, e.curve, pitch[s], e.midi, note[s], endT).also { pending[s] = it }
+                                g.evs.add(add(s, endT, off(s, note[s])))
+                                note[s] = -1
+                            }
                         }
                         12 -> {
-                            val src = if (e.fromSlot in 0..7 && note[e.fromSlot] >= 0) pitch[e.fromSlot] else e.midi
+                            val src = if (e.fromSlot in 0..7 && note[e.fromSlot] >= 0) curPitch(e.fromSlot, e.tMs) else e.midi
+                            settle(s, t, e.tMs)
                             chordOff(s, t)
                             note[s] = src.roundToInt(); pitch[s] = src
                             add(s, t, bend(s, note[s], src)); add(s, t, on(s, note[s], 80))
-                            glide(s, e.tMs, e.glideMs, e.curve, e.midi)
+                            glide(s, e.tMs, e.glideMs, e.curve, e.midi, rearticulate = true)
                         }
-                        14 -> chordOff(s, t)
-                        15 -> for (i in 0..7) chordOff(i, t)
+                        14 -> { settle(s, t, e.tMs); chordOff(s, t) }
+                        15 -> for (i in 0..7) { settle(i, t, e.tMs); chordOff(i, t) }
                     }
                 }
                 is LogEv.Drum -> {
@@ -88,8 +134,9 @@ object MidiExporter {
                     add(9, t + PPQ / 8, off(9, n))
                 }
                 is LogEv.Solo -> {
-                    val i = e.idx.coerceIn(0, 5)
-                    val c = 10 + i
+                    val i = e.idx
+                    // Dedos 0-5 -> canales 11-16; el dedo 6 usa el canal 9 (libre); el 7 no cabe y se ignora.
+                    val c = when (i) { in 0..5 -> 10 + i; 6 -> 8; else -> continue }
                     val t = tick(e.tMs)
                     when (e.kind) {
                         0 -> {
@@ -97,8 +144,14 @@ object MidiExporter {
                             soloNote[i] = e.midi.roundToInt(); soloPitch[i] = e.midi
                             add(c, t, bend(c, soloNote[i], e.midi)); add(c, t, on(c, soloNote[i], 90)); soloT[i] = t
                         }
-                        1 -> if (soloNote[i] >= 0 && t - soloT[i] >= PPQ / 40 && abs(e.midi - soloPitch[i]) > 0.03f) {
-                            add(c, t, bend(c, soloNote[i], e.midi)); soloPitch[i] = e.midi; soloT[i] = t
+                        1 -> if (soloNote[i] >= 0) {
+                            if (abs(e.midi - soloNote[i]) > 11f) {  // el bend se saturaría: re-articular legato
+                                add(c, t, off(c, soloNote[i]))
+                                soloNote[i] = e.midi.roundToInt(); soloPitch[i] = e.midi
+                                add(c, t, bend(c, soloNote[i], e.midi)); add(c, t, on(c, soloNote[i], 90)); soloT[i] = t
+                            } else if (t - soloT[i] >= PPQ / 40 && abs(e.midi - soloPitch[i]) > 0.03f) {
+                                add(c, t, bend(c, soloNote[i], e.midi)); soloPitch[i] = e.midi; soloT[i] = t
+                            }
                         }
                         2 -> if (soloNote[i] >= 0) { add(c, t, off(c, soloNote[i])); soloNote[i] = -1 }
                     }
@@ -107,7 +160,7 @@ object MidiExporter {
         }
         val endTick = (ch.maxOf { l -> l.maxOfOrNull { it.tick } ?: 0L }) + PPQ
         for (s in 0..7) chordOff(s, endTick)
-        for (i in 0..5) if (soloNote[i] >= 0) add(10 + i, endTick, off(10 + i, soloNote[i]))
+        for (i in 0..6) if (soloNote[i] >= 0) add(if (i == 6) 8 else 10 + i, endTick, off(if (i == 6) 8 else 10 + i, soloNote[i]))
 
         val out = ByteArrayOutputStream()
         fun u16(v: Int) { out.write(v shr 8); out.write(v) }

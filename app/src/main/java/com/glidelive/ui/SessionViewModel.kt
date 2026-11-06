@@ -50,6 +50,11 @@ class SessionViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** La app pasa a segundo plano: se cierra la grabación para que los archivos queden completos. */
+    fun stopIfRecording(bpm: Int) {
+        if (recorder.isRecording) toggleRecord(bpm, 0)
+    }
+
     fun share(file: File, mime: String) {
         val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
         val send = Intent(Intent.ACTION_SEND).setType(mime).putExtra(Intent.EXTRA_STREAM, uri)
