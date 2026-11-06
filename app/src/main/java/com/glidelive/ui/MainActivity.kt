@@ -127,18 +127,19 @@ class MainActivity : ComponentActivity() {
                                         }
                                         Mode.SOLISTA -> SoloHost(soloVm, Modifier.weight(1f))
                                         Mode.BATERIA -> DrumsHost(kit.pressure, Modifier.weight(1f))
-                                        Mode.MIXTO -> if (shortScreen) {
-                                            // Poca altura: acordes y batería lado a lado en vez de apilados.
-                                            Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                ChordsScreen(chordsVm, compact = true, Modifier.weight(1f))
-                                                if (soloLayer) SoloHost(soloVm, Modifier.weight(0.8f))
-                                                DrumsHost(kit.pressure, Modifier.weight(1f))
-                                            }
-                                        } else {
-                                            ChordsScreen(chordsVm, compact = true, Modifier.weight(1f))
-                                            if (soloLayer) SoloHost(soloVm, Modifier.weight(0.8f))
-                                            DrumsHost(kit.pressure, Modifier.weight(1f))
-                                        }
+                                        Mode.DUO -> PerformScreen(
+                                            chordsVm, soloVm, kit.pressure,
+                                            viz = true, chords = true, solo = true, drums = false,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        // Un solo contenedor multitouch; con poca altura, las superficies van lado a lado.
+                                        Mode.MIXTO -> PerformScreen(
+                                            chordsVm, soloVm, kit.pressure,
+                                            viz = false, chords = true, solo = soloLayer, drums = true,
+                                            modifier = Modifier.weight(1f),
+                                            horizontal = shortScreen,
+                                            showSoloControls = soloLayer,
+                                        )
                                     }
                                 }
                                 if (panel && !fullscreen) {
@@ -183,7 +184,7 @@ class MainActivity : ComponentActivity() {
 }
 
 enum class Mode(val label: String) {
-    ACORDES("Acordes"), VOCES("Voces"), SOLISTA("Solista"), BATERIA("Batería"), MIXTO("Mixto")
+    ACORDES("Acordes"), VOCES("Voces"), DUO("Voces + Solista"), SOLISTA("Solista"), BATERIA("Batería"), MIXTO("Mixto")
 }
 
 @Composable
