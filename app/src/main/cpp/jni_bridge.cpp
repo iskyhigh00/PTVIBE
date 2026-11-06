@@ -51,6 +51,27 @@ Java_com_glidelive_audio_NativeEngine_nativeSoloSet(JNIEnv*, jobject, jint idx, 
 }
 
 JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeKitBegin(JNIEnv*, jobject) { g_engine.kitBegin(); }
+
+JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeKitSet(JNIEnv* env, jobject, jint pad, jint layer,
+                                                   jint variant, jfloatArray data, jint channels,
+                                                   jint rate) {
+    const jsize n = env->GetArrayLength(data);
+    jfloat* p = env->GetFloatArrayElements(data, nullptr);
+    g_engine.kitSet(pad, layer, variant, p, n / (channels > 0 ? channels : 1), channels, rate);
+    env->ReleaseFloatArrayElements(data, p, JNI_ABORT);
+}
+
+JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeKitCommit(JNIEnv*, jobject) { g_engine.kitCommit(); }
+
+JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeKitUseSampled(JNIEnv*, jobject, jboolean sampled) {
+    g_engine.kitUseSampled(sampled);
+}
+
+JNIEXPORT void JNICALL
 Java_com_glidelive_audio_NativeEngine_nativeSetBursts(JNIEnv*, jobject, jint bursts) {
     g_engine.setBursts(bursts);
 }

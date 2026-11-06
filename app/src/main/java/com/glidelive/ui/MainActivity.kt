@@ -52,6 +52,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.glidelive.audio.KitLoader
+import com.glidelive.audio.KitState
 import com.glidelive.audio.NativeEngine
 
 class MainActivity : ComponentActivity() {
@@ -247,6 +249,21 @@ private fun KitPanel(vm: EngineViewModel) {
             Text("Sensible a la fuerza del toque")
             Switch(checked = k.pressure, onCheckedChange = { v -> vm.editKit { it.copy(pressure = v) } })
         }
+        val kitState by KitLoader.state.collectAsState()
+        Text(
+            when (val ks = kitState) {
+                is KitState.Loading -> "Cargando kit acústico… ${ks.percent}%"
+                KitState.Ready -> "Kit acústico cargado"
+                KitState.Missing -> "Kit sintético (no se encontraron muestras)"
+                KitState.Idle -> ""
+            },
+            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary,
+        )
+        Text(
+            "Muestras: MuldjordKit de Lars Muldjord (licencia CC BY 4.0), versión SFZ de kinwie. " +
+                "Recortadas y mezcladas a estéreo para esta app.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Text("Volumen de cada pad", style = MaterialTheme.typography.titleSmall)
         for (i in 0 until Pads.COUNT) {
             LabeledSlider(Pads.names[i].replace("\n", " "), k.padVolume[i], 0f..1.5f) { v ->

@@ -72,6 +72,12 @@ object NativeEngine {
     const val P_GLIDE_MS = 29
     const val P_GLIDE_CURVE = 30
 
+    fun kitBegin() = nativeKitBegin()
+    fun kitSet(pad: Int, layer: Int, variant: Int, data: FloatArray, channels: Int, rate: Int) =
+        nativeKitSet(pad, layer, variant, data, channels, rate)
+    fun kitCommit() = nativeKitCommit()
+    fun kitUseSampled(on: Boolean) = nativeKitUseSampled(on)
+
     fun level(): Float = nativeGetLevel()
 
     fun setBursts(n: Int) = nativeSetBursts(n)
@@ -103,6 +109,10 @@ object NativeEngine {
     private external fun nativeChoke(pad: Int, eventNs: Long)
     private external fun nativeSetParam(id: Int, value: Float)
     private external fun nativeSynthCmd(type: Int, a: Int, b: Int, f: Float)
+    private external fun nativeKitBegin()
+    private external fun nativeKitSet(pad: Int, layer: Int, variant: Int, data: FloatArray, channels: Int, rate: Int)
+    private external fun nativeKitCommit()
+    private external fun nativeKitUseSampled(on: Boolean)
     private external fun nativeGetLevel(): Float
     private external fun nativeSoloSet(idx: Int, pitch: Float, filter: Float, vib: Float, vol: Float)
     private external fun nativeSetBursts(bursts: Int)

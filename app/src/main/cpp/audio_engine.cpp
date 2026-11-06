@@ -69,9 +69,15 @@ bool AudioEngine::openAndStart() {
     if (b.openStream(s) != oboe::Result::OK || !s) return false;
 
     sr_ = s->getSampleRate();
-    if (kitRate_ != sr_) {
-        buildSynthKit(sr_, kit_);  // stream aún parado: seguro
+    if (synthKit_ == nullptr || kitRate_ != sr_) {
+        auto k = std::make_unique<Kit>();
+        buildSynthKit(sr_, k->samples);  // stream aún parado: seguro
+        for (auto& smp : k->samples) smp.rate = sr_;
+        const bool wasActiveSynth = active_.load() == nullptr || active_.load() == synthKit_;
+        synthKit_ = k.get();
+        kits_.push_back(std::move(k));
         kitRate_ = sr_;
+        if (wasActiveSynth) active_.store(synthKit_, std::memory_order_release);
     }
     drumRoom_.init(sr_);
     synth_.init(sr_);
@@ -129,6 +135,39 @@ void AudioEngine::autoTune() {
         applyBursts();
     }
     lastXruns_ = r.value();
+}
+
+void AudioEngine::kitBegin() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    pending_ = std::make_unique<Kit>();
+    pending_->samples.resize(kPadCount * kLayers * kVariants);
+    pending_->sampled = true;
+}
+
+void AudioEngine::kitSet(int pad, int layer, int variant, const float* data, int frames,
+                         int channels, int rate) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!pending_ || pad < 0 || pad >= kPadCount || layer < 0 || layer >= kLayers || variant < 0 ||
+        variant >= kVariants || channels < 1 || channels > 2)
+        return;
+    Sample& s = pending_->samples[sampleIndex(pad, layer, variant)];
+    s.data.assign(data, data + static_cast<size_t>(frames) * channels);
+    s.channels = channels;
+    s.rate = rate;
+}
+
+void AudioEngine::kitCommit() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!pending_) return;
+    sampledKit_ = pending_.get();
+    kits_.push_back(std::move(pending_));
+    active_.store(sampledKit_, std::memory_order_release);
+}
+
+void AudioEngine::kitUseSampled(bool sampled) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const Kit* k = sampled ? sampledKit_ : synthKit_;
+    if (k) active_.store(k, std::memory_order_release);
 }
 
 void AudioEngine::setParam(int id, float value) {
@@ -242,7 +281,8 @@ void AudioEngine::chokeVoices(int pad, int group, float frames) {
 
 void AudioEngine::startVoice(const PadEvent& ev, int64_t now) {
     const int pad = ev.a;
-    if (pad < 0 || pad >= kPadCount || kit_.empty()) return;
+    const Kit* kit = active_.load(std::memory_order_acquire);
+    if (pad < 0 || pad >= kPadCount || kit == nullptr) return;
 
     if (ev.type == 1) {  // choke manual de platos
         chokeVoices(pad, 0, 0.02f * sr_);
@@ -267,10 +307,18 @@ void AudioEngine::startVoice(const PadEvent& ev, int64_t now) {
     }
 
     const float vel = std::max(0.0f, std::min(ev.f, 1.0f));
-    const int layer = vel < 0.4f ? 0 : (vel < 0.75f ? 1 : 2);
-    const int variant = (lastVariant_[pad] + 1 + static_cast<int>(rnd() % (kVariants - 1))) % kVariants;
+    const bool real = kit->sampled;
+    const int layer = real ? (vel < 0.3f ? 0 : (vel < 0.7f ? 1 : 2)) : (vel < 0.4f ? 0 : (vel < 0.75f ? 1 : 2));
+    int variant = (lastVariant_[pad] + 1 + static_cast<int>(rnd() % (kVariants - 1))) % kVariants;
+    if (kit->samples[sampleIndex(pad, layer, variant)].data.empty()) {
+        variant = -1;
+        for (int v = 0; v < kVariants; ++v)
+            if (!kit->samples[sampleIndex(pad, layer, v)].data.empty()) { variant = v; break; }
+        if (variant < 0) return;
+    }
     lastVariant_[pad] = variant;
-    static const float nominal[kLayers] = {0.35f, 0.65f, 1.0f};
+    static const float nominalSynth[kLayers] = {0.35f, 0.65f, 1.0f};
+    static const float centerReal[kLayers] = {0.15f, 0.5f, 0.9f};
 
     Voice* slot = nullptr;
     for (auto& v : voices_) {
@@ -289,12 +337,16 @@ void AudioEngine::startVoice(const PadEvent& ev, int64_t now) {
     else if (pad >= 6 && pad <= 8) tune = param(kTomTune);
 
     const float human = 1.0f + (static_cast<int>(rnd() % 1000) - 500) * 0.00005f;
-    const Sample& s = kit_[sampleIndex(pad, layer, variant)];
+    const Sample& s = kit->samples[sampleIndex(pad, layer, variant)];
     slot->data = s.data.data();
-    slot->length = static_cast<int32_t>(s.data.size());
+    slot->ch = s.channels;
+    slot->length = s.frames();
     slot->pos = 0;
-    slot->rate = tune == 0 ? 1.0f : std::exp2(tune / 12.0f);
-    slot->gain = (vel / nominal[layer]) * human * param(kPadVol + pad);
+    const float ratio = s.rate > 0 ? static_cast<float>(s.rate) / sr_ : 1.0f;
+    slot->rate = (tune == 0 ? 1.0f : std::exp2(tune / 12.0f)) * ratio;
+    float g = real ? std::min(1.6f, std::max(0.35f, std::pow(vel / centerReal[layer], 0.6f)))
+                   : vel / nominalSynth[layer];
+    slot->gain = g * human * param(kPadVol + pad);
     slot->env = 1.0f;
     slot->envStep = 0;
     slot->pad = pad;
@@ -319,9 +371,16 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*, void* aud
             const int32_t i0 = static_cast<int32_t>(v.pos);
             if (i0 + 1 >= v.length) { v.active = false; break; }
             const float fr = static_cast<float>(v.pos - i0);
-            const float s = (d[i0] + (d[i0 + 1] - d[i0]) * fr) * v.gain * v.env;
-            out[2 * i] += s;
-            out[2 * i + 1] += s;
+            const float g = v.gain * v.env;
+            if (v.ch == 2) {
+                const float* a = d + 2 * i0;
+                out[2 * i] += (a[0] + (a[2] - a[0]) * fr) * g;
+                out[2 * i + 1] += (a[1] + (a[3] - a[1]) * fr) * g;
+            } else {
+                const float s = (d[i0] + (d[i0 + 1] - d[i0]) * fr) * g;
+                out[2 * i] += s;
+                out[2 * i + 1] += s;
+            }
             v.pos += v.rate;
             if (v.envStep > 0) {
                 v.env -= v.envStep;

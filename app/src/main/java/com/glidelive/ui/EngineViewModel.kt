@@ -5,6 +5,7 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.glidelive.audio.KitLoader
 import com.glidelive.audio.LatencyStats
 import com.glidelive.audio.NativeEngine
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +44,7 @@ class EngineViewModel(app: Application) : AndroidViewModel(app) {
     val level = MutableStateFlow(0f)
 
     init {
+        viewModelScope.launch { KitLoader.load(app) }
         viewModelScope.launch(Dispatchers.Default) {
             while (isActive) {
                 level.value = NativeEngine.level()

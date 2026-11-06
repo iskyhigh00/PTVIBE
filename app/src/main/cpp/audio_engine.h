@@ -58,6 +58,12 @@ public:
     void trigger(int pad, float velocity, int64_t eventNs);
     void choke(int pad, int64_t eventNs);
     void setParam(int id, float value);
+
+    // Carga de kits (hilo de fondo): el hilo de audio solo lee un puntero atómico.
+    void kitBegin();
+    void kitSet(int pad, int layer, int variant, const float* data, int frames, int channels, int rate);
+    void kitCommit();
+    void kitUseSampled(bool sampled);
     void synthCmd(int type, int a, int b, float f);
     void soloSet(int idx, float pitch, float filter, float vib, float vol) {
         synth_.setSolo(idx, pitch, filter, vib, vol);
@@ -76,7 +82,8 @@ public:
 private:
     struct Voice {
         const float* data = nullptr;
-        int32_t length = 0;
+        int32_t length = 0;   // en cuadros
+        int32_t ch = 1;
         double pos = 0;
         float rate = 1.0f;
         float gain = 0;
@@ -100,7 +107,11 @@ private:
 
     mutable std::mutex mutex_;  // solo ciclo de vida/estadísticas, nunca en el callback
     std::shared_ptr<oboe::AudioStream> stream_;
-    std::vector<Sample> kit_;
+    std::vector<std::unique_ptr<Kit>> kits_;  // nunca se liberan mientras vive el motor
+    std::unique_ptr<Kit> pending_;
+    const Kit* synthKit_ = nullptr;
+    const Kit* sampledKit_ = nullptr;
+    std::atomic<const Kit*> active_{nullptr};
     int kitRate_ = 0;
     int sr_ = 48000;
     SpscQueue<PadEvent, kQueueSize> queue_;
