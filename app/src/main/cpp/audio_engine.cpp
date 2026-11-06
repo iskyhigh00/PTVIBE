@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <climits>
 #include <cmath>
+#include <chrono>
 #include <ctime>
 
 namespace {
@@ -52,12 +53,18 @@ AudioEngine::AudioEngine() {
 }
 
 bool AudioEngine::start() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (stream_) return true;
-    return openAndStart();
+    wantRunning_.store(true, std::memory_order_release);
+    std::lock_guard<std::mutex> life(lifeMutex_);
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (stream_) return true;
+    }
+    return openAndStart(false);
 }
 
-bool AudioEngine::openAndStart() {
+// Se llama con lifeMutex_ tomado. mutex_ solo se toma en tramos cortos: la generación del kit sintético
+// (lenta) y la apertura del stream ocurren sin él, así que las estadísticas y los ajustes no se bloquean.
+bool AudioEngine::openAndStart(bool reopen) {
     oboe::AudioStreamBuilder b;
     b.setDirection(oboe::Direction::Output)
         ->setPerformanceMode(oboe::PerformanceMode::LowLatency)
@@ -73,51 +80,71 @@ bool AudioEngine::openAndStart() {
     std::shared_ptr<oboe::AudioStream> s;
     if (b.openStream(s) != oboe::Result::OK || !s) return false;
 
-    sr_ = s->getSampleRate();
-    if (synthKit_ == nullptr || kitRate_ != sr_) {
-        auto k = std::make_unique<Kit>();
-        buildSynthKit(sr_, k->samples);  // stream aún parado: seguro
-        for (auto& smp : k->samples) smp.rate = sr_;
-        const bool wasActiveSynth = active_.load() == nullptr || active_.load() == synthKit_;
-        synthKit_ = k.get();
-        kits_.push_back(std::move(k));
-        kitRate_ = sr_;
-        if (wasActiveSynth) active_.store(synthKit_, std::memory_order_release);
+    const int rate = s->getSampleRate();
+    bool needKit;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        needKit = synthKit_ == nullptr || kitRate_ != rate;
     }
-    drumRoom_.init(sr_);
-    synth_.init(sr_);
-    seq_.init(sr_);
-    {  // clics del metrónomo
-        auto make = [&](Sample& s, float f, float dur) {
-            const int n = static_cast<int>(sr_ * dur);
-            s.data.resize(n);
-            for (int i = 0; i < n; ++i) {
-                const float t = static_cast<float>(i) / sr_;
-                s.data[i] = std::sin(6.2831853f * f * t) * std::exp(-t * 180.0f) * 0.8f;
-            }
-            s.channels = 1;
-            s.rate = sr_;
-        };
-        make(clickAcc_, 1700.0f, 0.04f);
-        make(clickNorm_, 1000.0f, 0.03f);
+    std::unique_ptr<Kit> newKit;
+    if (needKit) {  // fuera de mutex_; el stream aún no está en marcha
+        newKit = std::make_unique<Kit>();
+        buildSynthKit(rate, newKit->samples);
+        for (auto& smp : newKit->samples) smp.rate = rate;
     }
-    compEnv_ = 0;
-    for (auto& v : voices_) v = Voice();
-    stream_ = s;
-    mmap_ = oboe::OboeExtensions::isMMapUsed(s.get());
-    lastXruns_ = 0;
-    applyBursts();
-    running_.store(true, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        sr_ = rate;
+        if (newKit) {
+            const bool wasActiveSynth = active_.load() == nullptr || active_.load() == synthKit_;
+            synthKit_ = newKit.get();
+            kits_.push_back(std::move(newKit));
+            kitRate_ = rate;
+            if (wasActiveSynth) active_.store(synthKit_, std::memory_order_release);
+        }
+        drumRoom_.init(sr_);
+        synth_.init(sr_);
+        seq_.init(sr_);
+        {  // clics del metrónomo
+            auto make = [&](Sample& smp, float f, float dur) {
+                const int n = static_cast<int>(sr_ * dur);
+                smp.data.resize(n);
+                for (int i = 0; i < n; ++i) {
+                    const float t = static_cast<float>(i) / sr_;
+                    smp.data[i] = std::sin(6.2831853f * f * t) * std::exp(-t * 180.0f) * 0.8f;
+                }
+                smp.channels = 1;
+                smp.rate = sr_;
+            };
+            make(clickAcc_, 1700.0f, 0.04f);
+            make(clickNorm_, 1000.0f, 0.03f);
+        }
+        compEnv_ = 0;
+        for (auto& v : voices_) v = Voice();
+        for (auto& cv : clicks_) cv = ClickVoice();
+        stream_ = s;
+        mmap_ = oboe::OboeExtensions::isMMapUsed(s.get());
+        lastXruns_ = 0;
+        quietTicks_ = 0;
+        if (reopen) bursts_.store(2);
+        applyBursts();
+        running_.store(true, std::memory_order_release);
+    }
+    // Los xruns de los primeros ~3 s (arranque del stream) no cuentan para el ajuste automático.
+    warmupUntilNs_.store(nowNs() + 3000000000LL, std::memory_order_relaxed);
     if (s->requestStart() != oboe::Result::OK) {
+        std::lock_guard<std::mutex> lock(mutex_);
         running_.store(false);
-        s->close();
         stream_.reset();
+        s->close();
         return false;
     }
     return true;
 }
 
 void AudioEngine::stop() {
+    wantRunning_.store(false, std::memory_order_release);
+    std::lock_guard<std::mutex> life(lifeMutex_);
     std::shared_ptr<oboe::AudioStream> s;
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -127,6 +154,32 @@ void AudioEngine::stop() {
     if (s) {
         s->stop();
         s->close();
+    }
+    // Sin hilo de audio: descartar lo que quedó en la cola para que no suene al reabrir.
+    PadEvent ev;
+    while (queue_.pop(ev)) {}
+}
+
+void AudioEngine::reopenAsync() {
+    if (reopening_.exchange(true)) return;
+    try {
+        std::thread([this] {
+            static const int delaysMs[5] = {0, 100, 250, 500, 1000};
+            for (int i = 0; i < 5; ++i) {
+                if (delaysMs[i] > 0) std::this_thread::sleep_for(std::chrono::milliseconds(delaysMs[i]));
+                if (!wantRunning_.load(std::memory_order_acquire)) break;
+                std::lock_guard<std::mutex> life(lifeMutex_);
+                if (!wantRunning_.load(std::memory_order_acquire)) break;
+                {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    if (stream_) break;  // alguien (start()) ya lo reabrió
+                }
+                if (openAndStart(true)) break;
+            }
+            reopening_.store(false);
+        }).detach();
+    } catch (...) {
+        reopening_.store(false);
     }
 }
 
@@ -150,11 +203,29 @@ void AudioEngine::autoTune() {
     if (!stream_) return;
     auto r = stream_->getXRunCount();
     if (!r) return;
-    if (r.value() > lastXruns_ && bursts_.load() < 4) {
-        bursts_.fetch_add(1);
-        applyBursts();
+    const int64_t now = nowNs();
+    const int x = r.value();
+    // Arranque del stream o carga del kit (hasta 20 s): los xruns no son representativos.
+    const bool loading = kitLoading_.load(std::memory_order_relaxed) &&
+                         now - kitLoadingSinceNs_.load(std::memory_order_relaxed) < 20000000000LL;
+    if (now < warmupUntilNs_.load(std::memory_order_relaxed) || loading) {
+        lastXruns_ = x;
+        quietTicks_ = 0;
+        return;
     }
-    lastXruns_ = r.value();
+    const int minBursts = mmap_ ? 1 : 2;
+    if (x > lastXruns_) {
+        bursts_.store(std::min(bursts_.load() + 1, 4));
+        applyBursts();
+        quietTicks_ = 0;
+    } else if (++quietTicks_ >= 120) {  // ~30 s sin xruns (sondeo cada 250 ms)
+        quietTicks_ = 0;
+        if (bursts_.load() > minBursts) {
+            bursts_.store(bursts_.load() - 1);
+            applyBursts();
+        }
+    }
+    lastXruns_ = x;
 }
 
 void AudioEngine::kitBegin() {
@@ -162,6 +233,8 @@ void AudioEngine::kitBegin() {
     pending_ = std::make_unique<Kit>();
     pending_->samples.resize(kPadCount * kLayers * kVariants);
     pending_->sampled = true;
+    kitLoadingSinceNs_.store(nowNs(), std::memory_order_relaxed);
+    kitLoading_.store(true, std::memory_order_relaxed);
 }
 
 void AudioEngine::kitSet(int pad, int layer, int variant, const float* data, int frames,
@@ -178,6 +251,7 @@ void AudioEngine::kitSet(int pad, int layer, int variant, const float* data, int
 
 void AudioEngine::kitCommit() {
     std::lock_guard<std::mutex> lock(mutex_);
+    kitLoading_.store(false, std::memory_order_relaxed);
     if (!pending_) return;
     sampledKit_ = pending_.get();
     kits_.push_back(std::move(pending_));
@@ -207,32 +281,32 @@ void AudioEngine::setParam(int id, float value) {
 }
 
 void AudioEngine::trigger(int pad, float velocity, int64_t eventNs) {
-    if (!running_.load(std::memory_order_acquire)) return;
+    if (!running_.load(std::memory_order_acquire)) { dropped_.fetch_add(1, std::memory_order_relaxed); return; }
     PadEvent ev;
     ev.type = 0;
     ev.a = pad;
     ev.f = velocity;
     ev.eventNs = eventNs > 0 ? eventNs : nowNs();
-    queue_.push(ev);
+    if (!queue_.push(ev)) dropped_.fetch_add(1, std::memory_order_relaxed);
 }
 
 void AudioEngine::choke(int pad, int64_t eventNs) {
-    if (!running_.load(std::memory_order_acquire)) return;
+    if (!running_.load(std::memory_order_acquire)) { dropped_.fetch_add(1, std::memory_order_relaxed); return; }
     PadEvent ev;
     ev.type = 1;
     ev.a = pad;
     ev.eventNs = eventNs > 0 ? eventNs : nowNs();
-    queue_.push(ev);
+    if (!queue_.push(ev)) dropped_.fetch_add(1, std::memory_order_relaxed);
 }
 
 void AudioEngine::synthCmd(int type, int a, int b, float f) {
-    if (!running_.load(std::memory_order_acquire)) return;
+    if (!running_.load(std::memory_order_acquire)) { dropped_.fetch_add(1, std::memory_order_relaxed); return; }
     PadEvent ev;
     ev.type = type;
     ev.a = a;
     ev.b = b;
     ev.f = f;
-    queue_.push(ev);
+    if (!queue_.push(ev)) dropped_.fetch_add(1, std::memory_order_relaxed);
 }
 
 SynthParams AudioEngine::synthParams() const {
@@ -278,6 +352,7 @@ void AudioEngine::getStats(double* out) const {
     out[7] = lastMs_.load();
     out[8] = avgMs_.load();
     out[9] = maxMs_.load();
+    out[13] = dropped_.load(std::memory_order_relaxed);
 }
 
 uint32_t AudioEngine::rnd() {
@@ -382,6 +457,7 @@ void AudioEngine::getSeqStatus(double* out) const {
     out[6] = seq_.chordEventCount.load();
     out[7] = static_cast<double>(seq_.patLocalTick.load());
     out[8] = seq_.patternEnabled() ? 1 : 0;
+    out[9] = seq_.hasDeferred() ? 1 : 0;
 }
 
 int AudioEngine::pollViz(double* out, int maxEvents) {
@@ -460,7 +536,7 @@ void AudioEngine::triggerDrum(int pad, float velocity, int delayFrames) {
     }
     lastVariant_[pad] = variant;
     static const float nominalSynth[kLayers] = {0.35f, 0.65f, 1.0f};
-    static const float centerReal[kLayers] = {0.15f, 0.5f, 0.9f};
+    static const float centerReal[kLayers] = {0.12f, 0.5f, 0.9f};
 
     Voice* slot = nullptr;
     for (auto& v : voices_) {
@@ -614,10 +690,15 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*, void* aud
     return oboe::DataCallbackResult::Continue;
 }
 
-void AudioEngine::onErrorAfterClose(oboe::AudioStream*, oboe::Result) {
-    // Desconexión (p. ej. auriculares): reabrir fuera del callback.
-    std::lock_guard<std::mutex> lock(mutex_);
-    stream_.reset();
-    running_.store(false);
-    openAndStart();
+void AudioEngine::onErrorAfterClose(oboe::AudioStream* stream, oboe::Result error) {
+    // Desconexión (p. ej. auriculares): reabrir en un hilo propio, con reintentos, fuera del callback.
+    if (!wantRunning_.load(std::memory_order_acquire) || error != oboe::Result::ErrorDisconnected) return;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (stream_.get() == stream) {
+            running_.store(false, std::memory_order_release);
+            stream_.reset();
+        }
+    }
+    reopenAsync();
 }

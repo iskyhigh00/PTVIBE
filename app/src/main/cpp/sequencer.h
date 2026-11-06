@@ -57,10 +57,11 @@ public:
     std::atomic<int64_t> patLocalTick{0};  // posición dentro del patrón actual
     std::atomic<int> drumEventCount{0};
     std::atomic<int> chordEventCount{0};
+    std::atomic<int> deferredCount{0};     // acordes en espera de la cuantización
 
     void init(int sampleRate) { sr_ = sampleRate; }
 
-    /** Cambia el patrón (doble buffer). restart: reinicia desde el compás 1. oneShot: suena una vez. */
+    /** Cambia el patrón (triple buffer; llamar desde un único hilo a la vez). restart: reinicia desde el compás 1. oneShot: suena una vez. */
     void setPattern(const int32_t* ticks, const int32_t* pads, const float* vels, int n,
                     int lengthTicks, bool restart, bool oneShot);
 
@@ -77,6 +78,7 @@ public:
     double tickPos() const { return tickPos_; }
     bool patternEnabled() const { return patEnabled_.load(std::memory_order_relaxed); }
 
+    bool hasDeferred() const { return deferredCount.load(std::memory_order_relaxed) > 0; }
     int drumLen() const { return drumLen_; }
     int chordLen() const { return chordLen_; }
 
@@ -87,7 +89,34 @@ private:
         int length = kPPQ * 4;
         bool oneShot = false;
     };
+    /** Triple buffer: el productor (UI, serializado) siempre escribe en un índice libre. */
+    struct PatSet {
+        PatBuf buf[3];
+        std::atomic<int> cur{0};
+        std::atomic<int> reading{-1};
+        int pickFree() const {
+            const int c = cur.load(std::memory_order_seq_cst);
+            const int r = reading.load(std::memory_order_seq_cst);
+            for (int i = 0; i < 3; ++i)
+                if (i != c && i != r) return i;
+            return (c + 1) % 3;  // inalcanzable: solo hay 2 índices ocupados como máximo
+        }
+        void publish(int i) { cur.store(i, std::memory_order_seq_cst); }
+        const PatBuf& acquire() {  // hilo de audio
+            int c;
+            do {
+                c = cur.load(std::memory_order_seq_cst);
+                reading.store(c, std::memory_order_seq_cst);
+            } while (c != cur.load(std::memory_order_seq_cst));
+            return buf[c];
+        }
+    };
     struct Deferred { LoopEvent e; double tick; };
+
+    int barTicks() const {
+        return std::max(1, beatsPerBar.load(std::memory_order_relaxed)) * kPPQ * 4 /
+               std::max(1, beatUnit.load(std::memory_order_relaxed));
+    }
 
     int shiftFor(int tick) const;
     void runPattern(const PatBuf& p, double origin, bool wrap, double ta, double tb, double t0,
@@ -100,12 +129,11 @@ private:
 
     int sr_ = 48000;
     double tickPos_ = 0;
-    PatBuf pat_[2];
-    std::atomic<int> cur_{0};
+    PatSet pat_;
+    PatSet end_;
     std::atomic<bool> patRestart_{false};
     std::atomic<bool> patOneShotArm_{false};
     std::atomic<bool> patEnabled_{false};
-    PatBuf end_;
     bool endArmed_ = false;
     bool endActive_ = false;
     double patOrigin_ = 0;

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <vector>
 #include "chord_synth.h"
 #include "dsp.h"
@@ -67,7 +68,7 @@ enum Param {
 class AudioEngine final : public oboe::AudioStreamDataCallback,
                           public oboe::AudioStreamErrorCallback {
 public:
-    static constexpr int kStatCount = 13;
+    static constexpr int kStatCount = 14;
 
     AudioEngine();
 
@@ -136,7 +137,8 @@ private:
     static constexpr int kMaxVoices = 48;
     static constexpr int kQueueSize = 512;
 
-    bool openAndStart();
+    bool openAndStart(bool reopen);
+    void reopenAsync();
     void applyBursts();
     void handleEvent(const PadEvent& ev, int64_t nowNs);
     void startVoice(const PadEvent& ev, int64_t nowNs);
@@ -149,7 +151,8 @@ private:
     float param(int id) const { return params_[id].load(std::memory_order_relaxed); }
     uint32_t rnd();
 
-    mutable std::mutex mutex_;  // solo ciclo de vida/estadísticas, nunca en el callback
+    mutable std::mutex mutex_;      // estado compartido (stream_, kits, estadísticas), nunca en el callback
+    std::mutex lifeMutex_;          // serializa start/stop/reapertura (la apertura puede tardar)
     std::shared_ptr<oboe::AudioStream> stream_;
     std::vector<std::unique_ptr<Kit>> kits_;  // nunca se liberan mientras vive el motor
     std::unique_ptr<Kit> pending_;
@@ -181,9 +184,16 @@ private:
 
     std::atomic<float> level_{0};
     std::atomic<bool> running_{false};
-    std::atomic<int> bursts_{1};
+    std::atomic<int> bursts_{2};
     int lastXruns_ = 0;
+    int quietTicks_ = 0;
     bool mmap_ = false;
+    std::atomic<bool> wantRunning_{false};
+    std::atomic<bool> reopening_{false};
+    std::atomic<bool> kitLoading_{false};
+    std::atomic<int64_t> kitLoadingSinceNs_{0};
+    std::atomic<int64_t> warmupUntilNs_{0};
+    std::atomic<int> dropped_{0};  // eventos descartados (motor parado o cola llena)
 
     std::atomic<double> lastMs_{0};
     std::atomic<double> avgMs_{0};

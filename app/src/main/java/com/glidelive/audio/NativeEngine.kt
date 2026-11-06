@@ -16,6 +16,7 @@ data class LatencyStats(
     val xruns: Int = 0,
     val running: Boolean = false,
     val aaudio: Boolean = false,
+    val dropped: Int = 0,
 ) {
     val burstMs: Double get() = if (sampleRate > 0) framesPerBurst * 1000.0 / sampleRate else 0.0
     val totalMs: Double get() = if (outputLatencyMs >= 0) avgTouchMs + outputLatencyMs else -1.0
@@ -26,7 +27,7 @@ object NativeEngine {
         System.loadLibrary("glidelive")
     }
 
-    private val buf = DoubleArray(13)
+    private val buf = DoubleArray(14)
 
     fun start(): Boolean = nativeStart()
     fun stop() = nativeStop()
@@ -36,6 +37,10 @@ object NativeEngine {
 
     fun trigger(pad: Int, velocity: Float, eventTimeMs: Long) =
         synchronized(pushLock) { nativeTrigger(pad, velocity, eventTimeMs * 1_000_000L) }
+
+    /** Igual que [trigger] pero con el instante exacto en ns (reloj monotónico), p. ej. el de un mensaje MIDI. */
+    fun triggerNs(pad: Int, velocity: Float, eventNs: Long) =
+        synchronized(pushLock) { nativeTrigger(pad, velocity, eventNs) }
 
     fun choke(pad: Int, eventTimeMs: Long) = synchronized(pushLock) { nativeChoke(pad, eventTimeMs * 1_000_000L) }
     fun setParam(id: Int, value: Float) = nativeSetParam(id, value)
@@ -106,16 +111,20 @@ object NativeEngine {
 
     fun seq(cmd: Int, a: Int = 0, b: Int = 0, f: Float = 0f) = synchronized(pushLock) { nativeSynthCmd(cmd, a, b, f) }
 
+    // El secuenciador nativo admite un único productor lógico: se serializan las llamadas de patrón.
+    private val patLock = Any()
+
     fun setPattern(ticks: IntArray, pads: IntArray, vels: FloatArray, length: Int, restart: Boolean, oneShot: Boolean) =
-        nativeSetPattern(ticks, pads, vels, ticks.size, length, restart, oneShot)
+        synchronized(patLock) { nativeSetPattern(ticks, pads, vels, ticks.size, length, restart, oneShot) }
 
     fun setEndPattern(ticks: IntArray, pads: IntArray, vels: FloatArray, length: Int) =
-        nativeSetEndPattern(ticks, pads, vels, ticks.size, length)
+        synchronized(patLock) { nativeSetEndPattern(ticks, pads, vels, ticks.size, length) }
 
-    private val seqBuf = DoubleArray(10)
-
-    /** posTick, playing, vueltas del patrón, grabando batería, grabando acordes, eventos batería, eventos acordes, posición local del patrón, patrón activo */
-    fun seqStatus(): DoubleArray { nativeSeqStatus(seqBuf); return seqBuf }
+    /**
+     * posTick, playing, vueltas del patrón, grabando batería, grabando acordes, eventos batería, eventos acordes,
+     * posición local del patrón, patrón activo, acorde diferido en espera (0/1). Array nuevo por llamada.
+     */
+    fun seqStatus(): DoubleArray = DoubleArray(10).also { nativeSeqStatus(it) }
 
     /** Eventos de batería/acordes ejecutados (6 doubles cada uno: tipo, a, f, glideMs, curva, tiempoMs). */
     fun pollViz(out: DoubleArray): Int = nativePollViz(out, out.size / 6)
@@ -151,6 +160,7 @@ object NativeEngine {
             xruns = buf[10].toInt(),
             running = buf[11] > 0,
             aaudio = buf[12] > 0,
+            dropped = buf[13].toInt(),
         )
     }
 

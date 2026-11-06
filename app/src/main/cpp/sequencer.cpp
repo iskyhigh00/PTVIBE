@@ -6,9 +6,9 @@ constexpr double kEps = 1e-6;  // evita que un evento justo en el borde caiga un
 
 void Sequencer::setPattern(const int32_t* ticks, const int32_t* pads, const float* vels, int n,
                            int lengthTicks, bool restart, bool oneShot) {
-    const int next = 1 - cur_.load(std::memory_order_acquire);
-    PatBuf& b = pat_[next];
-    b.n = std::min(n, kMaxPattern);
+    const int next = pat_.pickFree();
+    PatBuf& b = pat_.buf[next];
+    b.n = std::max(0, std::min(n, kMaxPattern));
     for (int i = 0; i < b.n; ++i) {
         b.ev[i].tick = ticks[i];
         b.ev[i].type = 0;
@@ -18,20 +18,23 @@ void Sequencer::setPattern(const int32_t* ticks, const int32_t* pads, const floa
     b.length = std::max(lengthTicks, 1);
     b.oneShot = oneShot;
     if (restart) patRestart_.store(true, std::memory_order_release);
-    cur_.store(next, std::memory_order_release);
+    pat_.publish(next);
 }
 
 void Sequencer::setEndPattern(const int32_t* ticks, const int32_t* pads, const float* vels, int n,
                               int lengthTicks) {
-    end_.n = std::min(n, kMaxPattern);
-    for (int i = 0; i < end_.n; ++i) {
-        end_.ev[i].tick = ticks[i];
-        end_.ev[i].type = 0;
-        end_.ev[i].a = pads[i];
-        end_.ev[i].f = vels[i];
+    const int next = end_.pickFree();
+    PatBuf& b = end_.buf[next];
+    b.n = std::max(0, std::min(n, kMaxPattern));
+    for (int i = 0; i < b.n; ++i) {
+        b.ev[i].tick = ticks[i];
+        b.ev[i].type = 0;
+        b.ev[i].a = pads[i];
+        b.ev[i].f = vels[i];
     }
-    end_.length = std::max(lengthTicks, 1);
-    end_.oneShot = true;
+    b.length = std::max(lengthTicks, 1);
+    b.oneShot = true;
+    end_.publish(next);
 }
 
 int Sequencer::shiftFor(int tick) const {
@@ -106,6 +109,7 @@ bool Sequencer::scheduleChord(const LoopEvent& e) {
     deferred_[deferredN_].e = e;
     deferred_[deferredN_].tick = target;
     ++deferredN_;
+    deferredCount.store(deferredN_, std::memory_order_relaxed);
     return false;
 }
 
@@ -131,6 +135,12 @@ void Sequencer::command(int type, int a, int b, float f, SeqSink& sink) {
             tickPos_ = 0;
             posTick.store(0);
             deferredN_ = 0;
+            deferredCount.store(0, std::memory_order_relaxed);
+            patOrigin_ = 0;  // Stop -> Play: la base vuelve a empezar en el compás 1
+            endArmed_ = false;
+            endActive_ = false;
+            patDone_ = false;
+            patLocalTick.store(0, std::memory_order_relaxed);
             recDrumOn.store(false);
             recChordOn.store(false);
             sink.releaseChords();
@@ -153,7 +163,15 @@ void Sequencer::command(int type, int a, int b, float f, SeqSink& sink) {
         case kChordPlay: chordPlay_ = a != 0; if (!chordPlay_) sink.releaseChords(); break;
         case kPatternPlay:
             patEnabled_.store(a != 0);
-            if (a != 0) { patOrigin_ = tickPos_; patDone_ = false; endArmed_ = false; endActive_ = false; }
+            if (a != 0) {
+                if (playing.load()) {  // con el transporte en marcha, la base entra en el siguiente compás
+                    const double bt = barTicks();
+                    patOrigin_ = std::ceil((tickPos_ - kEps) / bt) * bt;
+                } else {
+                    patOrigin_ = tickPos_;
+                }
+                patDone_ = false; endArmed_ = false; endActive_ = false;
+            }
             break;
         case kPatternEnd:
             if (patEnabled_.load() && !endActive_) endArmed_ = true;
@@ -208,55 +226,61 @@ void Sequencer::process(int n, SeqSink& sink) {
             recordChord(e);
             sink.synthEvent(e);
             deferred_[i] = deferred_[--deferredN_];
+            deferredCount.store(deferredN_, std::memory_order_relaxed);
         } else {
             ++i;
         }
     }
 
     // Patrón de batería (con "final" que entra exactamente al terminar el patrón actual)
-    const int ci = cur_.load(std::memory_order_acquire);
+    const PatBuf& p = pat_.acquire();
+    const PatBuf& endp = end_.acquire();
     if (patRestart_.exchange(false)) { patOrigin_ = t0; patDone_ = false; endActive_ = false; endArmed_ = false; }
-    const PatBuf& p = pat_[ci];
     if (patEnabled_.load(std::memory_order_relaxed) && !patDone_) {
-        if (endActive_) {
-            runPattern(end_, patOrigin_, false, t0, t1, t0, spt, n, sink);
-            if (t1 - patOrigin_ >= end_.length - kEps) {
-                patDone_ = true;
-                patEnabled_.store(false);
-                endActive_ = false;
-            }
-        } else if (p.n > 0 || p.length > 0) {
-            double split = -1;
-            if (endArmed_ && !p.oneShot) {
-                const double k = std::floor((t1 - patOrigin_ - kEps) / p.length);
-                const double b = patOrigin_ + k * p.length;
-                if (k >= 1 && b > t0 - kEps && b < t1 - kEps) split = b;
-            }
-            if (split >= 0) {
-                runPattern(p, patOrigin_, true, t0, split, t0, spt, n, sink);
-                endArmed_ = false;
-                endActive_ = true;
-                patOrigin_ = split;
-                runPattern(end_, patOrigin_, false, split, t1, t0, spt, n, sink);
-                if (t1 - patOrigin_ >= end_.length - kEps) {
+        if (patOrigin_ >= t1 - kEps) {
+            patLocalTick.store(0, std::memory_order_relaxed);  // entra en un compás posterior
+        } else {
+            const double ta = std::max(t0, patOrigin_);
+            if (endActive_) {
+                runPattern(endp, patOrigin_, false, ta, t1, t0, spt, n, sink);
+                if (t1 - patOrigin_ >= endp.length - kEps) {
                     patDone_ = true;
                     patEnabled_.store(false);
                     endActive_ = false;
                 }
-                drumPassCount.fetch_add(1);
             } else {
-                runPattern(p, patOrigin_, !p.oneShot, t0, t1, t0, spt, n, sink);
-                if (!p.oneShot) {
-                    if (std::floor((t1 - patOrigin_) / p.length) > std::floor((t0 - patOrigin_) / p.length))
-                        drumPassCount.fetch_add(1);
-                } else if (t1 - patOrigin_ >= p.length) {
-                    patDone_ = true;
-                    patEnabled_.store(false);
+                double split = -1;
+                if (endArmed_ && !p.oneShot) {
+                    const double k = std::floor((t1 - patOrigin_ - kEps) / p.length);
+                    const double b = patOrigin_ + k * p.length;
+                    if (k >= 1 && b > ta - kEps && b < t1 - kEps) split = b;
                 }
+                if (split >= 0) {
+                    runPattern(p, patOrigin_, true, ta, split, t0, spt, n, sink);
+                    endArmed_ = false;
+                    endActive_ = true;
+                    patOrigin_ = split;
+                    runPattern(endp, patOrigin_, false, split, t1, t0, spt, n, sink);
+                    if (t1 - patOrigin_ >= endp.length - kEps) {
+                        patDone_ = true;
+                        patEnabled_.store(false);
+                        endActive_ = false;
+                    }
+                    drumPassCount.fetch_add(1);
+                } else {
+                    runPattern(p, patOrigin_, !p.oneShot, ta, t1, t0, spt, n, sink);
+                    if (!p.oneShot) {
+                        if (std::floor((t1 - patOrigin_) / p.length) > std::floor((ta - patOrigin_) / p.length))
+                            drumPassCount.fetch_add(1);
+                    } else if (t1 - patOrigin_ >= p.length) {
+                        patDone_ = true;
+                        patEnabled_.store(false);
+                    }
+                }
+                double loc = std::fmod(t1 - patOrigin_, static_cast<double>(p.length));
+                if (loc < 0) loc += p.length;
+                patLocalTick.store(static_cast<int64_t>(loc), std::memory_order_relaxed);
             }
-            double loc = std::fmod(t1 - patOrigin_, static_cast<double>(p.length));
-            if (loc < 0) loc += p.length;
-            patLocalTick.store(static_cast<int64_t>(loc), std::memory_order_relaxed);
         }
     }
 

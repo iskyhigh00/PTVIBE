@@ -12,7 +12,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import com.glidelive.viz.EventHub
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
@@ -147,7 +150,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        NativeEngine.start()
+        if (!NativeEngine.start()) {
+            // El dispositivo de salida puede tardar en estar disponible: 3 reintentos espaciados.
+            lifecycleScope.launch {
+                for (i in 1..3) {
+                    delay(400L * i)
+                    if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return@launch
+                    if (NativeEngine.start()) return@launch
+                }
+            }
+        }
     }
 
     override fun onPause() {
@@ -233,10 +245,12 @@ private fun CalibrationPanel(vm: EngineViewModel) {
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text("Latencia (retraso del sonido)", style = MaterialTheme.typography.titleMedium)
-        Text(if (s.running) "Audio activo" else "Audio detenido")
+        if (s.running) Text("Audio activo")
+        else Text("Audio detenido", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.titleSmall)
         Text("Audio rápido: ${if (s.aaudio) "sí" else "no"} · Acceso directo: ${if (s.mmap) "sí" else "no"} · Exclusivo: ${if (s.exclusive) "sí" else "no"}")
         Text("Frecuencia %d Hz · bloque de %d muestras (%.1f ms)".format(s.sampleRate, s.framesPerBurst, s.burstMs))
         Text("Colchón: %d muestras (%d bloques) · cortes de audio: %d".format(s.bufferFrames, s.bursts, s.xruns))
+        if (s.dropped > 0) Text("Eventos descartados: ${s.dropped}", color = MaterialTheme.colorScheme.tertiary)
         Text("Retraso de salida del teléfono: " + if (s.outputLatencyMs >= 0) "%.1f ms".format(s.outputLatencyMs) else "n/d")
         Text("Del toque al motor: último %.1f · medio %.1f · peor %.1f ms".format(s.lastTouchMs, s.avgTouchMs, s.maxTouchMs))
         Text(
@@ -245,7 +259,7 @@ private fun CalibrationPanel(vm: EngineViewModel) {
             color = if (s.totalMs in 0.0..15.0) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.tertiary,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            for (n in 1..3) {
+            for (n in 1..4) {
                 FilterChip(selected = !auto && s.bursts == n, onClick = { vm.setBursts(n) },
                     label = { Text("$n") })
             }
@@ -264,7 +278,7 @@ private fun CalibrationPanel(vm: EngineViewModel) {
         } else {
             Text("Recomendado: auriculares con cable o USB.")
         }
-        Text("Toca los pads de la batería para medir. Colchón: 1 = menos retraso, 3 = más estable.")
+        Text("Toca los pads de la batería para medir. Colchón: 1 = menos retraso, 4 = más estable.")
     }
 }
 
