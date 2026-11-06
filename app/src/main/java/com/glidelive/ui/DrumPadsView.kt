@@ -13,6 +13,7 @@ import android.util.SparseIntArray
 import android.view.MotionEvent
 import android.view.View
 import com.glidelive.audio.NativeEngine
+import kotlin.math.max
 import kotlin.math.min
 
 object Pads {
@@ -91,6 +92,7 @@ class DrumPadsView(context: Context) : View(context) {
         pathEffect = android.graphics.DashPathEffect(floatArrayOf(10f, 8f), 0f)
     }
     private val tmp = RectF()
+    private val padText = FloatArray(Pads.COUNT)
     private var baseText = 12f
     private val order = IntArray(n)  // pads de menor a mayor área (orden de prueba del toque)
     private val headShaders = arrayOfNulls<Shader>(n)
@@ -124,6 +126,21 @@ class DrumPadsView(context: Context) : View(context) {
             )
         }
         baseText = (min(w, h) * 0.036f).coerceAtLeast(12f * dp)
+        text.textSize = baseText
+        // Cada pad usa el mayor tamaño de texto que cabe dentro de su parche (sin asignaciones al dibujar).
+        for (i in 0 until n) {
+            val maxW = rx[i] * 1.55f
+            var ts = baseText
+            val minTs = 7f * dp
+            while (ts > minTs) {
+                text.textSize = ts
+                var widest = 0f
+                for (ln in Pads.lines[i]) widest = max(widest, text.measureText(ln))
+                if (widest <= maxW) break
+                ts -= 0.5f * dp
+            }
+            padText[i] = ts
+        }
         text.textSize = baseText
     }
 
@@ -242,7 +259,7 @@ class DrumPadsView(context: Context) : View(context) {
                 c.drawLine(cx[i] - half, gy, cx[i] + half, gy, ghost)
             }
             val lines = Pads.lines[i]
-            val size = baseText * (if (min(rx[i], ry[i]) < 38f * dp) 0.8f else 1f)
+            val size = padText[i]
             text.textSize = size
             val lh = size * 1.15f
             var y = cy[i] + size / 3 - lh * (lines.size - 1) / 2

@@ -38,6 +38,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Animatable
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -55,9 +65,9 @@ fun TransportBar(vm: TransportViewModel) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         GradientButton(if (u.playing) "Parar" else "Tocar", vm::togglePlay, glyph = if (u.playing) "■" else "▶")
-        TextButton(onClick = { vm.setBpm(u.bpm - 1) }) { Text("−") }
-        Text("${u.bpm} BPM", style = MaterialTheme.typography.titleSmall)
-        TextButton(onClick = { vm.setBpm(u.bpm + 1) }) { Text("+") }
+        TonalButton("−", { vm.setBpm(u.bpm - 1) })
+        BpmBadge(vm)
+        TonalButton("+", { vm.setBpm(u.bpm + 1) })
         TonalButton("Tap", vm::tap)
         Picker("Compás ${u.meter.label}", Meter.all, { it.label }) { m -> vm.edit { it.copy(meter = m) } }
         FilterChip(selected = u.metro, onClick = { vm.edit { it.copy(metro = !it.metro) } }, label = { Text("Metrónomo") })
@@ -70,6 +80,51 @@ fun TransportBar(vm: TransportViewModel) {
             selected = u.recChord, onClick = vm::toggleRecChord,
             label = { RecLabel(vm, drum = false, recording = u.recChord) },
         )
+    }
+}
+
+/** BPM en grande con una luz que late en cada tiempo (más fuerte y rosa en el primero del compás). */
+@Composable
+fun BpmBadge(vm: TransportViewModel, modifier: Modifier = Modifier) {
+    val u by vm.ui.collectAsState()
+    Row(
+        modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), RoundedCornerShape(20.dp))
+            .padding(horizontal = 14.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        BeatLight(vm, 26.dp)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("${u.bpm}", fontSize = 32.sp, lineHeight = 32.sp, fontWeight = FontWeight.ExtraBold)
+            Text("BPM", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** Luz de tempo: destella al empezar cada tiempo; el primero del compás es rosa y más grande. */
+@Composable
+fun BeatLight(vm: TransportViewModel, size: androidx.compose.ui.unit.Dp = 22.dp) {
+    val pos by vm.pos.collectAsState()
+    val ui by vm.ui.collectAsState()
+    val playing = ui.playing
+    val glow = remember { Animatable(0f) }
+    LaunchedEffect(pos.bar, pos.beat, playing) {
+        if (playing) { glow.snapTo(1f); glow.animateTo(0f, tween(280)) } else glow.snapTo(0f)
+    }
+    val down = pos.beat == 1
+    val color = if (down) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.secondary
+    val idle = MaterialTheme.colorScheme.onSurfaceVariant
+    Canvas(Modifier.size(size).semantics { contentDescription = "Luz de tempo" }) {
+        val g = glow.value
+        val r = this.size.minDimension / 2
+        val c = center
+        drawCircle(color.copy(alpha = 0.40f * g), radius = r * (if (down) 1.0f else 0.9f) * (0.8f + 0.2f * g))
+        drawCircle(idle.copy(alpha = 0.25f), radius = r * 0.55f)
+        drawCircle(color.copy(alpha = g), radius = r * (if (down) 0.62f else 0.5f))
+        drawCircle(Color.White.copy(alpha = 0.7f * g), radius = r * 0.2f, center = c)
     }
 }
 
@@ -172,11 +227,11 @@ fun LoopsPanel(vm: TransportViewModel) {
             }
         }
         Text("Bucle de batería: ${u.drumBars} × ${u.drumMeter.label}", style = MaterialTheme.typography.labelLarge)
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
             Picker("Compás", Meter.all, { it.label }) { m -> vm.setDrumLoop(u.drumBars, m) }
             for (b in listOf(1, 2, 4, 8)) FilterChip(selected = u.drumBars == b, onClick = { vm.setDrumLoop(b, u.drumMeter) }, label = { Text("$b") })
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             TonalButton("Deshacer pase", vm::undoDrum)
             TonalButton("Borrar", vm::clearDrum)
             FilterChip(selected = u.drumLoopOn, onClick = vm::toggleDrumLoop, label = { Text(if (u.drumLoopOn) "Suena" else "Mudo") })
@@ -189,11 +244,11 @@ fun LoopsPanel(vm: TransportViewModel) {
             }
         }
         Text("Bucle de acordes: ${u.chordBars} × ${u.chordMeter.label}", style = MaterialTheme.typography.labelLarge)
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
             Picker("Compás", Meter.all, { it.label }) { m -> vm.setChordLoop(u.chordBars, m) }
             for (b in listOf(1, 2, 4, 8)) FilterChip(selected = u.chordBars == b, onClick = { vm.setChordLoop(b, u.chordMeter) }, label = { Text("$b") })
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             TonalButton("Deshacer pase", vm::undoChord)
             TonalButton("Borrar", vm::clearChord)
             FilterChip(selected = u.chordLoopOn, onClick = vm::toggleChordLoop, label = { Text(if (u.chordLoopOn) "Suena" else "Mudo") })

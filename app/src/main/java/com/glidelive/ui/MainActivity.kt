@@ -154,6 +154,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                         if (fullscreen) {
+                            BpmBadge(transportVm, Modifier.align(Alignment.TopStart).windowInsetsPadding(playInsets).padding(4.dp))
                             TextButton(
                                 onClick = { fullscreen = false },
                                 modifier = Modifier.align(Alignment.TopEnd).windowInsetsPadding(playInsets),
