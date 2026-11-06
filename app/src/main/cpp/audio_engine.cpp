@@ -44,6 +44,11 @@ AudioEngine::AudioEngine() {
     params_[kGlideCurve].store(1.0f);
     params_[kSoloInstrument].store(4.0f);
     params_[kSoloGlide].store(20.0f);
+    params_[kMetroVol].store(0.6f);
+    params_[kBpm].store(100.0f);
+    params_[kBeats].store(4.0f);
+    params_[kBeatUnit].store(4.0f);
+    recBuf_.assign(1 << 19, 0.0f);
 }
 
 bool AudioEngine::start() {
@@ -81,6 +86,21 @@ bool AudioEngine::openAndStart() {
     }
     drumRoom_.init(sr_);
     synth_.init(sr_);
+    seq_.init(sr_);
+    {  // clics del metrónomo
+        auto make = [&](Sample& s, float f, float dur) {
+            const int n = static_cast<int>(sr_ * dur);
+            s.data.resize(n);
+            for (int i = 0; i < n; ++i) {
+                const float t = static_cast<float>(i) / sr_;
+                s.data[i] = std::sin(6.2831853f * f * t) * std::exp(-t * 180.0f) * 0.8f;
+            }
+            s.channels = 1;
+            s.rate = sr_;
+        };
+        make(clickAcc_, 1700.0f, 0.04f);
+        make(clickNorm_, 1000.0f, 0.03f);
+    }
     compEnv_ = 0;
     for (auto& v : voices_) v = Voice();
     stream_ = s;
@@ -171,7 +191,19 @@ void AudioEngine::kitUseSampled(bool sampled) {
 }
 
 void AudioEngine::setParam(int id, float value) {
-    if (id >= 0 && id < kParamCount) params_[id].store(value, std::memory_order_relaxed);
+    if (id < 0 || id >= kParamCount) return;
+    params_[id].store(value, std::memory_order_relaxed);
+    switch (id) {
+        case kBpm: seq_.bpm.store(std::max(20.0f, std::min(value, 300.0f))); break;
+        case kBeats: seq_.beatsPerBar.store(std::max(1, static_cast<int>(value))); break;
+        case kBeatUnit: seq_.beatUnit.store(std::max(1, static_cast<int>(value))); break;
+        case kSwing: seq_.swing.store(std::max(0.0f, std::min(value, 0.5f))); break;
+        case kMetro: seq_.metro.store(value > 0.5f); break;
+        case kRecQuant: seq_.recQuant.store(static_cast<int>(value)); break;
+        case kChordQuant: seq_.chordQuant.store(static_cast<int>(value)); break;
+        case kMuteMask: seq_.muteMask.store(static_cast<uint32_t>(value)); break;
+        default: break;
+    }
 }
 
 void AudioEngine::trigger(int pad, float velocity, int64_t eventNs) {
@@ -219,70 +251,128 @@ SynthParams AudioEngine::synthParams() const {
     return p;
 }
 
+void AudioEngine::pushViz(int type, int a, float f) {
+    VizEvent v;
+    v.timeMs = static_cast<double>(blockNs_) / 1.0e6;
+    v.type = type;
+    v.a = a;
+    v.f = f;
+    v.glideMs = param(kGlideMs);
+    v.curve = static_cast<int>(param(kGlideCurve));
+    viz_.push(v);
+}
+
+void AudioEngine::execSynth(const LoopEvent& e) {
+    const SynthParams p = synthParams();
+    switch (e.type) {
+        case 10: synth_.noteOn(e.a, e.f, p); break;
+        case 11: synth_.glideTo(e.a, e.f, p, false); break;
+        case 12: synth_.spawn(e.a, e.b, e.f, p); break;
+        case 13: synth_.glideTo(e.a, e.f, p, true); break;
+        case 14: synth_.release(e.a); break;
+        case 15: synth_.releaseAll(); break;
+        default: return;
+    }
+    pushViz(e.type, e.a, e.f);
+}
+
+struct EngineSink : SeqSink {
+    AudioEngine& e;
+    explicit EngineSink(AudioEngine& eng) : e(eng) {}
+    void drumHit(int pad, float vel, int off) override { e.triggerDrum(pad, vel, off); }
+    void synthEvent(const LoopEvent& ev) override { e.execSynth(ev); }
+    void releaseChords() override {
+        LoopEvent ev;
+        ev.type = 15;
+        e.execSynth(ev);
+    }
+    void click(bool accent, int off) override {
+        for (auto& c : e.clicks_) {
+            if (c.active) continue;
+            const Sample& s = accent ? e.clickAcc_ : e.clickNorm_;
+            c.d = s.data.data();
+            c.len = static_cast<int32_t>(s.data.size());
+            c.pos = 0;
+            c.delay = off;
+            c.active = true;
+            return;
+        }
+    }
+};
+
 void AudioEngine::handleEvent(const PadEvent& ev, int64_t now) {
     if (ev.type <= 1) { startVoice(ev, now); return; }
+    EngineSink sink(*this);
+    if (ev.type >= 10 && ev.type <= 15) {
+        LoopEvent le;
+        le.type = ev.type;
+        le.a = ev.a;
+        le.b = ev.b;
+        le.f = ev.f;
+        le.tick = -1;  // vivo: se graba en la posición actual
+        if (seq_.scheduleChord(le)) {
+            seq_.recordChord(le);
+            execSynth(le);
+        }
+        return;
+    }
+    if (ev.type >= 20 && ev.type <= 33) {
+        seq_.command(ev.type, ev.a, ev.b, ev.f, sink);
+        return;
+    }
     const SynthParams p = synthParams();
     switch (ev.type) {
-        case 10: synth_.noteOn(ev.a, ev.f, p); break;
-        case 11: synth_.glideTo(ev.a, ev.f, p, false); break;
-        case 12: synth_.spawn(ev.a, ev.b, ev.f, p); break;
-        case 13: synth_.glideTo(ev.a, ev.f, p, true); break;
-        case 14: synth_.release(ev.a); break;
-        case 15: synth_.releaseAll(); break;
         case 16: synth_.soloOn(ev.a, ev.f, p); break;
         case 17: synth_.soloOff(ev.a); break;
         default: break;
     }
 }
 
-void AudioEngine::resetStats() {
-    lastMs_.store(0);
-    avgMs_.store(0);
-    maxMs_.store(0);
-    count_.store(0);
+void AudioEngine::getSeqStatus(double* out) const {
+    out[0] = static_cast<double>(seq_.posTick.load());
+    out[1] = seq_.playing.load() ? 1 : 0;
+    out[2] = seq_.drumPassCount.load();
+    out[3] = seq_.recDrumOn.load() ? 1 : 0;
+    out[4] = seq_.recChordOn.load() ? 1 : 0;
+    out[5] = seq_.drumEventCount.load();
+    out[6] = seq_.chordEventCount.load();
+    out[7] = static_cast<double>(seq_.patLocalTick.load());
 }
 
-void AudioEngine::getStats(double* out) const {
-    for (int i = 0; i < kStatCount; ++i) out[i] = 0;
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (stream_) {
-        out[0] = stream_->getSampleRate();
-        out[1] = stream_->getFramesPerBurst();
-        out[2] = stream_->getBufferSizeInFrames();
-        out[3] = bursts_.load();
-        out[4] = mmap_ ? 1 : 0;
-        out[5] = stream_->getSharingMode() == oboe::SharingMode::Exclusive ? 1 : 0;
-        auto lat = stream_->calculateLatencyMillis();
-        out[6] = lat ? lat.value() : -1.0;
-        auto xr = stream_->getXRunCount();
-        out[10] = xr ? xr.value() : 0;
-        out[11] = 1;
-        out[12] = stream_->getAudioApi() == oboe::AudioApi::AAudio ? 1 : 0;
+int AudioEngine::pollViz(double* out, int maxEvents) {
+    int n = 0;
+    VizEvent v;
+    while (n < maxEvents && viz_.pop(v)) {
+        double* o = out + 6 * n;
+        o[0] = v.type; o[1] = v.a; o[2] = v.f; o[3] = v.glideMs; o[4] = v.curve; o[5] = v.timeMs;
+        ++n;
     }
-    out[7] = lastMs_.load();
-    out[8] = avgMs_.load();
-    out[9] = maxMs_.load();
+    return n;
 }
 
-uint32_t AudioEngine::rnd() {
-    rng_ ^= rng_ << 13;
-    rng_ ^= rng_ >> 17;
-    rng_ ^= rng_ << 5;
-    return rng_;
-}
-
-void AudioEngine::chokeVoices(int pad, int group, float frames) {
-    for (auto& v : voices_) {
-        if (!v.active || v.envStep != 0) continue;
-        if ((group != 0 && v.group == group) || (group == 0 && v.pad == pad))
-            v.envStep = std::max(v.env, 0.001f) / std::max(frames, 8.0f);
+void AudioEngine::setRecording(bool on) {
+    if (on) {
+        recTail_.store(recHead_.load());
     }
+    recording_.store(on, std::memory_order_release);
+}
+
+int AudioEngine::readRecording(float* dst, int maxFloats) {
+    const size_t cap = recBuf_.size();
+    size_t t = recTail_.load(std::memory_order_relaxed);
+    const size_t h = recHead_.load(std::memory_order_acquire);
+    int n = 0;
+    while (t != h && n < maxFloats) {
+        dst[n++] = recBuf_[t];
+        t = (t + 1) & (cap - 1);
+    }
+    recTail_.store(t, std::memory_order_release);
+    return n;
 }
 
 void AudioEngine::startVoice(const PadEvent& ev, int64_t now) {
     const int pad = ev.a;
-    const Kit* kit = active_.load(std::memory_order_acquire);
-    if (pad < 0 || pad >= kPadCount || kit == nullptr) return;
+    if (pad < 0 || pad >= kPadCount || active_.load(std::memory_order_acquire) == nullptr) return;
 
     if (ev.type == 1) {  // choke manual de platos
         chokeVoices(pad, 0, 0.02f * sr_);
@@ -298,7 +388,14 @@ void AudioEngine::startVoice(const PadEvent& ev, int64_t now) {
         avgMs_.store(c == 0 ? ms : a + (ms - a) * 0.1, std::memory_order_relaxed);
         if (ms > maxMs_.load(std::memory_order_relaxed)) maxMs_.store(ms, std::memory_order_relaxed);
     }
+    seq_.recordDrum(pad, ev.f);
+    triggerDrum(pad, ev.f, 0);
+}
 
+void AudioEngine::triggerDrum(int pad, float velocity, int delayFrames) {
+    const Kit* kit = active_.load(std::memory_order_acquire);
+    if (pad < 0 || pad >= kPadCount || kit == nullptr) return;
+    pushViz(0, pad, velocity);
     const int group = kGroupOf[pad];
     if (group != 0) {
         chokeVoices(pad, group, 0.006f * sr_);       // hi-hat: el nuevo corta al anterior
@@ -306,7 +403,7 @@ void AudioEngine::startVoice(const PadEvent& ev, int64_t now) {
         chokeVoices(pad, 0, 96.0f);                  // re-golpe sin clic
     }
 
-    const float vel = std::max(0.0f, std::min(ev.f, 1.0f));
+    const float vel = std::max(0.0f, std::min(velocity, 1.0f));
     const bool real = kit->sampled;
     const int layer = real ? (vel < 0.3f ? 0 : (vel < 0.7f ? 1 : 2)) : (vel < 0.4f ? 0 : (vel < 0.75f ? 1 : 2));
     int variant = (lastVariant_[pad] + 1 + static_cast<int>(rnd() % (kVariants - 1))) % kVariants;
@@ -351,23 +448,33 @@ void AudioEngine::startVoice(const PadEvent& ev, int64_t now) {
     slot->envStep = 0;
     slot->pad = pad;
     slot->group = group;
+    slot->delay = delayFrames;
     slot->active = true;
 }
+
 
 oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*, void* audioData,
                                                    int32_t numFrames) {
     float* out = static_cast<float*>(audioData);
     const int64_t now = nowNs();
+    blockNs_ = now;
 
     PadEvent ev;
     while (queue_.pop(ev)) handleEvent(ev, now);
+    EngineSink sink(*this);
+    seq_.process(numFrames, sink);
 
     std::fill(out, out + numFrames * 2, 0.0f);
 
     for (auto& v : voices_) {
         if (!v.active) continue;
         const float* d = v.data;
-        for (int32_t i = 0; i < numFrames; ++i) {
+        int32_t first = 0;
+        if (v.delay > 0) {
+            first = std::min(v.delay, numFrames);
+            v.delay -= first;
+        }
+        for (int32_t i = first; i < numFrames; ++i) {
             const int32_t i0 = static_cast<int32_t>(v.pos);
             if (i0 + 1 >= v.length) { v.active = false; break; }
             const float fr = static_cast<float>(v.pos - i0);
@@ -421,6 +528,18 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*, void* aud
     // Bus de acordes/solista y mezcla final.
     const SynthParams sp = synthParams();
     const float master = param(kMaster);
+    const float metroVol = param(kMetroVol);
+    for (auto& cv : clicks_) {
+        if (!cv.active) continue;
+        int32_t first = 0;
+        if (cv.delay > 0) { first = std::min(cv.delay, numFrames); cv.delay -= first; }
+        for (int32_t i = first; i < numFrames; ++i) {
+            if (cv.pos >= cv.len) { cv.active = false; break; }
+            const float s = cv.d[cv.pos++] * metroVol;
+            out[2 * i] += s;
+            out[2 * i + 1] += s;
+        }
+    }
     float peak = 0;
     for (int32_t off = 0; off < numFrames; off += SynthEngine::kMaxBlock) {
         const int n = std::min<int32_t>(SynthEngine::kMaxBlock, numFrames - off);
@@ -433,6 +552,18 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*, void* aud
             o[1] = softClip((o[1] + synthR_[i]) * master);
             peak = std::max(peak, std::max(std::fabs(o[0]), std::fabs(o[1])));
         }
+    }
+    if (recording_.load(std::memory_order_relaxed)) {
+        const size_t cap = recBuf_.size();
+        size_t h = recHead_.load(std::memory_order_relaxed);
+        const size_t t = recTail_.load(std::memory_order_acquire);
+        for (int32_t i = 0; i < numFrames * 2; ++i) {
+            const size_t nh = (h + 1) & (cap - 1);
+            if (nh == t) break;  // lleno: el lector no da abasto
+            recBuf_[h] = out[i];
+            h = nh;
+        }
+        recHead_.store(h, std::memory_order_release);
     }
     level_.store(std::max(peak, level_.load(std::memory_order_relaxed) * 0.85f), std::memory_order_relaxed);
     return oboe::DataCallbackResult::Continue;

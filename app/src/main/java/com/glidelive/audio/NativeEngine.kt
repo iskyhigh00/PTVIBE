@@ -72,6 +72,51 @@ object NativeEngine {
     const val P_GLIDE_MS = 29
     const val P_GLIDE_CURVE = 30
 
+    // --- reloj / secuenciador (órdenes 20..33 al hilo de audio) ---
+    const val CMD_PLAY = 20
+    const val CMD_STOP = 21
+    const val CMD_REC_DRUM = 22
+    const val CMD_REC_CHORD = 23
+    const val CMD_DRUM_LEN = 24
+    const val CMD_CHORD_LEN = 25
+    const val CMD_DRUM_CLEAR = 26
+    const val CMD_CHORD_CLEAR = 27
+    const val CMD_DRUM_UNDO = 28
+    const val CMD_CHORD_UNDO = 29
+    const val CMD_DRUM_PLAY = 30
+    const val CMD_CHORD_PLAY = 31
+    const val CMD_PATTERN_PLAY = 32
+    const val CMD_PATTERN_END = 33
+
+    const val P_METRO_VOL = 33
+    const val P_BPM = 34
+    const val P_BEATS = 35
+    const val P_BEAT_UNIT = 36
+    const val P_SWING = 37
+    const val P_METRO = 38
+    const val P_REC_QUANT = 39
+    const val P_CHORD_QUANT = 40
+    const val P_MUTE_MASK = 41
+
+    fun seq(cmd: Int, a: Int = 0, b: Int = 0, f: Float = 0f) = nativeSynthCmd(cmd, a, b, f)
+
+    fun setPattern(ticks: IntArray, pads: IntArray, vels: FloatArray, length: Int, restart: Boolean, oneShot: Boolean) =
+        nativeSetPattern(ticks, pads, vels, ticks.size, length, restart, oneShot)
+
+    fun setEndPattern(ticks: IntArray, pads: IntArray, vels: FloatArray, length: Int) =
+        nativeSetEndPattern(ticks, pads, vels, ticks.size, length)
+
+    private val seqBuf = DoubleArray(8)
+
+    /** posTick, playing, vueltas del patrón, grabando batería, grabando acordes, eventos batería, eventos acordes, posición local del patrón */
+    fun seqStatus(): DoubleArray { nativeSeqStatus(seqBuf); return seqBuf }
+
+    /** Eventos de batería/acordes ejecutados (6 doubles cada uno: tipo, a, f, glideMs, curva, tiempoMs). */
+    fun pollViz(out: DoubleArray): Int = nativePollViz(out, out.size / 6)
+
+    fun setRecording(on: Boolean) = nativeSetRecording(on)
+    fun readRecording(dst: FloatArray): Int = nativeReadRecording(dst)
+
     fun kitBegin() = nativeKitBegin()
     fun kitSet(pad: Int, layer: Int, variant: Int, data: FloatArray, channels: Int, rate: Int) =
         nativeKitSet(pad, layer, variant, data, channels, rate)
@@ -109,6 +154,12 @@ object NativeEngine {
     private external fun nativeChoke(pad: Int, eventNs: Long)
     private external fun nativeSetParam(id: Int, value: Float)
     private external fun nativeSynthCmd(type: Int, a: Int, b: Int, f: Float)
+    private external fun nativeSetPattern(ticks: IntArray, pads: IntArray, vels: FloatArray, n: Int, length: Int, restart: Boolean, oneShot: Boolean)
+    private external fun nativeSetEndPattern(ticks: IntArray, pads: IntArray, vels: FloatArray, n: Int, length: Int)
+    private external fun nativeSeqStatus(out: DoubleArray)
+    private external fun nativePollViz(out: DoubleArray, maxEvents: Int): Int
+    private external fun nativeSetRecording(on: Boolean)
+    private external fun nativeReadRecording(dst: FloatArray): Int
     private external fun nativeKitBegin()
     private external fun nativeKitSet(pad: Int, layer: Int, variant: Int, data: FloatArray, channels: Int, rate: Int)
     private external fun nativeKitCommit()

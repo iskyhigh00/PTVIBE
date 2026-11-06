@@ -72,6 +72,64 @@ Java_com_glidelive_audio_NativeEngine_nativeKitUseSampled(JNIEnv*, jobject, jboo
 }
 
 JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeSetPattern(JNIEnv* env, jobject, jintArray ticks,
+                                                       jintArray pads, jfloatArray vels, jint n,
+                                                       jint length, jboolean restart,
+                                                       jboolean oneShot) {
+    jint* t = env->GetIntArrayElements(ticks, nullptr);
+    jint* p = env->GetIntArrayElements(pads, nullptr);
+    jfloat* v = env->GetFloatArrayElements(vels, nullptr);
+    g_engine.setPattern(t, p, v, n, length, restart, oneShot);
+    env->ReleaseIntArrayElements(ticks, t, JNI_ABORT);
+    env->ReleaseIntArrayElements(pads, p, JNI_ABORT);
+    env->ReleaseFloatArrayElements(vels, v, JNI_ABORT);
+}
+
+JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeSetEndPattern(JNIEnv* env, jobject, jintArray ticks,
+                                                          jintArray pads, jfloatArray vels, jint n,
+                                                          jint length) {
+    jint* t = env->GetIntArrayElements(ticks, nullptr);
+    jint* p = env->GetIntArrayElements(pads, nullptr);
+    jfloat* v = env->GetFloatArrayElements(vels, nullptr);
+    g_engine.setEndPattern(t, p, v, n, length);
+    env->ReleaseIntArrayElements(ticks, t, JNI_ABORT);
+    env->ReleaseIntArrayElements(pads, p, JNI_ABORT);
+    env->ReleaseFloatArrayElements(vels, v, JNI_ABORT);
+}
+
+JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeSeqStatus(JNIEnv* env, jobject, jdoubleArray out) {
+    double tmp[8] = {0};
+    g_engine.getSeqStatus(tmp);
+    if (env->GetArrayLength(out) >= 8) env->SetDoubleArrayRegion(out, 0, 8, tmp);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_glidelive_audio_NativeEngine_nativePollViz(JNIEnv* env, jobject, jdoubleArray out,
+                                                    jint maxEvents) {
+    const jsize cap = env->GetArrayLength(out) / 6;
+    jdouble* p = env->GetDoubleArrayElements(out, nullptr);
+    const int n = g_engine.pollViz(p, std::min<jsize>(cap, maxEvents));
+    env->ReleaseDoubleArrayElements(out, p, 0);
+    return n;
+}
+
+JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeSetRecording(JNIEnv*, jobject, jboolean on) {
+    g_engine.setRecording(on);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeReadRecording(JNIEnv* env, jobject, jfloatArray dst) {
+    const jsize cap = env->GetArrayLength(dst);
+    jfloat* p = env->GetFloatArrayElements(dst, nullptr);
+    const int n = g_engine.readRecording(p, cap);
+    env->ReleaseFloatArrayElements(dst, p, 0);
+    return n;
+}
+
+JNIEXPORT void JNICALL
 Java_com_glidelive_audio_NativeEngine_nativeSetBursts(JNIEnv*, jobject, jint bursts) {
     g_engine.setBursts(bursts);
 }

@@ -7,6 +7,7 @@
 #include <vector>
 #include "chord_synth.h"
 #include "dsp.h"
+#include "sequencer.h"
 #include "spsc_queue.h"
 #include "synth_kit.h"
 
@@ -14,6 +15,16 @@
 // 0 golpe de pad (a=pad, f=vel), 1 choke (a=pad),
 // 10 noteOn(a=slot, f=midi), 11 glideTo(a, f), 12 spawn(a=slot, b=desde, f),
 // 13 glideRelease(a, f), 14 release(a), 15 releaseAll.
+// Evento hacia la visualización / exportación MIDI (hilo de audio -> UI).
+struct VizEvent {
+    double timeMs = 0;
+    int32_t type = 0;  // 0 golpe (a=pad, f=vel); 10..15 acordes
+    int32_t a = 0;
+    float f = 0;
+    float glideMs = 0;
+    int32_t curve = 0;
+};
+
 struct PadEvent {
     int32_t type = 0;
     int32_t a = 0;
@@ -41,7 +52,16 @@ enum Param {
     kGlideCurve = 30,
     kSoloInstrument = 31,
     kSoloGlide = 32,
-    kParamCount = 40
+    kMetroVol = 33,
+    kBpm = 34,
+    kBeats = 35,
+    kBeatUnit = 36,
+    kSwing = 37,
+    kMetro = 38,
+    kRecQuant = 39,
+    kChordQuant = 40,
+    kMuteMask = 41,
+    kParamCount = 64
 };
 
 class AudioEngine final : public oboe::AudioStreamDataCallback,
@@ -64,6 +84,18 @@ public:
     void kitSet(int pad, int layer, int variant, const float* data, int frames, int channels, int rate);
     void kitCommit();
     void kitUseSampled(bool sampled);
+
+    // Secuenciador / patrones / visualización / grabación de audio
+    void setPattern(const int32_t* t, const int32_t* p, const float* v, int n, int len, bool restart, bool oneShot) {
+        seq_.setPattern(t, p, v, n, len, restart, oneShot);
+    }
+    void setEndPattern(const int32_t* t, const int32_t* p, const float* v, int n, int len) {
+        seq_.setEndPattern(t, p, v, n, len);
+    }
+    void getSeqStatus(double* out) const;
+    int pollViz(double* out, int maxEvents);
+    void setRecording(bool on);
+    int readRecording(float* dst, int maxFloats);
     void synthCmd(int type, int a, int b, float f);
     void soloSet(int idx, float pitch, float filter, float vib, float vol) {
         synth_.setSolo(idx, pitch, filter, vib, vol);
@@ -91,6 +123,14 @@ private:
         float envStep = 0;  // >0 cuando está en fade-out
         int32_t pad = -1;
         int32_t group = 0;
+        int32_t delay = 0;  // retardo en cuadros (secuenciador sample-accurate)
+        bool active = false;
+    };
+    struct ClickVoice {
+        const float* d = nullptr;
+        int32_t len = 0;
+        int32_t pos = 0;
+        int32_t delay = 0;
         bool active = false;
     };
     static constexpr int kMaxVoices = 48;
@@ -100,6 +140,10 @@ private:
     void applyBursts();
     void handleEvent(const PadEvent& ev, int64_t nowNs);
     void startVoice(const PadEvent& ev, int64_t nowNs);
+    void triggerDrum(int pad, float vel, int delayFrames);
+    void execSynth(const LoopEvent& e);
+    void pushViz(int type, int a, float f);
+    friend struct EngineSink;
     SynthParams synthParams() const;
     void chokeVoices(int pad, int group, float frames);
     float param(int id) const { return params_[id].load(std::memory_order_relaxed); }
@@ -120,6 +164,15 @@ private:
     int lastVariant_[kPadCount] = {};
     uint32_t rng_ = 0x9E3779B9u;
 
+    Sequencer seq_;
+    SpscQueue<VizEvent, 1024> viz_;
+    int64_t blockNs_ = 0;
+    Sample clickAcc_, clickNorm_;
+    ClickVoice clicks_[8];
+    std::vector<float> recBuf_;
+    std::atomic<size_t> recHead_{0};
+    std::atomic<size_t> recTail_{0};
+    std::atomic<bool> recording_{false};
     Reverb drumRoom_;
     SynthEngine synth_;
     float compEnv_ = 0;
