@@ -49,6 +49,7 @@ data class ChordsUi(
     val activeId: String? = null,
     val edits: Map<String, PadEdit> = emptyMap(),
     val editing: String? = null,
+    val editMode: Boolean = false,
 ) {
     val tonic: Int get() = Math.floorMod(key + transpose, 12)
 
@@ -113,7 +114,7 @@ class ChordsViewModel : ViewModel() {
     }
 
     fun openEditor(id: String) = _ui.update { it.copy(editing = id) }
-    fun closeEditor() = _ui.update { it.copy(editing = null) }
+    fun closeEditor() = _ui.update { it.copy(editing = null, editMode = false) }
 
     fun updateEdit(id: String, f: (PadEdit) -> PadEdit) {
         _ui.update { u ->

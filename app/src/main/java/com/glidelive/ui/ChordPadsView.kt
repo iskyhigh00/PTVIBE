@@ -17,14 +17,15 @@ data class PadUi(val id: String, val title: String, val subtitle: String)
 class ChordPadsView(context: Context) : View(context) {
     var onDown: (String) -> Unit = {}
     var onUp: (String) -> Unit = {}
-    var onLongPress: (String) -> Unit = {}
+    var onEdit: (String) -> Unit = {}
+    /** En modo edición, tocar un pad abre el editor en vez de sonar. */
+    var editMode = false
 
     private var rows: List<List<PadUi>> = emptyList()
     private var activeId: String? = null
     private var edited: Set<String> = emptySet()
     private val rects = ArrayList<Pair<PadUi, RectF>>()
     private val pressed = SparseArray<String>()
-    private val longPress = SparseArray<Runnable>()
 
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val active = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -86,8 +87,6 @@ class ChordPadsView(context: Context) : View(context) {
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 for (i in 0 until pressed.size()) up(pressed.keyAt(i), notify = true, remove = false)
                 pressed.clear()
-                for (i in 0 until longPress.size()) removeCallbacks(longPress.valueAt(i))
-                longPress.clear()
                 invalidate()
             }
         }
@@ -96,18 +95,14 @@ class ChordPadsView(context: Context) : View(context) {
 
     private fun down(e: MotionEvent, idx: Int) {
         val id = hit(e.getX(idx), e.getY(idx)) ?: return
+        if (editMode) { onEdit(id); return }
         val pid = e.getPointerId(idx)
         pressed.put(pid, id)
         onDown(id)
-        val run = Runnable { if (pressed.get(pid) == id) onLongPress(id) }
-        longPress.put(pid, run)
-        postDelayed(run, LONG_PRESS_MS)
         invalidate()
     }
 
     private fun up(pid: Int, notify: Boolean = true, remove: Boolean = true) {
-        longPress.get(pid)?.let { removeCallbacks(it) }
-        longPress.remove(pid)
         val id = pressed.get(pid) ?: return
         if (remove) pressed.remove(pid)
         if (notify) onUp(id)
@@ -142,6 +137,4 @@ class ChordPadsView(context: Context) : View(context) {
             if (pad.id in edited) c.drawCircle(r.right - 18f, r.top + 18f, 6f, dot)
         }
     }
-
-    private companion object { const val LONG_PRESS_MS = 550L }
 }

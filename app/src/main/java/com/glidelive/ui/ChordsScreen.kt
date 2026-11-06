@@ -88,7 +88,8 @@ fun ChordsScreen(vm: ChordsViewModel, compact: Boolean, modifier: Modifier = Mod
             update = {
                 it.onDown = vm::padDown
                 it.onUp = vm::padUp
-                it.onLongPress = vm::openEditor
+                it.onEdit = vm::openEditor
+                it.editMode = u.editMode
                 it.setData(rows, u.activeId, edited)
             },
             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -105,6 +106,11 @@ fun ChordsScreen(vm: ChordsViewModel, compact: Boolean, modifier: Modifier = Mod
                 onValueChange = { v -> vm.edit { it.copy(glideMs = v.toInt()) } },
                 valueRange = 0f..2000f,
                 modifier = Modifier.weight(1f),
+            )
+            FilterChip(
+                selected = u.editMode,
+                onClick = { vm.edit { it.copy(editMode = !it.editMode) } },
+                label = { Text("✎ Editar") },
             )
             GradientButton("Stop", vm::stopAll, glyph = "■")
         }
@@ -220,7 +226,7 @@ fun SoundPanel(vm: ChordsViewModel) {
             onValueChange = { v -> vm.edit { it.copy(rangeLo = v.toInt().coerceAtMost(it.rangeHi - 12)) } })
         Slider(value = u.rangeHi.toFloat(), valueRange = 60f..96f,
             onValueChange = { v -> vm.edit { it.copy(rangeHi = v.toInt().coerceAtLeast(it.rangeLo + 12)) } })
-        Text("Mantén un pad para editar tipo, inversión, octava y notas.", color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Text("Pulsa «Editar» y toca un pad para cambiar tipo, inversión, octava y notas.", color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall)
     }
 }
