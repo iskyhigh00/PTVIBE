@@ -6,6 +6,14 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.FilterChip
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.lifecycleScope
+import com.glidelive.viz.EventHub
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -29,7 +37,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -67,38 +74,68 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         enableEdgeToEdge()
+        EventHub.start(lifecycleScope)
         setContent {
             AppTheme {
                 AppBackground {
                     var mode by rememberSaveable { mutableStateOf(Mode.ACORDES) }
                     var panel by rememberSaveable { mutableStateOf(true) }
+                    var fullscreen by rememberSaveable { mutableStateOf(false) }
+                    var soloLayer by rememberSaveable { mutableStateOf(false) }
                     val kit by vm.kit.collectAsState()
-                    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-                        TopBar(mode, { mode = it }, chordsVm, soloVm, vm, panel) { panel = !panel }
-                        TransportBar(transportVm)
-                        if (mode == Mode.BATERIA || mode == Mode.MIXTO) PatternBar(transportVm)
-                        Row(
-                            Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            Column(Modifier.weight(1f).fillMaxHeight()) {
-                                if (mode == Mode.ACORDES || mode == Mode.MIXTO) {
-                                    ChordsScreen(chordsVm, compact = mode == Mode.MIXTO, Modifier.weight(1f))
-                                }
-                                if (mode == Mode.SOLISTA) SoloHost(soloVm, Modifier.weight(1f))
-                                if (mode == Mode.BATERIA || mode == Mode.MIXTO) {
-                                    AndroidView(
-                                        factory = { DrumPadsView(it) },
-                                        update = { it.pressureSensitivity = kit.pressure },
-                                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                                    )
+                    val view = LocalView.current
+                    LaunchedEffect(fullscreen) {
+                        val c = WindowCompat.getInsetsController(window, view)
+                        if (fullscreen) c.hide(WindowInsetsCompat.Type.systemBars()) else c.show(WindowInsetsCompat.Type.systemBars())
+                    }
+                    Box(Modifier.fillMaxSize()) {
+                        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                            if (!fullscreen) {
+                                TopBar(mode, { mode = it }, chordsVm, soloVm, vm, transportVm, panel, { panel = !panel }, { fullscreen = true })
+                                TransportBar(transportVm)
+                                if (mode == Mode.BATERIA || mode == Mode.MIXTO) PatternBar(transportVm)
+                                if (mode == Mode.MIXTO) {
+                                    Row(Modifier.padding(horizontal = 16.dp)) {
+                                        FilterChip(selected = soloLayer, onClick = { soloLayer = !soloLayer },
+                                            label = { Text("Capa de solista") })
+                                    }
                                 }
                             }
-                            if (panel) {
-                                GlassCard(Modifier.width(300.dp).fillMaxHeight().padding(bottom = 8.dp), padding = 0.dp) {
-                                    SidePanel(vm, updateVm, chordsVm, soloVm, transportVm)
+                            Row(
+                                Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Column(Modifier.weight(1f).fillMaxHeight()) {
+                                    when (mode) {
+                                        Mode.ACORDES -> ChordsScreen(chordsVm, compact = fullscreen, Modifier.weight(1f))
+                                        Mode.VOCES -> {
+                                            AndroidView(
+                                                factory = { ChordVizView(it) },
+                                                modifier = Modifier.weight(1.1f).fillMaxWidth().padding(bottom = 6.dp),
+                                            )
+                                            ChordsScreen(chordsVm, compact = true, Modifier.weight(1f))
+                                        }
+                                        Mode.SOLISTA -> SoloHost(soloVm, Modifier.weight(1f))
+                                        Mode.BATERIA -> DrumsHost(kit.pressure, Modifier.weight(1f))
+                                        Mode.MIXTO -> {
+                                            ChordsScreen(chordsVm, compact = true, Modifier.weight(1f))
+                                            if (soloLayer) SoloHost(soloVm, Modifier.weight(0.8f))
+                                            DrumsHost(kit.pressure, Modifier.weight(1f))
+                                        }
+                                    }
+                                }
+                                if (panel && !fullscreen) {
+                                    GlassCard(Modifier.width(300.dp).fillMaxHeight().padding(bottom = 8.dp), padding = 0.dp) {
+                                        SidePanel(vm, updateVm, chordsVm, soloVm, transportVm)
+                                    }
                                 }
                             }
+                        }
+                        if (fullscreen) {
+                            TextButton(
+                                onClick = { fullscreen = false },
+                                modifier = Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.safeDrawing),
+                            ) { Text("⤡ Salir") }
                         }
                     }
                 }
@@ -118,7 +155,18 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-enum class Mode(val label: String) { ACORDES("Acordes"), SOLISTA("Solista"), BATERIA("Batería"), MIXTO("Mixto") }
+enum class Mode(val label: String) {
+    ACORDES("Acordes"), VOCES("Voces"), SOLISTA("Solista"), BATERIA("Batería"), MIXTO("Mixto")
+}
+
+@Composable
+private fun DrumsHost(pressure: Boolean, modifier: Modifier) {
+    AndroidView(
+        factory = { DrumPadsView(it) },
+        update = { it.pressureSensitivity = pressure },
+        modifier = modifier.fillMaxWidth(),
+    )
+}
 
 @Composable
 private fun TopBar(
@@ -127,8 +175,10 @@ private fun TopBar(
     chords: ChordsViewModel,
     solo: SoloViewModel,
     engine: EngineViewModel,
+    transport: TransportViewModel,
     panel: Boolean,
     onPanel: () -> Unit,
+    onFullscreen: () -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 6.dp),
@@ -140,6 +190,7 @@ private fun TopBar(
         MixerMenu(engine, chords, solo)
         EqBars(level = { engine.level.value })
         TextButton(onClick = onPanel) { Text(if (panel) "Ocultar ajustes" else "Ajustes") }
+        TextButton(onClick = onFullscreen) { Text("⤢ Pantalla completa") }
     }
 }
 

@@ -10,6 +10,7 @@ import com.glidelive.drums.DrumKeys
 import com.glidelive.drums.DrumPattern
 import com.glidelive.drums.Step
 import com.glidelive.drums.Variation
+import com.glidelive.viz.EventHub
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -258,6 +259,8 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
         var patternOn = u.patternOn
         var endPending = u.endPending
         if (endPending && s[8] < 0.5) { patternOn = false; endPending = false }
+        EventHub.ghostLoopMs = if (u.chordLoopOn && s[6] > 0 && s[1] > 0.5)
+            u.chordBars * u.chordMeter.barTicks * 60000.0 / (u.bpm * 96.0) else 0.0
         _ui.update {
             it.copy(
                 playing = s[1] > 0.5, bar = bar, beat = beat,

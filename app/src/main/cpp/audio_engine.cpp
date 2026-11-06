@@ -295,14 +295,14 @@ void AudioEngine::chokeVoices(int pad, int group, float frames) {
     }
 }
 
-void AudioEngine::pushViz(int type, int a, float f) {
+void AudioEngine::pushViz(int type, int a, int b, float f) {
     VizEvent v;
     v.timeMs = static_cast<double>(blockNs_) / 1.0e6;
     v.type = type;
     v.a = a;
     v.f = f;
     v.glideMs = param(kGlideMs);
-    v.curve = static_cast<int>(param(kGlideCurve));
+    v.curve = static_cast<int>(param(kGlideCurve)) | (b << 8);  // curva en 8 bits bajos, voz de origen arriba
     viz_.push(v);
 }
 
@@ -317,7 +317,7 @@ void AudioEngine::execSynth(const LoopEvent& e) {
         case 15: synth_.releaseAll(); break;
         default: return;
     }
-    pushViz(e.type, e.a, e.f);
+    pushViz(e.type, e.a, e.b, e.f);
 }
 
 struct EngineSink : SeqSink {
@@ -440,7 +440,7 @@ void AudioEngine::startVoice(const PadEvent& ev, int64_t now) {
 void AudioEngine::triggerDrum(int pad, float velocity, int delayFrames) {
     const Kit* kit = active_.load(std::memory_order_acquire);
     if (pad < 0 || pad >= kPadCount || kit == nullptr) return;
-    pushViz(0, pad, velocity);
+    pushViz(0, pad, 0, velocity);
     const int group = kGroupOf[pad];
     if (group != 0) {
         chokeVoices(pad, group, 0.006f * sr_);       // hi-hat: el nuevo corta al anterior
