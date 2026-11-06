@@ -268,6 +268,34 @@ void testSynthSmoke() {
     CHECK(peak > 0.001f, "sintetizador de acordes produce audio");
 }
 
+// Un acorde sostenido (piano eléctrico, el instrumento por defecto) no debe irse apagando.
+void testHeldChordDoesNotFade() {
+    static SynthEngine eng;
+    eng.init(48000);
+    SynthParams sp;
+    sp.instrument = 0;
+    sp.room = 0; sp.chorus = 0;
+    eng.noteOn(0, 55.0f, sp);
+    eng.noteOn(1, 62.0f, sp);
+    std::vector<float> l(512), rr(512);
+    auto rms = [&](double seconds) {
+        double acc = 0; long n = 0;
+        const int blocks = static_cast<int>(seconds * 48000 / 512);
+        for (int b = 0; b < blocks; ++b) {
+            std::fill(l.begin(), l.end(), 0.0f); std::fill(rr.begin(), rr.end(), 0.0f);
+            eng.render(l.data(), rr.data(), 512, sp);
+            for (float x : l) { acc += static_cast<double>(x) * x; ++n; }
+        }
+        return std::sqrt(acc / std::max<long>(n, 1));
+    };
+    rms(2.0);                  // pasa el ataque inicial
+    const double early = rms(0.2);
+    rms(17.0);
+    const double late = rms(0.2);
+    CHECK(early > 0.001, "acorde sostenido: suena");
+    CHECK(late > early * 0.6, "acorde sostenido: a los 20 s sigue en el mismo nivel (sin caida de piano)");
+}
+
 // Cambio de variación en cola: cae exactamente en el límite de compás del patron.
 void testQueuedSwapOnBarBoundary() {
     Rig r;
@@ -371,6 +399,7 @@ int main() {
     testStopPlayRestarts();
     testTripleBufferStress();
     testSynthSmoke();
+    testHeldChordDoesNotFade();
     testQueuedSwapOnBarBoundary();
     testQueuedSwapMidBlock();
     testQueuedSwapImmediateWhenIdle();

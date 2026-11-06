@@ -153,7 +153,9 @@ void SynthEngine::render(float* outL, float* outR, int n, const SynthParams& p) 
         const int ii = std::min(std::max(solo ? p.soloInstrument : p.instrument, 0), 4);
         const Inst& in = kInst[ii];
         const float volScale = solo ? p.soloVolume : p.volume;
-        const float susMul = std::exp(-in.susK * invSr);
+        // Las voces de acordes sostienen sin caer mientras el acorde suena (Sostener / Alternar / Mientras toco);
+        // la caída natural del piano eléctrico solo se conserva en el solista.
+        const float susMul = solo ? std::exp(-in.susK * invSr) : 1.0f;
 
         float target = 0, vibMod = 0, volMod = 1, filterMod = 1;
         if (solo) {
