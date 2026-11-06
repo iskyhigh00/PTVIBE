@@ -2,10 +2,12 @@ package com.glidelive.ui.theme
 
 import android.content.res.Configuration
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 
@@ -59,12 +61,10 @@ private val LightColors = lightColorScheme(
 
 @Composable
 fun AppTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
-        typography = AppTypography,
-        shapes = AppShapes,
-        content = content,
-    )
+    val colors = if (darkTheme) DarkColors else LightColors
+    MaterialTheme(colorScheme = colors, typography = AppTypography, shapes = AppShapes) {
+        CompositionLocalProvider(LocalContentColor provides colors.onBackground, content = content)
+    }
 }
 
 /** Vista previa en tema oscuro y claro. */

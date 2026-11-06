@@ -50,7 +50,8 @@ fun GradientButton(text: String, onClick: () -> Unit, modifier: Modifier = Modif
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (glyph != null) Text(glyph, color = Color.White, fontWeight = FontWeight.Bold)
-            Text(text, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+            Text(text, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge,
+                maxLines = 1, softWrap = false)
         }
     }
 }
@@ -73,7 +74,8 @@ fun TonalButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier
             .padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, color = MaterialTheme.colorScheme.onSecondaryContainer, style = MaterialTheme.typography.labelLarge)
+        Text(text, color = MaterialTheme.colorScheme.onSecondaryContainer, style = MaterialTheme.typography.labelLarge,
+            maxLines = 1, softWrap = false)
     }
 }
 

@@ -28,7 +28,7 @@ enum class ChordType(val symbol: String, val label: String, val intervals: List<
             MAJ -> "mayor"; MIN -> "menor"; DIM -> "disminuido"; AUG -> "aumentado"
             DOM7 -> "dominante"; MAJ7 -> "mayor 7ª"; MIN7 -> "menor 7ª"
             MIN9 -> "menor 9ª"; MAJ9 -> "mayor 9ª"; DOM7B9 -> "tenso ♭9"
-            M7B5 -> "semidisminuido"; SUS2 -> "suspendido 2"; SUS4 -> "suspendido"
+            M7B5 -> "semidism."; SUS2 -> "suspendido 2"; SUS4 -> "suspendido"
             ADD9 -> "mayor + 9ª"; SIX -> "mayor 6ª"; MIN6 -> "menor 6ª"
             DOM11 -> "dominante 11ª"; DOM13 -> "dominante 13ª"
             DIM7 -> "disminuido 7ª"; MMAJ7 -> "menor-mayor 7ª"

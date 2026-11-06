@@ -42,6 +42,7 @@ class ChordPadsView(context: Context) : View(context) {
     private val strokeShaders = ArrayList<Shader>()
     private val activeShaders = ArrayList<Shader>()
     private val tmp = RectF()
+    private var baseTitle = 18f
 
     fun setData(rows: List<List<PadUi>>, activeId: String?, edited: Set<String>) {
         if (this.rows != rows || this.activeId != activeId || this.edited != edited) {
@@ -73,8 +74,9 @@ class ChordPadsView(context: Context) : View(context) {
                 activeShaders.add(LinearGradient(l, t, l + cw, t, 0xFF6B4EFF.toInt(), 0xFFFF6B9D.toInt(), Shader.TileMode.CLAMP))
             }
         }
-        title.textSize = (minOf(width / 9f, height / rows.size.toFloat()) * 0.32f).coerceAtLeast(18f)
-        sub.textSize = title.textSize * 0.55f
+        baseTitle = (minOf(width / 9f, height / rows.size.toFloat()) * 0.32f).coerceAtLeast(18f)
+        title.textSize = baseTitle
+        sub.textSize = baseTitle * 0.55f
     }
 
     private fun hit(x: Float, y: Float): String? = rects.firstOrNull { it.second.contains(x, y) }?.first?.id
@@ -109,6 +111,12 @@ class ChordPadsView(context: Context) : View(context) {
         invalidate()
     }
 
+    /** Reduce el texto hasta que quepa en [maxW]. */
+    private fun fit(p: Paint, text: String, maxW: Float, base: Float) {
+        p.textSize = base
+        while (p.measureText(text) > maxW && p.textSize > 9f) p.textSize -= 1f
+    }
+
     override fun onDraw(c: Canvas) {
         for ((idx, entry) in rects.withIndex()) {
             val (pad, r) = entry
@@ -132,6 +140,8 @@ class ChordPadsView(context: Context) : View(context) {
             c.drawRoundRect(tmp, 22f, 22f, stroke)
             title.color = if (on) 0xFFFFFFFF.toInt() else 0xFFF1F0FA.toInt()
             sub.color = if (on) 0xCCFFFFFF.toInt() else 0xFF9AA3B8.toInt()
+            fit(title, pad.title, r.width() - 10f, baseTitle)
+            fit(sub, pad.subtitle, r.width() - 10f, baseTitle * 0.55f)
             c.drawText(pad.title, r.centerX(), r.centerY() + title.textSize * 0.1f, title)
             c.drawText(pad.subtitle, r.centerX(), r.centerY() + title.textSize * 0.1f + sub.textSize * 1.4f, sub)
             if (pad.id in edited) c.drawCircle(r.right - 18f, r.top + 18f, 6f, dot)

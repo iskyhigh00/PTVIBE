@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
@@ -70,7 +71,7 @@ class MainActivity : ComponentActivity() {
                     var panel by rememberSaveable { mutableStateOf(true) }
                     val kit by vm.kit.collectAsState()
                     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-                        TopBar(mode, { mode = it }, chordsVm, vm, panel) { panel = !panel }
+                        TopBar(mode, { mode = it }, chordsVm, soloVm, vm, panel) { panel = !panel }
                         Row(
                             Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -119,6 +120,7 @@ private fun TopBar(
     mode: Mode,
     onMode: (Mode) -> Unit,
     chords: ChordsViewModel,
+    solo: SoloViewModel,
     engine: EngineViewModel,
     panel: Boolean,
     onPanel: () -> Unit,
@@ -130,8 +132,28 @@ private fun TopBar(
     ) {
         CapsuleBar(Mode.entries, mode, { it.label }, onMode)
         if (mode != Mode.BATERIA) KeyControls(chords)
+        MixerMenu(engine, chords, solo)
         EqBars(level = { engine.level.value })
         TextButton(onClick = onPanel) { Text(if (panel) "Ocultar ajustes" else "Ajustes") }
+    }
+}
+
+/** Mezclador rápido: volumen de cada instrumento y general. */
+@Composable
+private fun MixerMenu(engine: EngineViewModel, chords: ChordsViewModel, solo: SoloViewModel) {
+    var open by remember { mutableStateOf(false) }
+    val kit by engine.kit.collectAsState()
+    val c by chords.ui.collectAsState()
+    val s by solo.ui.collectAsState()
+    TextButton(onClick = { open = true }) { Text("Mezcla") }
+    DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        Column(Modifier.width(280.dp).padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Text("Volumen de cada instrumento", style = MaterialTheme.typography.titleSmall)
+            LabeledSlider("Acordes", c.volume, 0f..1f) { v -> chords.edit { it.copy(volume = v) } }
+            LabeledSlider("Solista", s.volume, 0f..1f) { v -> solo.edit { it.copy(volume = v) } }
+            LabeledSlider("Batería", kit.drumVol, 0f..1.5f) { v -> engine.editKit { it.copy(drumVol = v) } }
+            LabeledSlider("General", kit.master, 0f..1f) { v -> engine.editKit { it.copy(master = v) } }
+        }
     }
 }
 

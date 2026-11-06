@@ -21,6 +21,7 @@ data class KitSettings(
     val room: Float = 0.25f,
     val comp: Float = 0.3f,
     val master: Float = 0.9f,
+    val drumVol: Float = 1f,
     val pressure: Boolean = false,
     val padVolume: List<Float> = List(Pads.COUNT) { 1f },
 )
@@ -74,6 +75,7 @@ class EngineViewModel(app: Application) : AndroidViewModel(app) {
         NativeEngine.setParam(NativeEngine.P_ROOM, k.room)
         NativeEngine.setParam(NativeEngine.P_COMP, k.comp)
         NativeEngine.setParam(NativeEngine.P_MASTER, k.master)
+        NativeEngine.setParam(NativeEngine.P_DRUM_VOL, k.drumVol)
         k.padVolume.forEachIndexed { i, v -> NativeEngine.setParam(NativeEngine.P_PAD_VOL + i, v) }
     }
 
