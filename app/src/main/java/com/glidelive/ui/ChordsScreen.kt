@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.glidelive.audio.ExitMode
 import com.glidelive.theory.Bank
 import com.glidelive.ui.components.GradientButton
 import com.glidelive.theory.ChordType
@@ -125,7 +126,7 @@ fun ChordsScreen(vm: ChordsViewModel, compact: Boolean, modifier: Modifier = Mod
                 onClick = { vm.edit { it.copy(editMode = !it.editMode) } },
                 label = { Text("✎ Editar acordes") },
             )
-            GradientButton("Silenciar", vm::stopAll, glyph = "■")
+            GradientButton("Silenciar", { vm.stopAll() }, glyph = "■")
         }
         if (!compact) {
             Row(
@@ -143,6 +144,12 @@ fun ChordsScreen(vm: ChordsViewModel, compact: Boolean, modifier: Modifier = Mod
                 TriggerMode.entries.forEach { t ->
                     FilterChip(selected = u.trigger == t, onClick = { vm.edit { it.copy(trigger = t) } },
                         label = { Text(t.label) })
+                }
+                Text("Salida:", Modifier.align(Alignment.CenterVertically),
+                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                ExitMode.entries.forEach { m ->
+                    FilterChip(selected = u.exit == m, onClick = { vm.edit { it.copy(exit = m) } },
+                        label = { Text(m.label) })
                 }
             }
         }
@@ -237,6 +244,9 @@ fun SoundPanel(vm: ChordsViewModel) {
         LabeledSlider("Énfasis del filtro", u.resonance, 0f..1f) { v -> vm.edit { it.copy(resonance = v) } }
         LabeledSlider("Chorus (sonido más ancho)", u.chorus, 0f..1f) { v -> vm.edit { it.copy(chorus = v) } }
         LabeledSlider("Reverb (efecto de espacio)", u.room, 0f..1f) { v -> vm.edit { it.copy(room = v) } }
+        Text("Cola de salida: ${u.tailMs} ms", style = MaterialTheme.typography.labelMedium)
+        Slider(value = u.tailMs.toFloat(), valueRange = 200f..4000f,
+            onValueChange = { v -> vm.edit { it.copy(tailMs = v.toInt()) } })
         Text("Rango de notas: ${NoteNames.midiName(u.rangeLo)} – ${NoteNames.midiName(u.rangeHi)}",
             style = MaterialTheme.typography.labelMedium)
         Slider(value = u.rangeLo.toFloat(), valueRange = 28f..60f,

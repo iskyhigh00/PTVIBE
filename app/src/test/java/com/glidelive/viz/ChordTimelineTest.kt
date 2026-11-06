@@ -14,6 +14,13 @@ class ChordTimelineTest {
         assertEquals("C/E", ChordNamer.name(listOf(52, 55, 60)))
     }
 
+    @Test fun partsSplitRootAccidentalAndQuality() {
+        assertEquals(Triple("F", "", "m7"), ChordNamer.parts(listOf(53, 56, 60, 63)))
+        assertEquals(Triple("A", "♭", "maj7"), ChordNamer.parts(listOf(56, 60, 63, 67)))
+        assertEquals(Triple("G", "", "7(♭9)"), ChordNamer.parts(listOf(55, 59, 62, 65, 68)))
+        assertEquals(Triple("D", "", "m7(♭5)"), ChordNamer.parts(listOf(50, 53, 56, 60)))
+    }
+
     @Test fun glideInterpolatesAlongSCurve() {
         val tl = ChordTimeline()
         tl.onEvent(10, 0, 0, 60f, 0f, 0, 1000.0)

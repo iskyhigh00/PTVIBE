@@ -177,7 +177,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         sessionVm.stopIfRecording(transportVm.ui.value.bpm)
-        chordsVm.stopAll()
+        chordsVm.stopAll(immediate = true)
         NativeEngine.stop()
         super.onPause()
     }

@@ -371,13 +371,13 @@ void AudioEngine::chokeVoices(int pad, int group, float frames) {
     }
 }
 
-void AudioEngine::pushViz(int type, int a, int b, float f) {
+void AudioEngine::pushViz(int type, int a, int b, float f, float glideMs) {
     VizEvent v;
     v.timeMs = static_cast<double>(blockNs_) / 1.0e6;
     v.type = type;
     v.a = a;
     v.f = f;
-    v.glideMs = param(kGlideMs);
+    v.glideMs = glideMs >= 0.0f ? glideMs : param(kGlideMs);
     v.curve = static_cast<int>(param(kGlideCurve)) | (b << 8);  // curva en 8 bits bajos, voz de origen arriba
     viz_.push(v);
 }
@@ -388,7 +388,14 @@ void AudioEngine::execSynth(const LoopEvent& e) {
         case 10: synth_.noteOn(e.a, e.f, p); break;
         case 11: synth_.glideTo(e.a, e.f, p, false); break;
         case 12: synth_.spawn(e.a, e.b, e.f, p); break;
-        case 13: synth_.glideTo(e.a, e.f, p, true); break;
+        case 13: {
+            // b > 0: tiempo de glide propio de esta salida (p. ej. fundir las voces al apagar); 0 = glide global.
+            SynthParams q = p;
+            if (e.b > 0) q.glideMs = static_cast<float>(e.b);
+            synth_.glideTo(e.a, e.f, q, true);
+            pushViz(e.type, e.a, 0, e.f, q.glideMs);
+            return;
+        }
         case 14: synth_.release(e.a); break;
         case 15: synth_.releaseAll(); break;
         default: return;

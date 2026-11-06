@@ -80,7 +80,7 @@ fun PerformScreen(
                 value = c.glideMs.toFloat(), onValueChange = { v -> chordsVm.edit { it.copy(glideMs = v.toInt()) } },
                 valueRange = 0f..2000f, modifier = Modifier.width(130.dp),
             )
-            GradientButton("Silenciar", chordsVm::stopAll, glyph = "■")
+            GradientButton("Silenciar", { chordsVm.stopAll() }, glyph = "■")
         }
         AndroidView(
             factory = { ctx -> PerformHost(ctx) },

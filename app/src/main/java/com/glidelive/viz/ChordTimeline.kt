@@ -17,6 +17,16 @@ object ChordNamer {
         }
         return pcs.sorted().joinToString(" ") { NoteNames.name(it) }
     }
+
+    /** Nombre dividido para dibujar la cabecera: (letra de la fundamental, "♭"/"♯"/"", calidad con bajo si es inversión). */
+    fun parts(midis: Collection<Int>): Triple<String, String, String> {
+        val full = name(midis)
+        if (full.isEmpty() || !full[0].isLetter() || full.contains(' ')) return Triple("", "", full)
+        var i = 1
+        var acc = ""
+        if (i < full.length && (full[i] == '♭' || full[i] == '♯')) { acc = full[i].toString(); i++ }
+        return Triple(full[0].toString(), acc, full.substring(i))
+    }
 }
 
 class Seg(val t0: Double, val t1: Double, val from: Float, val to: Float, val curve: Int)
@@ -43,6 +53,9 @@ class Span(val slot: Int, val startMs: Double, startMidi: Float) {
 class ChordMark(val tMs: Double) {
     val targets = HashMap<Int, Int>()
     var name = ""
+    var root = ""
+    var acc = ""
+    var qual = ""
 }
 
 /**
@@ -89,6 +102,8 @@ class ChordTimeline {
         if (m == null || t - m.tMs > 60) { m = ChordMark(t); marks.add(m) }
         m.targets[slot] = Math.round(midi)
         m.name = ChordNamer.name(m.targets.values)
+        val (r, a, q) = ChordNamer.parts(m.targets.values)
+        if (r.isEmpty()) { m.root = m.name; m.acc = ""; m.qual = "" } else { m.root = r; m.acc = a; m.qual = q }
     }
 
     private fun prune(now: Double) {

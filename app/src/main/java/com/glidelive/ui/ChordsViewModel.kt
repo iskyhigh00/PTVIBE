@@ -2,7 +2,9 @@ package com.glidelive.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.glidelive.audio.Cancelable
 import com.glidelive.audio.ChordPlayer
+import com.glidelive.audio.ExitMode
 import com.glidelive.audio.NativeEngine
 import com.glidelive.theory.Bank
 import com.glidelive.theory.Chord
@@ -44,6 +46,8 @@ data class ChordsUi(
     val glideMs: Int = 250,
     val curve: GlideCurve = GlideCurve.SMOOTH,
     val trigger: TriggerMode = TriggerMode.HOLD,
+    val exit: ExitMode = ExitMode.BLEND,
+    val tailMs: Int = 1500,
     val rangeLo: Int = 45,  // A2
     val rangeHi: Int = 72,  // C5
     val cutoff: Float = 0.8f,
@@ -93,7 +97,11 @@ class ChordsViewModel : ViewModel() {
     private val _ui = MutableStateFlow(ChordsUi())
     val ui: StateFlow<ChordsUi> = _ui
 
-    private val player = ChordPlayer({ NativeEngine.synth(it) })
+    // La cola de salida se programa en el hilo principal (corrutina del ViewModel).
+    private val player = ChordPlayer({ NativeEngine.synth(it) }, { delayMs, action ->
+        val job = viewModelScope.launch { delay(delayMs); action() }
+        Cancelable { job.cancel() }
+    })
 
     /** Hay un acorde diferido esperando el próximo tiempo/compás (cuantización de acordes). */
     private val _pending = MutableStateFlow(false)
@@ -152,8 +160,11 @@ class ChordsViewModel : ViewModel() {
         if (u.trigger == TriggerMode.GATE && u.activeId == id) stopAll()
     }
 
-    fun stopAll() {
-        player.stopAll()
+    /** [immediate]: corta ya (p. ej. al pausar la app); si no, usa la salida configurada (Fundir / Cortar). */
+    fun stopAll(immediate: Boolean = false) {
+        val u = _ui.value
+        if (immediate || u.exit == ExitMode.CUT) player.stopAll(ExitMode.CUT)
+        else player.stopAll(ExitMode.BLEND, u.glideMs, u.tailMs)
         SharedHarmony.update { it.copy(chordPcs = emptyList()) }
         _ui.update { it.copy(activeId = null) }
     }
@@ -183,5 +194,5 @@ class ChordsViewModel : ViewModel() {
         return r.notes to r.toneIndex.map { tones[it] }
     }
 
-    override fun onCleared() = player.stopAll()
+    override fun onCleared() = player.stopAll(ExitMode.CUT)
 }

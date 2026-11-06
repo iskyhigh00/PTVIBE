@@ -147,7 +147,7 @@ private:
     void startVoice(const PadEvent& ev, int64_t nowNs);
     void triggerDrum(int pad, float vel, int delayFrames);
     void execSynth(const LoopEvent& e);
-    void pushViz(int type, int a, int b, float f);
+    void pushViz(int type, int a, int b, float f, float glideMs = -1.0f);
     friend struct EngineSink;
     SynthParams synthParams() const;
     void chokeVoices(int pad, int group, float frames);
