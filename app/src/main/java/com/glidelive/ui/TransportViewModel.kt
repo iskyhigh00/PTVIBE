@@ -38,7 +38,10 @@ enum class ChordQuant(val code: Int, val label: String) {
 }
 
 /** Parte de una base que se edita en el secuenciador. */
-enum class EditPart(val label: String) { A("A"), B("B"), C("C"), FILL("Relleno"), END("Final") }
+enum class EditPart(val label: String) { A("A"), B("B"), C("C"), D("D"), FILL("Relleno"), END("Final") }
+
+/** Cuándo entra un cambio de variación: en el siguiente compás de la base o al instante. */
+enum class VariationSwap(val label: String) { BAR("Al compás"), NOW("Inmediato") }
 
 data class EditorState(val pattern: DrumPattern, val part: Int = 0)
 
@@ -52,6 +55,9 @@ data class TransportUi(
     val patterns: List<DrumPattern> = emptyList(),
     val patternId: String? = null,
     val variation: Int = 0,
+    /** Variación en espera del próximo compás (null = ninguna). */
+    val pendingVariation: Int? = null,
+    val variationSwap: VariationSwap = VariationSwap.BAR,
     val patternOn: Boolean = false,
     val fillOn: Boolean = false,
     val endPending: Boolean = false,
@@ -85,6 +91,8 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private val taps = ArrayList<Long>()
     @Volatile private var lastPass = 0
+    /** Valor del contador nativo de cambios cuando se encoló la variación pendiente. */
+    @Volatile private var swapBase = 0
 
     init {
         PatternRepository.load(app)
@@ -148,7 +156,8 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun selectPattern(p: DrumPattern, adopt: Boolean = _ui.value.adoptPattern) {
-        _ui.update { it.copy(patternId = p.id, variation = 0, fillOn = false, endPending = false) }
+        _ui.update { it.copy(patternId = p.id, variation = 0, pendingVariation = null, fillOn = false, endPending = false) }
+        NativeEngine.cancelQueuedPattern()
         if (adopt) {
             edit { it.copy(bpm = p.bpmDefault, meter = Meter(p.beats, p.beatUnit)) }
         }
@@ -174,10 +183,33 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Con "Al compás" (y la base sonando) la variación se encola y entra exactamente en el siguiente compás de la
+     * base, igual que el relleno y el final; con "Inmediato" (o sin base sonando) se aplica al instante.
+     */
     fun selectVariation(i: Int) {
-        val p = _ui.value.pattern ?: return
-        _ui.update { it.copy(variation = i, fillOn = false) }
-        sendPattern(p, p.variations[i.coerceIn(0, p.variations.size - 1)].tracks, restart = false)
+        val u = _ui.value
+        val p = u.pattern ?: return
+        val idx = i.coerceIn(0, p.variations.size - 1)
+        val queue = u.variationSwap == VariationSwap.BAR && u.patternOn && u.playing && !u.fillOn
+        if (!queue) {
+            if (u.pendingVariation != null) NativeEngine.cancelQueuedPattern()
+            _ui.update { it.copy(variation = idx, pendingVariation = null, fillOn = false) }
+            sendPattern(p, p.variations[idx].tracks, restart = false)
+            return
+        }
+        if (idx == u.variation) {  // volver a la activa cancela la espera
+            if (u.pendingVariation != null) {
+                NativeEngine.cancelQueuedPattern()
+                _ui.update { it.copy(pendingVariation = null) }
+            }
+            return
+        }
+        if (u.pendingVariation == idx) return
+        val c = p.compile(p.variations[idx].tracks)
+        swapBase = NativeEngine.seqStatus()[10].toInt()
+        _ui.update { it.copy(pendingVariation = idx) }  // reemplaza a la que hubiera en espera
+        NativeEngine.queuePattern(c.ticks, c.pads, c.vels, p.lengthTicks, p.barTicks)
     }
 
     fun togglePattern() {
@@ -187,14 +219,20 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
         if (on && !_ui.value.playing) play()
     }
 
-    /** Relleno en el último compás: se vuelve a la variación al dar la vuelta. */
+    /**
+     * Relleno en el último compás: se vuelve a la variación al dar la vuelta. Si hay una variación en espera, el
+     * relleno se hace sobre ella y pasa a ser la activa ahora mismo (se cancela la cola nativa para que el cambio
+     * pendiente no pise el relleno ni la reversión).
+     */
     fun fill() {
         val u = _ui.value
         val p = u.pattern ?: return
         if (!u.patternOn) return
-        sendPattern(p, p.withFill(u.variation), restart = false)
+        val v = u.pendingVariation ?: u.variation
+        if (u.pendingVariation != null) NativeEngine.cancelQueuedPattern()
+        sendPattern(p, p.withFill(v), restart = false)
         lastPass = NativeEngine.seqStatus()[2].toInt()
-        _ui.update { it.copy(fillOn = true) }
+        _ui.update { it.copy(variation = v, pendingVariation = null, fillOn = true) }
     }
 
     /** Final: entra justo al terminar el patrón y la base se detiene. */
@@ -287,6 +325,13 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
                 u.pattern?.let { revert = it; revertVariation = u.variation }
                 fillOn = false
             }
+            var variation = u.variation
+            var pendingV = u.pendingVariation
+            if (pendingV != null && (s[10].toInt() != swapBase || s[1] < 0.5 || s[8] < 0.5)) {
+                // El motor aplicó el cambio (o la base se paró y entró de inmediato): la espera termina.
+                variation = pendingV
+                pendingV = null
+            }
             var patternOn = u.patternOn
             var endPending = u.endPending
             if (endPending && s[8] < 0.5) { patternOn = false; endPending = false }
@@ -294,6 +339,7 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
                 playing = s[1] > 0.5,
                 recDrum = s[3] > 0.5, recChord = s[4] > 0.5,
                 fillOn = fillOn, patternOn = patternOn, endPending = endPending,
+                variation = variation, pendingVariation = pendingV,
             )
         }
         revert?.let { p -> sendPattern(p, p.variations[revertVariation.coerceIn(0, p.variations.size - 1)].tracks, false) }
@@ -313,14 +359,14 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
         _ui.update { u -> u.editor?.let { u.copy(editor = it.copy(pattern = f(it.pattern))) } ?: u }
 
     private fun tracksOf(p: DrumPattern, part: Int): Map<String, String> = when (part) {
-        0, 1, 2 -> p.variations[part.coerceAtMost(p.variations.size - 1)].tracks
-        3 -> p.fill
+        0, 1, 2, 3 -> p.variations[part.coerceAtMost(p.variations.size - 1)].tracks
+        4 -> p.fill
         else -> p.end
     }
 
     fun editorToggle(key: String, step: Int) = updatePattern { p ->
         val part = _ui.value.editor?.part ?: 0
-        val len = if (part >= 3) p.barSteps else p.steps
+        val len = if (part >= 4) p.barSteps else p.steps
         val cur = (tracksOf(p, part)[key] ?: ".".repeat(len)).padEnd(len, '.')
         val next = cur.toCharArray().also { it[step] = Step.next(it[step]) }.concatToString()
         replaceTrack(p, part, key, next)
@@ -329,8 +375,8 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
     private fun replaceTrack(p: DrumPattern, part: Int, key: String, s: String): DrumPattern {
         fun upd(m: Map<String, String>) = (m + (key to s)).filterValues { str -> str.any { it != '.' } }
         return when (part) {
-            3 -> p.copy(fill = upd(p.fill))
-            4 -> p.copy(end = upd(p.end))
+            4 -> p.copy(fill = upd(p.fill))
+            5 -> p.copy(end = upd(p.end))
             else -> p.copy(variations = p.variations.mapIndexed { i, v ->
                 if (i == part) v.copy(tracks = upd(v.tracks)) else v
             })
@@ -358,7 +404,7 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
     fun editorMeter(beats: Int, unit: Int) = updatePattern { it.copy(beats = beats, beatUnit = unit, meter = "$beats/$unit") }
 
     fun editorAddVariation() = updatePattern { p ->
-        if (p.variations.size >= 3) p else p.copy(variations = p.variations + Variation(listOf("A", "B", "C")[p.variations.size], p.variations[0].tracks))
+        if (p.variations.size >= 4) p else p.copy(variations = p.variations + Variation(listOf("A", "B", "C", "D")[p.variations.size], p.variations[0].tracks))
     }
 
     /** Aplica la base editada al motor para probarla. */

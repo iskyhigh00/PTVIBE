@@ -99,6 +99,7 @@ object NativeEngine {
     const val CMD_CHORD_PLAY = 31
     const val CMD_PATTERN_PLAY = 32
     const val CMD_PATTERN_END = 33
+    const val CMD_PATTERN_QUEUE = 34
 
     const val P_METRO_VOL = 33
     const val P_BPM = 34
@@ -122,10 +123,24 @@ object NativeEngine {
         synchronized(patLock) { nativeSetEndPattern(ticks, pads, vels, ticks.size, length) }
 
     /**
-     * posTick, playing, vueltas del patrón, grabando batería, grabando acordes, eventos batería, eventos acordes,
-     * posición local del patrón, patrón activo, acorde diferido en espera (0/1). Array nuevo por llamada.
+     * Encola una variación: se activa exactamente en el siguiente límite de compás del patrón actual
+     * ([barTicks] = barSteps * unit del patrón). Si no hay base sonando se aplica de inmediato.
      */
-    fun seqStatus(): DoubleArray = DoubleArray(10).also { nativeSeqStatus(it) }
+    fun queuePattern(ticks: IntArray, pads: IntArray, vels: FloatArray, length: Int, barTicks: Int) =
+        synchronized(patLock) {
+            nativeSetQueuedPattern(ticks, pads, vels, ticks.size, length)
+            seq(CMD_PATTERN_QUEUE, barTicks)
+        }
+
+    /** Cancela la variación en cola, si la hay. */
+    fun cancelQueuedPattern() = seq(CMD_PATTERN_QUEUE, 0)
+
+    /**
+     * posTick, playing, vueltas del patrón, grabando batería, grabando acordes, eventos batería, eventos acordes,
+     * posición local del patrón, patrón activo, acorde diferido en espera (0/1), contador de cambios de variación aplicados.
+     * Array nuevo por llamada.
+     */
+    fun seqStatus(): DoubleArray = DoubleArray(11).also { nativeSeqStatus(it) }
 
     /** Eventos de batería/acordes ejecutados (6 doubles cada uno: tipo, a, f, glideMs, curva, tiempoMs). */
     fun pollViz(out: DoubleArray): Int = nativePollViz(out, out.size / 6)
@@ -174,6 +189,7 @@ object NativeEngine {
     private external fun nativeSynthCmd(type: Int, a: Int, b: Int, f: Float)
     private external fun nativeSetPattern(ticks: IntArray, pads: IntArray, vels: FloatArray, n: Int, length: Int, restart: Boolean, oneShot: Boolean)
     private external fun nativeSetEndPattern(ticks: IntArray, pads: IntArray, vels: FloatArray, n: Int, length: Int)
+    private external fun nativeSetQueuedPattern(ticks: IntArray, pads: IntArray, vels: FloatArray, n: Int, length: Int)
     private external fun nativeSeqStatus(out: DoubleArray)
     private external fun nativePollViz(out: DoubleArray, maxEvents: Int): Int
     private external fun nativeSetRecording(on: Boolean)

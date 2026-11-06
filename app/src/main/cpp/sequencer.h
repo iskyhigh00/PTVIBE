@@ -38,6 +38,7 @@ public:
         kPlay = 20, kStop = 21, kRecDrum = 22, kRecChord = 23, kDrumLen = 24, kChordLen = 25,
         kDrumClear = 26, kChordClear = 27, kDrumUndo = 28, kChordUndo = 29,
         kDrumPlay = 30, kChordPlay = 31, kPatternPlay = 32, kPatternEnd = 33,
+        kPatternQueue = 34,  // a = barTicks del patrón (> 0 arma el cambio al próximo compás; <= 0 lo cancela)
     };
 
     // ---- UI
@@ -58,12 +59,20 @@ public:
     std::atomic<int> drumEventCount{0};
     std::atomic<int> chordEventCount{0};
     std::atomic<int> deferredCount{0};     // acordes en espera de la cuantización
+    std::atomic<int> swapCount{0};         // cambios de variación aplicados (para que la UI sepa cuándo)
 
     void init(int sampleRate) { sr_ = sampleRate; }
 
     /** Cambia el patrón (triple buffer; llamar desde un único hilo a la vez). restart: reinicia desde el compás 1. oneShot: suena una vez. */
     void setPattern(const int32_t* ticks, const int32_t* pads, const float* vels, int n,
                     int lengthTicks, bool restart, bool oneShot);
+
+    /**
+     * Variación en cola: se publica aquí y se activa con kPatternQueue exactamente en el próximo límite de compás del
+     * patrón actual (el patrón viejo suena hasta el límite y el nuevo desde el límite, con precisión de muestra).
+     * Mismo productor serializado que setPattern; publicar siempre antes de enviar la orden.
+     */
+    void setQueuedPattern(const int32_t* ticks, const int32_t* pads, const float* vels, int n, int lengthTicks);
 
     /** Patrón de cierre: se activa con kPatternEnd y entra justo al terminar el compás/patrón actual. */
     void setEndPattern(const int32_t* ticks, const int32_t* pads, const float* vels, int n, int lengthTicks);
@@ -118,6 +127,9 @@ private:
                std::max(1, beatUnit.load(std::memory_order_relaxed));
     }
 
+    static void fillBuf(PatBuf& b, const int32_t* ticks, const int32_t* pads, const float* vels, int n, int lengthTicks);
+    /** Copia la variación en cola al patrón vivo (hilo de audio). */
+    const PatBuf& applySwap(const PatBuf& cur, double at);
     int shiftFor(int tick) const;
     void runPattern(const PatBuf& p, double origin, bool wrap, double ta, double tb, double t0,
                     double spt, int n, SeqSink& sink);
@@ -131,6 +143,12 @@ private:
     double tickPos_ = 0;
     PatSet pat_;
     PatSet end_;
+    PatSet swap_;
+    PatBuf live_;            // copia propiedad del hilo de audio de la variación ya activada
+    bool liveActive_ = false;
+    int liveSeenCur_ = -1;   // pat_.cur cuando se activó: si cambia, el productor publicó un patrón más nuevo
+    bool swapArmed_ = false;
+    double swapAt_ = 0;
     std::atomic<bool> patRestart_{false};
     std::atomic<bool> patOneShotArm_{false};
     std::atomic<bool> patEnabled_{false};

@@ -99,10 +99,24 @@ Java_com_glidelive_audio_NativeEngine_nativeSetEndPattern(JNIEnv* env, jobject, 
 }
 
 JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeSetQueuedPattern(JNIEnv* env, jobject, jintArray ticks,
+                                                             jintArray pads, jfloatArray vels, jint n,
+                                                             jint length) {
+    jint* t = env->GetIntArrayElements(ticks, nullptr);
+    jint* p = env->GetIntArrayElements(pads, nullptr);
+    jfloat* v = env->GetFloatArrayElements(vels, nullptr);
+    g_engine.setQueuedPattern(t, p, v, n, length);
+    env->ReleaseIntArrayElements(ticks, t, JNI_ABORT);
+    env->ReleaseIntArrayElements(pads, p, JNI_ABORT);
+    env->ReleaseFloatArrayElements(vels, v, JNI_ABORT);
+}
+
+JNIEXPORT void JNICALL
 Java_com_glidelive_audio_NativeEngine_nativeSeqStatus(JNIEnv* env, jobject, jdoubleArray out) {
-    double tmp[10] = {0};
+    double tmp[11] = {0};
     g_engine.getSeqStatus(tmp);
-    if (env->GetArrayLength(out) >= 10) env->SetDoubleArrayRegion(out, 0, 10, tmp);
+    const jsize len = env->GetArrayLength(out);
+    if (len >= 1) env->SetDoubleArrayRegion(out, 0, len < 11 ? len : 11, tmp);
 }
 
 JNIEXPORT jint JNICALL

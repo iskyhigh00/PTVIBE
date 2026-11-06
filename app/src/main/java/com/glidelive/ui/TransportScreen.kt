@@ -20,6 +20,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -88,7 +89,7 @@ private fun RecLabel(vm: TransportViewModel, drum: Boolean, recording: Boolean) 
     Text(if (drum) "● Grabando batería (${pos.drumEvents})" else "● Grabando acordes (${pos.chordEvents})")
 }
 
-/** Bases de batería: elegir base, variación (A/B/C), relleno, final, silenciar por instrumento. */
+/** Bases de batería: elegir base, variación (A–D), relleno, final, silenciar por instrumento. */
 @Composable
 fun PatternBar(vm: TransportViewModel) {
     val u by vm.ui.collectAsState()
@@ -103,7 +104,13 @@ fun PatternBar(vm: TransportViewModel) {
             vm.selectPattern(it)
         }
         p?.variations?.forEachIndexed { i, v ->
-            FilterChip(selected = u.variation == i && !u.fillOn, onClick = { vm.selectVariation(i) }, label = { Text("Variación ${v.name}") })
+            val waiting = u.pendingVariation == i
+            FilterChip(
+                selected = u.variation == i && !u.fillOn && !waiting,
+                onClick = { vm.selectVariation(i) },
+                label = { Text(if (waiting) "Variación ${v.name} …" else "Variación ${v.name}") },
+                colors = if (waiting) FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer) else FilterChipDefaults.filterChipColors(),
+            )
         }
         FilterChip(selected = u.fillOn, onClick = vm::fill, label = { Text("Relleno") })
         FilterChip(selected = u.endPending, onClick = vm::finish, label = { Text("Final") })
@@ -145,6 +152,13 @@ fun LoopsPanel(vm: TransportViewModel) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Adoptar tempo y compás de la base")
             androidx.compose.material3.Switch(checked = u.adoptPattern, onCheckedChange = { v -> vm.edit { it.copy(adoptPattern = v) } })
+        }
+
+        Text("Cambio de variación (A–D)", style = MaterialTheme.typography.titleSmall)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            VariationSwap.entries.forEach { m ->
+                FilterChip(selected = u.variationSwap == m, onClick = { vm.edit { it.copy(variationSwap = m) } }, label = { Text(m.label) })
+            }
         }
 
         Text("Grabar batería: ajustar a la rejilla", style = MaterialTheme.typography.titleSmall)
@@ -189,7 +203,7 @@ fun LoopsPanel(vm: TransportViewModel) {
 
 private val UNITS = listOf(48 to "Corcheas", 24 to "Semicorcheas", 32 to "Tresillos", 12 to "Fusas")
 
-/** Secuenciador por pasos: longitud libre, compases irregulares, A/B/C, relleno y final. */
+/** Secuenciador por pasos: longitud libre, compases irregulares, A–D, relleno y final. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SequencerDialog(vm: TransportViewModel) {
@@ -208,10 +222,10 @@ private fun SequencerDialog(vm: TransportViewModel) {
                         modifier = Modifier.width(240.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp)).padding(10.dp),
                     )
                     EditPart.entries.forEachIndexed { i, part ->
-                        if (i < 3 && i >= p.variations.size) return@forEachIndexed
+                        if (i < 4 && i >= p.variations.size) return@forEachIndexed
                         FilterChip(selected = ed.part == i, onClick = { vm.editorPart(i) }, label = { Text(part.label) })
                     }
-                    if (p.variations.size < 3) TextButton(onClick = vm::editorAddVariation) { Text("+ variación") }
+                    if (p.variations.size < 4) TextButton(onClick = vm::editorAddVariation) { Text("+ variación") }
                     TonalButton("Probar", vm::editorTry)
                     TonalButton("Guardar", vm::editorSave)
                     TextButton(onClick = vm::closeEditor) { Text("Cerrar") }
@@ -229,10 +243,10 @@ private fun SequencerDialog(vm: TransportViewModel) {
                     }
                 }
                 val part = ed.part
-                val len = if (part >= 3) p.barSteps else p.steps
+                val len = if (part >= 4) p.barSteps else p.steps
                 val tracks = when (part) {
-                    0, 1, 2 -> p.variations[part.coerceAtMost(p.variations.size - 1)].tracks
-                    3 -> p.fill
+                    0, 1, 2, 3 -> p.variations[part.coerceAtMost(p.variations.size - 1)].tracks
+                    4 -> p.fill
                     else -> p.end
                 }
                 Box(Modifier.fillMaxWidth().weight(1f).horizontalScroll(rememberScrollState())) {

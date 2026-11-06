@@ -436,7 +436,7 @@ void AudioEngine::handleEvent(const PadEvent& ev, int64_t now) {
         }
         return;
     }
-    if (ev.type >= 20 && ev.type <= 33) {
+    if (ev.type >= 20 && ev.type <= 34) {
         seq_.command(ev.type, ev.a, ev.b, ev.f, sink);
         return;
     }
@@ -459,6 +459,7 @@ void AudioEngine::getSeqStatus(double* out) const {
     out[7] = static_cast<double>(seq_.patLocalTick.load());
     out[8] = seq_.patternEnabled() ? 1 : 0;
     out[9] = seq_.hasDeferred() ? 1 : 0;
+    out[10] = seq_.swapCount.load(std::memory_order_relaxed);
 }
 
 int AudioEngine::pollViz(double* out, int maxEvents) {

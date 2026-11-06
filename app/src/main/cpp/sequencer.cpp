@@ -4,10 +4,8 @@ namespace {
 constexpr double kEps = 1e-6;  // evita que un evento justo en el borde caiga un bloque antes
 }
 
-void Sequencer::setPattern(const int32_t* ticks, const int32_t* pads, const float* vels, int n,
-                           int lengthTicks, bool restart, bool oneShot) {
-    const int next = pat_.pickFree();
-    PatBuf& b = pat_.buf[next];
+void Sequencer::fillBuf(PatBuf& b, const int32_t* ticks, const int32_t* pads, const float* vels, int n,
+                        int lengthTicks) {
     b.n = std::max(0, std::min(n, kMaxPattern));
     for (int i = 0; i < b.n; ++i) {
         b.ev[i].tick = ticks[i];
@@ -16,25 +14,49 @@ void Sequencer::setPattern(const int32_t* ticks, const int32_t* pads, const floa
         b.ev[i].f = vels[i];
     }
     b.length = std::max(lengthTicks, 1);
+}
+
+void Sequencer::setPattern(const int32_t* ticks, const int32_t* pads, const float* vels, int n,
+                           int lengthTicks, bool restart, bool oneShot) {
+    const int next = pat_.pickFree();
+    PatBuf& b = pat_.buf[next];
+    fillBuf(b, ticks, pads, vels, n, lengthTicks);
     b.oneShot = oneShot;
     if (restart) patRestart_.store(true, std::memory_order_release);
     pat_.publish(next);
+}
+
+void Sequencer::setQueuedPattern(const int32_t* ticks, const int32_t* pads, const float* vels, int n,
+                                 int lengthTicks) {
+    const int next = swap_.pickFree();
+    PatBuf& b = swap_.buf[next];
+    fillBuf(b, ticks, pads, vels, n, lengthTicks);
+    b.oneShot = false;
+    swap_.publish(next);
 }
 
 void Sequencer::setEndPattern(const int32_t* ticks, const int32_t* pads, const float* vels, int n,
                               int lengthTicks) {
     const int next = end_.pickFree();
     PatBuf& b = end_.buf[next];
-    b.n = std::max(0, std::min(n, kMaxPattern));
-    for (int i = 0; i < b.n; ++i) {
-        b.ev[i].tick = ticks[i];
-        b.ev[i].type = 0;
-        b.ev[i].a = pads[i];
-        b.ev[i].f = vels[i];
-    }
-    b.length = std::max(lengthTicks, 1);
+    fillBuf(b, ticks, pads, vels, n, lengthTicks);
     b.oneShot = true;
     end_.publish(next);
+}
+
+const Sequencer::PatBuf& Sequencer::applySwap(const PatBuf& cur, double at) {
+    const PatBuf& q = swap_.acquire();
+    const bool sameLen = q.length == cur.length;
+    live_.n = q.n;
+    for (int i = 0; i < q.n; ++i) live_.ev[i] = q.ev[i];
+    live_.length = q.length;
+    live_.oneShot = q.oneShot;
+    liveActive_ = true;
+    liveSeenCur_ = pat_.cur.load(std::memory_order_seq_cst);
+    swapArmed_ = false;
+    if (!sameLen) patOrigin_ = at;  // largo distinto: la nueva variación arranca desde su compás 1
+    swapCount.fetch_add(1, std::memory_order_relaxed);
+    return live_;
 }
 
 int Sequencer::shiftFor(int tick) const {
@@ -136,6 +158,7 @@ void Sequencer::command(int type, int a, int b, float f, SeqSink& sink) {
             posTick.store(0);
             deferredN_ = 0;
             deferredCount.store(0, std::memory_order_relaxed);
+            if (swapArmed_) applySwap(liveActive_ ? live_ : pat_.buf[pat_.cur.load()], 0);  // sin transporte: aplica ya
             patOrigin_ = 0;  // Stop -> Play: la base vuelve a empezar en el compás 1
             endArmed_ = false;
             endActive_ = false;
@@ -171,6 +194,18 @@ void Sequencer::command(int type, int a, int b, float f, SeqSink& sink) {
                     patOrigin_ = tickPos_;
                 }
                 patDone_ = false; endArmed_ = false; endActive_ = false;
+                swapArmed_ = false;
+            }
+            break;
+        case kPatternQueue:
+            if (a <= 0) { swapArmed_ = false; break; }
+            if (!playing.load() || !patEnabled_.load() || patDone_) {
+                // Sin base sonando no hay límite que esperar: se aplica de inmediato.
+                applySwap(liveActive_ ? live_ : pat_.buf[pat_.cur.load()], tickPos_);
+            } else {
+                const double bt = a;
+                swapAt_ = patOrigin_ + std::ceil((tickPos_ - patOrigin_ - kEps) / bt) * bt;
+                swapArmed_ = true;
             }
             break;
         case kPatternEnd:
@@ -233,14 +268,21 @@ void Sequencer::process(int n, SeqSink& sink) {
     }
 
     // Patrón de batería (con "final" que entra exactamente al terminar el patrón actual)
-    const PatBuf& p = pat_.acquire();
+    const PatBuf& fresh = pat_.acquire();
     const PatBuf& endp = end_.acquire();
     if (patRestart_.exchange(false)) { patOrigin_ = t0; patDone_ = false; endActive_ = false; endArmed_ = false; }
+    // Un patrón publicado después de activar una variación en cola (relleno, edición) manda sobre la copia viva.
+    if (liveActive_ && pat_.cur.load(std::memory_order_seq_cst) != liveSeenCur_) liveActive_ = false;
+    const PatBuf* pcur = liveActive_ ? &live_ : &fresh;
     if (patEnabled_.load(std::memory_order_relaxed) && !patDone_) {
-        if (patOrigin_ >= t1 - kEps) {
+        if (patOrigin_ >= t1 - kEps && !swapArmed_) {
             patLocalTick.store(0, std::memory_order_relaxed);  // entra en un compás posterior
+        } else if (patOrigin_ >= t1 - kEps) {
+            pcur = &applySwap(*pcur, patOrigin_);               // la base aún no ha empezado: la variación nueva entra ya
+            patLocalTick.store(0, std::memory_order_relaxed);
         } else {
-            const double ta = std::max(t0, patOrigin_);
+            double ta = std::max(t0, patOrigin_);
+            const double ta0 = ta;
             if (endActive_) {
                 runPattern(endp, patOrigin_, false, ta, t1, t0, spt, n, sink);
                 if (t1 - patOrigin_ >= endp.length - kEps) {
@@ -249,6 +291,16 @@ void Sequencer::process(int n, SeqSink& sink) {
                     endActive_ = false;
                 }
             } else {
+                // Cambio de variación en cola: el patrón viejo suena hasta el límite de compás, el nuevo desde ahí.
+                if (swapArmed_ && !pcur->oneShot && swapAt_ < t1 - kEps) {
+                    const double sw = std::max(swapAt_, ta);
+                    if (sw > ta + kEps) runPattern(*pcur, patOrigin_, true, ta, sw, t0, spt, n, sink);
+                    pcur = &applySwap(*pcur, sw);
+                    ta = sw;
+                } else if (swapArmed_ && pcur->oneShot) {
+                    swapArmed_ = false;  // un relleno/uno-disparo en curso gana: se descarta el cambio
+                }
+                const PatBuf& p = *pcur;
                 double split = -1;
                 if (endArmed_ && !p.oneShot) {
                     const double k = std::floor((t1 - patOrigin_ - kEps) / p.length);
@@ -270,7 +322,7 @@ void Sequencer::process(int n, SeqSink& sink) {
                 } else {
                     runPattern(p, patOrigin_, !p.oneShot, ta, t1, t0, spt, n, sink);
                     if (!p.oneShot) {
-                        if (std::floor((t1 - patOrigin_) / p.length) > std::floor((ta - patOrigin_) / p.length))
+                        if (std::floor((t1 - patOrigin_) / p.length) > std::floor((ta0 - patOrigin_) / p.length))
                             drumPassCount.fetch_add(1);
                     } else if (t1 - patOrigin_ >= p.length) {
                         patDone_ = true;

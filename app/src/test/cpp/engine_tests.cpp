@@ -268,6 +268,94 @@ void testSynthSmoke() {
     CHECK(peak > 0.001f, "sintetizador de acordes produce audio");
 }
 
+// Cambio de variación en cola: cae exactamente en el límite de compás del patron.
+void testQueuedSwapOnBarBoundary() {
+    Rig r;
+    fourKicks(r.s);  // pad 0 en 0, 96, 192, 288 (largo 384)
+    r.cmd(Sequencer::kPatternPlay, 1);
+    r.cmd(Sequencer::kPlay);
+    r.runUntilTick(100);
+    int32_t t[] = {0, 192}; int32_t p[] = {1, 1}; float v[] = {1, 1};
+    r.s.setQueuedPattern(t, p, v, 2, 384);
+    r.cmd(Sequencer::kPatternQueue, 384);
+    CHECK(r.s.swapCount.load() == 0, "cola: aun no se ha aplicado");
+    r.run(1000);
+    long firstNew = -1; bool earlyNew = false; int oldAfter = 0;
+    for (auto& h : r.k.hits) {
+        if (h.pad == 1) { if (firstNew < 0) firstNew = h.sample; if (h.sample < 384L * 250) earlyNew = true; }
+        if (h.pad == 0 && h.sample >= 384L * 250) ++oldAfter;
+    }
+    CHECK(firstNew == 384L * 250, "cola: el primer golpe nuevo cae exactamente en el tick 384");
+    CHECK(!earlyNew, "cola: nada del patron nuevo antes del limite");
+    CHECK(oldAfter == 0, "cola: nada del patron viejo tras el limite");
+    long lastOldBefore = -1;
+    for (auto& h : r.k.hits) if (h.pad == 0 && h.sample < 384L * 250) lastOldBefore = h.sample;
+    CHECK(lastOldBefore == 288L * 250, "cola: el patron viejo sigue sonando hasta el limite");
+    CHECK(r.s.swapCount.load() == 1, "cola: contador de cambios = 1");
+}
+
+// Limite a mitad de bloque: compas de 100 ticks dentro de un patron de 400.
+void testQueuedSwapMidBlock() {
+    Rig r;
+    int32_t ta[] = {0, 100, 200, 300}; int32_t pa[] = {0, 0, 0, 0}; float va[] = {1, 1, 1, 1};
+    r.s.setPattern(ta, pa, va, 4, 400, true, false);
+    r.cmd(Sequencer::kPatternPlay, 1);
+    r.cmd(Sequencer::kPlay);
+    r.runUntilTick(30);
+    int32_t tb[] = {200, 300}; int32_t pb[] = {1, 1}; float vb[] = {1, 1};
+    r.s.setQueuedPattern(tb, pb, vb, 2, 400);
+    r.cmd(Sequencer::kPatternQueue, 100);
+    r.run(900);
+    bool snareAt = false, kickAt200 = false; int kicks = 0;
+    for (auto& h : r.k.hits) {
+        if (h.pad == 1 && h.sample == 200L * 250) snareAt = true;
+        if (h.pad == 0 && h.sample == 200L * 250) kickAt200 = true;
+        if (h.pad == 0 && h.sample < 200L * 250) ++kicks;
+    }
+    // Límite en el tick 100 (primer múltiplo de 100 tras el tick 30): kick@0 y kick@100 no cambian.
+    CHECK(kicks >= 1, "cola mitad de bloque: golpes viejos previos");
+    CHECK(!kickAt200, "cola mitad de bloque: sin golpe viejo en el limite siguiente");
+    CHECK(snareAt, "cola mitad de bloque: golpe nuevo exacto en el tick 200 con la fase conservada");
+    CHECK(r.s.swapCount.load() == 1, "cola mitad de bloque: un solo cambio");
+}
+
+// Sin base sonando: se aplica de inmediato; el inmediato no altera el resto.
+void testQueuedSwapImmediateWhenIdle() {
+    Rig r;
+    fourKicks(r.s);
+    int32_t t[] = {0}; int32_t p[] = {1}; float v[] = {1};
+    r.s.setQueuedPattern(t, p, v, 1, 384);
+    r.cmd(Sequencer::kPatternQueue, 384);
+    CHECK(r.s.swapCount.load() == 1, "cola sin base: se aplica de inmediato");
+    r.cmd(Sequencer::kPatternPlay, 1);
+    r.cmd(Sequencer::kPlay);
+    r.run(600);
+    bool ok = !r.k.hits.empty();
+    for (auto& h : r.k.hits) if (h.pad != 1) ok = false;
+    CHECK(ok, "cola sin base: suena la variacion aplicada");
+}
+
+// Una variacion en cola se puede cancelar y reemplazar.
+void testQueuedSwapCancelAndReplace() {
+    Rig r;
+    fourKicks(r.s);
+    r.cmd(Sequencer::kPatternPlay, 1);
+    r.cmd(Sequencer::kPlay);
+    r.runUntilTick(50);
+    int32_t t[] = {0}; int32_t p[] = {1}; float v[] = {1};
+    r.s.setQueuedPattern(t, p, v, 1, 384);
+    r.cmd(Sequencer::kPatternQueue, 384);
+    r.cmd(Sequencer::kPatternQueue, 0);  // cancelar
+    int32_t t2[] = {0}; int32_t p2[] = {2}; float v2[] = {1};
+    r.s.setQueuedPattern(t2, p2, v2, 1, 384);
+    r.cmd(Sequencer::kPatternQueue, 384);  // reemplaza
+    r.run(1000);
+    int snares = 0, toms = 0;
+    for (auto& h : r.k.hits) { if (h.pad == 1) ++snares; if (h.pad == 2) ++toms; }
+    CHECK(snares == 0 && toms > 0, "cola: la ultima variacion encolada es la que entra");
+    CHECK(r.s.swapCount.load() == 1, "cola: un solo cambio tras reemplazar");
+}
+
 }  // namespace
 
 int main() {
@@ -283,6 +371,10 @@ int main() {
     testStopPlayRestarts();
     testTripleBufferStress();
     testSynthSmoke();
+    testQueuedSwapOnBarBoundary();
+    testQueuedSwapMidBlock();
+    testQueuedSwapImmediateWhenIdle();
+    testQueuedSwapCancelAndReplace();
     if (fails) { std::printf("FALLOS: %d\n", fails); return 1; }
     std::printf("OK: todas las pruebas de host pasan\n");
     return 0;

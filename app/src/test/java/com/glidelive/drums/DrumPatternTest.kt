@@ -10,14 +10,15 @@ class DrumPatternTest {
         DrumPattern.parseAll(File("src/main/assets/patterns.json").readText(), true)
     }
 
-    @Test fun hasAtLeastTwelveOriginalPatterns() {
-        assertTrue(patterns.size >= 12)
+    @Test fun hasAtLeastTwentyPatterns() {
+        assertTrue(patterns.size >= 20)
         assertEquals(patterns.size, patterns.map { it.id }.toSet().size)
     }
 
     @Test fun everyPatternIsWellFormed() {
         for (p in patterns) {
-            assertTrue("${p.id}: 2 o 3 variaciones", p.variations.size in 2..3)
+            assertTrue("${p.id}: 2 a 4 variaciones", p.variations.size in 2..4)
+            assertEquals("${p.id}: las bases incluidas traen A-D", listOf("A", "B", "C", "D"), p.variations.map { it.name })
             assertTrue("${p.id}: rango de tempo", p.bpmMin in 30..p.bpmMax && p.bpmMax <= 260)
             for (v in p.variations) for ((k, s) in v.tracks) {
                 assertTrue("${p.id}/${v.name}: pista desconocida $k", DrumKeys.index(k) >= 0)
@@ -41,6 +42,14 @@ class DrumPatternTest {
         assertEquals(12 * 48, len("doce8"))     // 12/8
         assertEquals(5 * 16 * 24, len("cinco_16"))  // se repite cada 5 compases
         assertEquals(24 * 32, len("modulacion"))    // dos compases
+        assertEquals(28 * 24, len("siete4"))
+        assertEquals(5 * 48, len("cinco8"))
+        assertEquals(13 * 48, len("trece8"))
+        assertEquals(15 * 24, len("quince16"))
+        assertEquals(12 * 32, len("shuffle"))
+        assertEquals(12 * 48, len("hemiola"))       // 2 compases de 6
+        assertEquals(48 * 24, len("tres_16"))
+        assertEquals(10 * 48, len("diez8"))
     }
 
     @Test fun grouping2plus2plus3AccentsGroupStarts() {

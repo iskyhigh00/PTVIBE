@@ -93,6 +93,9 @@ public:
     void setEndPattern(const int32_t* t, const int32_t* p, const float* v, int n, int len) {
         seq_.setEndPattern(t, p, v, n, len);
     }
+    void setQueuedPattern(const int32_t* t, const int32_t* p, const float* v, int n, int len) {
+        seq_.setQueuedPattern(t, p, v, n, len);
+    }
     void getSeqStatus(double* out) const;
     int pollViz(double* out, int maxEvents);
     void setRecording(bool on);
