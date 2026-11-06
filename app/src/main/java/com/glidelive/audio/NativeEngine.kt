@@ -33,6 +33,16 @@ object NativeEngine {
     fun trigger(pad: Int, velocity: Float, eventTimeMs: Long) =
         nativeTrigger(pad, velocity, eventTimeMs * 1_000_000L)
 
+    fun choke(pad: Int, eventTimeMs: Long) = nativeChoke(pad, eventTimeMs * 1_000_000L)
+    fun setParam(id: Int, value: Float) = nativeSetParam(id, value)
+
+    const val P_SNARE_TUNE = 0
+    const val P_TOM_TUNE = 1
+    const val P_ROOM = 2
+    const val P_COMP = 3
+    const val P_MASTER = 4
+    const val P_PAD_VOL = 8
+
     fun setBursts(n: Int) = nativeSetBursts(n)
     fun autoTune() = nativeAutoTune()
     fun resetStats() = nativeResetStats()
@@ -59,6 +69,8 @@ object NativeEngine {
     private external fun nativeStart(): Boolean
     private external fun nativeStop()
     private external fun nativeTrigger(pad: Int, velocity: Float, eventNs: Long)
+    private external fun nativeChoke(pad: Int, eventNs: Long)
+    private external fun nativeSetParam(id: Int, value: Float)
     private external fun nativeSetBursts(bursts: Int)
     private external fun nativeAutoTune()
     private external fun nativeResetStats()

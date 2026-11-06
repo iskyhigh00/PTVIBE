@@ -1,87 +1,154 @@
 #include "synth_kit.h"
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 
 namespace {
 constexpr float kPi = 3.14159265358979f;
+constexpr float kNominal[kLayers] = {0.35f, 0.65f, 1.0f};
 
 struct Noise {
-    uint32_t s = 22222u;
+    uint32_t s;
+    explicit Noise(uint32_t seed) : s(seed * 2654435761u + 12345u) {}
     float next() {
         s = s * 1664525u + 1013904223u;
         return (static_cast<int32_t>(s) >> 8) / 8388608.0f;
     }
 };
 
-Sample kick(int sr) {
-    Sample out;
-    const int n = static_cast<int>(sr * 0.35f);
-    out.data.resize(n);
-    double phase = 0;
-    Noise nz;
+struct OnePole {
+    float y = 0;
+    float lp(float x, float a) { y += a * (x - y); return y; }
+    float hp(float x, float a) { y += a * (x - y); return x - y; }
+};
+
+// Seis osciladores cuadrados inarmónicos (base metálica de platos/hi-hat).
+struct Metal {
+    float ph[6] = {0, 0, 0, 0, 0, 0};
+    float next(float scale, int sr) {
+        static const float f[6] = {205.3f, 304.4f, 369.6f, 522.7f, 540.0f, 800.0f};
+        float s = 0;
+        for (int i = 0; i < 6; ++i) {
+            ph[i] += f[i] * scale / sr;
+            ph[i] -= std::floor(ph[i]);
+            s += ph[i] < 0.5f ? 1.0f : -1.0f;
+        }
+        return s / 6.0f;
+    }
+};
+
+inline float expo(float t, float k) { return std::exp(-t * k); }
+
+Sample sweep(int sr, float dur, float f0, float f1, float sweepK, float decayK, float amp,
+             float clickAmp, float clickK, uint32_t seed) {
+    Sample o;
+    const int n = static_cast<int>(sr * dur);
+    o.data.resize(n);
+    Noise nz(seed);
+    OnePole lp;
+    double ph = 0;
     for (int i = 0; i < n; ++i) {
         const float t = static_cast<float>(i) / sr;
-        const float f = 45.0f + 90.0f * std::exp(-t * 38.0f);
-        phase += 2.0 * kPi * f / sr;
-        float s = std::sin(static_cast<float>(phase)) * std::exp(-t * 11.0f);
-        s += nz.next() * std::exp(-t * 400.0f) * 0.35f;  // click de ataque
-        out.data[i] = s * 0.95f;
+        ph += 2.0 * kPi * (f1 + (f0 - f1) * expo(t, sweepK)) / sr;
+        float s = std::sin(static_cast<float>(ph)) * expo(t, decayK);
+        s += lp.hp(nz.next(), 0.3f) * clickAmp * expo(t, clickK);
+        const float atk = 1.0f - expo(t, 3000.0f);
+        o.data[i] = s * amp * atk;
     }
-    return out;
+    return o;
 }
 
-Sample snare(int sr) {
-    Sample out;
-    const int n = static_cast<int>(sr * 0.25f);
-    out.data.resize(n);
-    Noise nz;
-    float lp = 0;
-    double phase = 0;
+Sample cymbal(int sr, float dur, float metalK, float noiseK, float noiseAmp, float metalAmp,
+              float bright, float scale, float amp, uint32_t seed) {
+    Sample o;
+    const int n = static_cast<int>(sr * dur);
+    o.data.resize(n);
+    Noise nz(seed);
+    Metal m;
+    OnePole hp;
     for (int i = 0; i < n; ++i) {
         const float t = static_cast<float>(i) / sr;
-        const float w = nz.next();
-        lp += 0.35f * (w - lp);
-        const float hp = w - lp;  // ruido filtrado pasa-altos
-        phase += 2.0 * kPi * (185.0f + 40.0f * std::exp(-t * 60.0f)) / sr;
-        const float body = std::sin(static_cast<float>(phase)) * std::exp(-t * 28.0f);
-        out.data[i] = (hp * std::exp(-t * 20.0f) * 0.8f + body * 0.6f) * 0.9f;
+        float x = m.next(scale, sr) * metalAmp * expo(t, metalK) +
+                  nz.next() * noiseAmp * expo(t, noiseK);
+        x = hp.hp(x, bright);
+        const float atk = 1.0f - expo(t, 2500.0f);
+        o.data[i] = x * amp * atk;
     }
-    return out;
+    return o;
 }
 
-Sample hatClosed(int sr) {
-    Sample out;
-    const int n = static_cast<int>(sr * 0.09f);
-    out.data.resize(n);
-    Noise nz;
-    float lp = 0;
-    for (int i = 0; i < n; ++i) {
-        const float t = static_cast<float>(i) / sr;
-        const float w = nz.next();
-        lp += 0.6f * (w - lp);
-        out.data[i] = (w - lp) * std::exp(-t * 70.0f) * 0.7f;
+Sample make(int pad, int layer, int var, int sr) {
+    const float I = kNominal[layer];
+    const float vr = 1.0f + 0.03f * (var - 1);  // pequeña variación entre round-robin
+    const uint32_t seed = static_cast<uint32_t>(pad * 97 + layer * 13 + var * 7 + 1);
+    switch (pad) {
+        case 0:  // bombo: punch, poca cola
+            return sweep(sr, 0.30f, (125.0f + 30.0f * I) * vr, 46.0f * vr, 45.0f, 13.0f + 4.0f * (1 - I),
+                         0.95f * I, 0.55f * I, 350.0f, seed);
+        case 1: {  // caja: seca, mucho ataque, afinación media-alta
+            Sample o;
+            const int n = static_cast<int>(sr * 0.20f);
+            o.data.resize(n);
+            Noise nz(seed);
+            OnePole hp;
+            double ph = 0;
+            for (int i = 0; i < n; ++i) {
+                const float t = static_cast<float>(i) / sr;
+                ph += 2.0 * kPi * ((235.0f * vr) + 60.0f * expo(t, 70.0f)) / sr;
+                const float body = std::sin(static_cast<float>(ph)) * expo(t, 38.0f);
+                const float w = hp.hp(nz.next(), 0.12f + 0.2f * I) * expo(t, 24.0f + 10.0f * (1 - I));
+                const float crack = nz.next() * expo(t, 600.0f) * 0.9f * I;
+                o.data[i] = (w * 0.85f + body * 0.55f + crack) * I * (1.0f - expo(t, 4000.0f));
+            }
+            return o;
+        }
+        case 2:  // rim / cross-stick
+            return sweep(sr, 0.10f, 1750.0f * vr, 820.0f * vr, 150.0f, 55.0f, 0.8f * I, 0.9f * I, 140.0f,
+                         seed);
+        case 3:  // hi-hat cerrado
+            return cymbal(sr, 0.12f, 45.0f - 12.0f * I, 60.0f - 20.0f * I, 0.5f, 0.9f,
+                          0.25f + 0.35f * I, vr, 0.8f * I, seed);
+        case 4:  // hi-hat abierto
+            return cymbal(sr, 0.9f, 4.5f, 5.5f, 0.45f, 0.85f, 0.22f + 0.3f * I, vr, 0.75f * I, seed);
+        case 5:  // pedal: golpe sordo + chick corto
+            return cymbal(sr, 0.07f, 90.0f, 110.0f, 0.4f, 0.5f, 0.15f, 0.7f * vr, 0.7f * I, seed);
+        case 6:
+        case 7:
+        case 8: {  // toms profundos, sustain corto
+            const float base[3] = {165.0f, 125.0f, 92.0f};
+            const float b = base[pad - 6] * vr;
+            return sweep(sr, 0.45f, b * 1.5f, b, 22.0f, 9.5f, 0.9f * I, 0.45f * I, 200.0f, seed);
+        }
+        case 9:  // crash brillante pero no estridente
+            return cymbal(sr, 1.8f, 2.4f, 2.0f, 0.55f, 0.65f, 0.2f + 0.15f * I, 1.0f * vr, 0.7f * I, seed);
+        case 10:  // ride definido
+            return cymbal(sr, 1.4f, 3.6f, 6.0f, 0.2f, 0.9f, 0.18f + 0.1f * I, 1.45f * vr, 0.65f * I, seed);
+        case 11: {  // campana del ride
+            Sample o;
+            const int n = static_cast<int>(sr * 1.1f);
+            o.data.resize(n);
+            Noise nz(seed);
+            const float fr[4] = {820.0f, 1230.0f, 1710.0f, 2570.0f};
+            const float am[4] = {1.0f, 0.7f, 0.45f, 0.3f};
+            for (int i = 0; i < n; ++i) {
+                const float t = static_cast<float>(i) / sr;
+                float s = 0;
+                for (int k = 0; k < 4; ++k) s += std::sin(2 * kPi * fr[k] * vr * t) * am[k] * expo(t, 3.5f + k * 1.5f);
+                s += nz.next() * 0.15f * expo(t, 60.0f);
+                o.data[i] = s * 0.3f * I * (1.0f - expo(t, 3000.0f));
+            }
+            return o;
+        }
+        default:  // splash / china
+            return cymbal(sr, 0.9f, 5.0f, 4.5f, 0.55f, 0.7f, 0.3f + 0.2f * I, 1.25f * vr, 0.7f * I, seed);
     }
-    return out;
-}
-
-Sample tom(int sr) {
-    Sample out;
-    const int n = static_cast<int>(sr * 0.4f);
-    out.data.resize(n);
-    double phase = 0;
-    for (int i = 0; i < n; ++i) {
-        const float t = static_cast<float>(i) / sr;
-        phase += 2.0 * kPi * (95.0f + 70.0f * std::exp(-t * 18.0f)) / sr;
-        out.data[i] = std::sin(static_cast<float>(phase)) * std::exp(-t * 9.0f) * 0.9f;
-    }
-    return out;
 }
 }  // namespace
 
 void buildSynthKit(int sampleRate, std::vector<Sample>& out) {
     out.clear();
-    out.push_back(kick(sampleRate));
-    out.push_back(snare(sampleRate));
-    out.push_back(hatClosed(sampleRate));
-    out.push_back(tom(sampleRate));
+    out.resize(kPadCount * kLayers * kVariants);
+    for (int p = 0; p < kPadCount; ++p)
+        for (int l = 0; l < kLayers; ++l)
+            for (int v = 0; v < kVariants; ++v) out[sampleIndex(p, l, v)] = make(p, l, v, sampleRate);
 }

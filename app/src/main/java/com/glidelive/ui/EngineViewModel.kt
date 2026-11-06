@@ -11,8 +11,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+
+data class KitSettings(
+    val snareTune: Float = 0f,   // semitonos
+    val tomTune: Float = 0f,     // semitonos
+    val room: Float = 0.25f,
+    val comp: Float = 0.3f,
+    val master: Float = 0.9f,
+    val pressure: Boolean = false,
+    val padVolume: List<Float> = List(Pads.COUNT) { 1f },
+)
 
 class EngineViewModel(app: Application) : AndroidViewModel(app) {
     private val _stats = MutableStateFlow(LatencyStats())
@@ -24,7 +35,11 @@ class EngineViewModel(app: Application) : AndroidViewModel(app) {
     private val _bluetooth = MutableStateFlow(false)
     val bluetooth: StateFlow<Boolean> = _bluetooth
 
+    private val _kit = MutableStateFlow(KitSettings())
+    val kit: StateFlow<KitSettings> = _kit
+
     init {
+        pushKit(_kit.value)
         viewModelScope.launch(Dispatchers.Default) {
             while (isActive) {
                 if (_auto.value) NativeEngine.autoTune()
@@ -38,6 +53,20 @@ class EngineViewModel(app: Application) : AndroidViewModel(app) {
     fun setAuto(on: Boolean) { _auto.value = on }
     fun setBursts(n: Int) { _auto.value = false; NativeEngine.setBursts(n) }
     fun reset() = NativeEngine.resetStats()
+
+    fun editKit(f: (KitSettings) -> KitSettings) {
+        _kit.update(f)
+        pushKit(_kit.value)
+    }
+
+    private fun pushKit(k: KitSettings) {
+        NativeEngine.setParam(NativeEngine.P_SNARE_TUNE, k.snareTune)
+        NativeEngine.setParam(NativeEngine.P_TOM_TUNE, k.tomTune)
+        NativeEngine.setParam(NativeEngine.P_ROOM, k.room)
+        NativeEngine.setParam(NativeEngine.P_COMP, k.comp)
+        NativeEngine.setParam(NativeEngine.P_MASTER, k.master)
+        k.padVolume.forEachIndexed { i, v -> NativeEngine.setParam(NativeEngine.P_PAD_VOL + i, v) }
+    }
 
     private fun bluetoothOutputActive(): Boolean {
         val am = getApplication<Application>().getSystemService(AudioManager::class.java)

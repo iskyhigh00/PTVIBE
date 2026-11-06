@@ -18,12 +18,18 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -40,11 +46,13 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(colorScheme = darkColorScheme(primary = Color(0xFFFF9A3C))) {
                 Surface(Modifier.fillMaxSize(), color = Color(0xFF140E0A)) {
                     Row(Modifier.fillMaxSize()) {
+                        val kit by vm.kit.collectAsState()
                         AndroidView(
                             factory = { DrumPadsView(it) },
+                            update = { it.pressureSensitivity = kit.pressure },
                             modifier = Modifier.weight(1f).fillMaxHeight(),
                         )
-                        CalibrationPanel(vm)
+                        SidePanel(vm)
                     }
                 }
             }
@@ -69,7 +77,7 @@ private fun CalibrationPanel(vm: EngineViewModel) {
     val bt by vm.bluetooth.collectAsState()
 
     Column(
-        Modifier.width(280.dp).fillMaxHeight().padding(12.dp).verticalScroll(rememberScrollState()),
+        Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text("Calibración / tap test", style = MaterialTheme.typography.titleMedium)
@@ -106,5 +114,45 @@ private fun CalibrationPanel(vm: EngineViewModel) {
             Text("Recomendado: auriculares con cable o USB.")
         }
         Text("Toca los pads para medir.")
+    }
+}
+
+@Composable
+private fun SidePanel(vm: EngineViewModel) {
+    var tab by remember { mutableIntStateOf(0) }
+    Column(Modifier.width(280.dp).fillMaxHeight()) {
+        TabRow(selectedTabIndex = tab) {
+            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Kit") })
+            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Latencia") })
+        }
+        if (tab == 0) KitPanel(vm) else CalibrationPanel(vm)
+    }
+}
+
+@Composable
+private fun LabeledSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, onChange: (Float) -> Unit) {
+    Text("$label: %.2f".format(value), style = MaterialTheme.typography.labelMedium)
+    Slider(value = value, onValueChange = onChange, valueRange = range)
+}
+
+@Composable
+private fun KitPanel(vm: EngineViewModel) {
+    val k by vm.kit.collectAsState()
+    Column(Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState())) {
+        LabeledSlider("Master", k.master, 0f..1f) { v -> vm.editKit { it.copy(master = v) } }
+        LabeledSlider("Afinación caja (st)", k.snareTune, -6f..6f) { v -> vm.editKit { it.copy(snareTune = v) } }
+        LabeledSlider("Afinación toms (st)", k.tomTune, -6f..6f) { v -> vm.editKit { it.copy(tomTune = v) } }
+        LabeledSlider("Ambiente (room)", k.room, 0f..1f) { v -> vm.editKit { it.copy(room = v) } }
+        LabeledSlider("Compresión", k.comp, 0f..1f) { v -> vm.editKit { it.copy(comp = v) } }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Sensib. por presión")
+            Switch(checked = k.pressure, onCheckedChange = { v -> vm.editKit { it.copy(pressure = v) } })
+        }
+        Text("Volumen por pad", style = MaterialTheme.typography.titleSmall)
+        for (i in 0 until Pads.COUNT) {
+            LabeledSlider(Pads.names[i], k.padVolume[i], 0f..1.5f) { v ->
+                vm.editKit { it.copy(padVolume = it.padVolume.toMutableList().also { l -> l[i] = v }) }
+            }
+        }
     }
 }

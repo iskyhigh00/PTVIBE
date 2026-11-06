@@ -24,6 +24,16 @@ Java_com_glidelive_audio_NativeEngine_nativeTrigger(JNIEnv*, jobject, jint pad, 
 }
 
 JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeChoke(JNIEnv*, jobject, jint pad, jlong eventNs) {
+    g_engine.choke(pad, eventNs);
+}
+
+JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeSetParam(JNIEnv*, jobject, jint id, jfloat v) {
+    g_engine.setParam(id, v);
+}
+
+JNIEXPORT void JNICALL
 Java_com_glidelive_audio_NativeEngine_nativeSetBursts(JNIEnv*, jobject, jint bursts) {
     g_engine.setBursts(bursts);
 }
