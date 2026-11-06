@@ -1,73 +1,60 @@
 package com.glidelive.ui
 
-import kotlin.math.min
-import kotlin.math.sqrt
+import kotlin.math.abs
+import kotlin.math.max
 
 /**
  * Geometría y detección de toques de la batería (sin dependencias de Android, probada en tests).
- * Cada pad es un círculo o una elipse; el toque se resuelve contra el pad que lo contiene y, si cae en un hueco,
- * contra el más cercano (Voronoi aproximado en distancia normalizada), para que casi toda la superficie suene.
+ * Los 13 pads forman una cuadrícula de [GRID_COLS] x [GRID_ROWS] celdas que cubre toda la superficie: cada punto
+ * de la vista pertenece a exactamente un pad, así que ningún toque se pierde y todo el pad es zona sensible.
  */
 object DrumHit {
-    /** Un toque dentro de la elipse (con un 6 % de margen) siempre dispara ese pad. */
-    const val INSIDE = 1.06f
+    const val GRID_COLS = 12
+    const val GRID_ROWS = 6
 
-    /** Fuera de todas las elipses, dispara el pad más cercano si su distancia normalizada no supera esto. */
-    const val NEAR = 2.0f
+    /** Dueño de cada celda de la cuadrícula (fila * GRID_COLS + columna), calculado una sola vez. */
+    private val owner = IntArray(GRID_COLS * GRID_ROWS) { -1 }.also { o ->
+        for (p in 0 until Pads.COUNT) {
+            val l = Pads.layout[p]
+            for (r in l[1] until l[1] + l[3]) for (c in l[0] until l[0] + l[2]) o[r * GRID_COLS + c] = p
+        }
+    }
 
-    private fun elliptical(i: Int) = Pads.isCymbal(i) || Pads.isHat(i)
+    /** Pad que ocupa la celda (col, fila), o -1. */
+    fun cellOwner(col: Int, row: Int): Int = owner[row * GRID_COLS + col]
 
-    /** Calcula centros y radios de cada pad para una vista de [w] x [h] con un margen [gap]. */
-    fun geometry(w: Int, h: Int, gap: Float, cx: FloatArray, cy: FloatArray, rx: FloatArray, ry: FloatArray) {
+    /** Rectángulo visible de cada pad para una vista de [w] x [h], con [gap] de separación entre pads. */
+    fun geometry(w: Int, h: Int, gap: Float, l: FloatArray, t: FloatArray, r: FloatArray, b: FloatArray) {
+        val cw = w.toFloat() / GRID_COLS
+        val ch = h.toFloat() / GRID_ROWS
         for (i in 0 until Pads.COUNT) {
-            val l = Pads.layout[i]
-            val x0 = l[0] * w + gap
-            val y0 = l[1] * h + gap
-            val x1 = (l[0] + l[2]) * w - gap
-            val y1 = (l[1] + l[3]) * h - gap
-            cx[i] = (x0 + x1) / 2
-            cy[i] = (y0 + y1) / 2
-            if (elliptical(i)) {
-                rx[i] = (x1 - x0) / 2
-                ry[i] = (y1 - y0) / 2
-            } else {
-                val r = min(x1 - x0, y1 - y0) / 2
-                rx[i] = r
-                ry[i] = r
-            }
+            val c = Pads.layout[i]
+            l[i] = c[0] * cw + gap / 2
+            t[i] = c[1] * ch + gap / 2
+            r[i] = (c[0] + c[2]) * cw - gap / 2
+            b[i] = (c[1] + c[3]) * ch - gap / 2
         }
     }
 
-    /** Orden de prueba: los pads pequeños primero para que no los tape uno grande. Se calcula una vez por tamaño. */
-    fun orderByArea(rx: FloatArray, ry: FloatArray, out: IntArray) {
-        for (i in out.indices) {
-            var j = i
-            val a = rx[i] * ry[i]
-            while (j > 0 && rx[out[j - 1]] * ry[out[j - 1]] > a) { out[j] = out[j - 1]; j-- }
-            out[j] = i
-        }
+    /** Pad tocado en (x, y) para una vista de [w] x [h]; los bordes se agrupan en el pad más cercano. */
+    fun hitTest(x: Float, y: Float, w: Int, h: Int): Int {
+        if (w <= 0 || h <= 0) return -1
+        val col = (x / w * GRID_COLS).toInt().coerceIn(0, GRID_COLS - 1)
+        val row = (y / h * GRID_ROWS).toInt().coerceIn(0, GRID_ROWS - 1)
+        return owner[row * GRID_COLS + col]
     }
 
-    fun normDist(x: Float, y: Float, cx: FloatArray, cy: FloatArray, rx: FloatArray, ry: FloatArray, i: Int): Float {
-        val dx = (x - cx[i]) / rx[i]
-        val dy = (y - cy[i]) / ry[i]
-        return sqrt(dx * dx + dy * dy)
+    /** Posición del toque dentro del pad, de -1 (izquierda/arriba) a 1 (derecha/abajo). */
+    fun norm(v: Float, lo: Float, hi: Float): Float = ((v - lo) / max(hi - lo, 1f) * 2f - 1f).coerceIn(-1f, 1f)
+
+    /** Velocidad según dónde se toca: centro fuerte, borde suave; franja inferior de la caja = ghost note. */
+    fun velocity(pad: Int, nx: Float, ny: Float): Float {
+        if (pad == Pads.SNARE && ny > GHOST_FROM) return GHOST_VELOCITY
+        val d = max(abs(nx), abs(ny))
+        return if (d < 0.5f) 1f - 0.3f * d else 0.85f - 0.9f * (d - 0.5f)
     }
 
-    /** Índice del pad que suena para el toque (x, y), o -1 si queda demasiado lejos de todos. */
-    fun hitTest(
-        x: Float, y: Float,
-        cx: FloatArray, cy: FloatArray, rx: FloatArray, ry: FloatArray,
-        order: IntArray,
-    ): Int {
-        var nearest = -1
-        var nearestD = Float.MAX_VALUE
-        for (k in order.indices) {
-            val i = order[k]
-            val d = normDist(x, y, cx, cy, rx, ry, i)
-            if (d <= INSIDE) return i
-            if (d < nearestD) { nearestD = d; nearest = i }
-        }
-        return if (nearestD <= NEAR) nearest else -1
-    }
+    /** Desde esta altura relativa (0 = centro, 1 = borde inferior) la caja toca ghost notes (franja del ~22 %). */
+    const val GHOST_FROM = 0.56f
+    const val GHOST_VELOCITY = 0.28f
 }
