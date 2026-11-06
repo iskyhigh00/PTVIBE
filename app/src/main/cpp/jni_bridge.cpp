@@ -34,6 +34,12 @@ Java_com_glidelive_audio_NativeEngine_nativeSetParam(JNIEnv*, jobject, jint id, 
 }
 
 JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeSynthCmd(JNIEnv*, jobject, jint type, jint a, jint b,
+                                                     jfloat f) {
+    g_engine.synthCmd(type, a, b, f);
+}
+
+JNIEXPORT void JNICALL
 Java_com_glidelive_audio_NativeEngine_nativeSetBursts(JNIEnv*, jobject, jint bursts) {
     g_engine.setBursts(bursts);
 }

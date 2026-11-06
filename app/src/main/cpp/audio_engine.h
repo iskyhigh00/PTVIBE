@@ -5,13 +5,20 @@
 #include <memory>
 #include <mutex>
 #include <vector>
+#include "chord_synth.h"
+#include "dsp.h"
 #include "spsc_queue.h"
 #include "synth_kit.h"
 
+// Evento de la UI hacia el hilo de audio.
+// 0 golpe de pad (a=pad, f=vel), 1 choke (a=pad),
+// 10 noteOn(a=slot, f=midi), 11 glideTo(a, f), 12 spawn(a=slot, b=desde, f),
+// 13 glideRelease(a, f), 14 release(a), 15 releaseAll.
 struct PadEvent {
-    int32_t type = 0;  // 0 golpe, 1 choke
-    int32_t pad = 0;
-    float velocity = 1.0f;
+    int32_t type = 0;
+    int32_t a = 0;
+    int32_t b = 0;
+    float f = 0;
     int64_t eventNs = 0;  // CLOCK_MONOTONIC del toque
 };
 
@@ -21,8 +28,18 @@ enum Param {
     kRoom = 2,       // 0..1
     kComp = 3,       // 0..1
     kMaster = 4,     // 0..1
-    kPadVol = 8,     // +pad, 0..1.5
-    kParamCount = 32
+    kPadVol = 8,     // +pad (13 pads), 0..1.5
+    kChordVol = 21,
+    kSoloVol = 22,
+    kDrumVol = 23,
+    kSynthRoom = 24,
+    kChorusMix = 25,
+    kCutoff = 26,
+    kResonance = 27,
+    kInstrument = 28,
+    kGlideMs = 29,
+    kGlideCurve = 30,
+    kParamCount = 40
 };
 
 class AudioEngine final : public oboe::AudioStreamDataCallback,
@@ -39,6 +56,7 @@ public:
     void trigger(int pad, float velocity, int64_t eventNs);
     void choke(int pad, int64_t eventNs);
     void setParam(int id, float value);
+    void synthCmd(int type, int a, int b, float f);
 
     void setBursts(int bursts);
     void autoTune();
@@ -62,21 +80,14 @@ private:
         int32_t group = 0;
         bool active = false;
     };
-    struct Comb {
-        std::vector<float> buf;
-        int idx = 0;
-        float damp = 0;
-    };
-    struct Allpass {
-        std::vector<float> buf;
-        int idx = 0;
-    };
     static constexpr int kMaxVoices = 48;
     static constexpr int kQueueSize = 512;
 
     bool openAndStart();
     void applyBursts();
+    void handleEvent(const PadEvent& ev, int64_t nowNs);
     void startVoice(const PadEvent& ev, int64_t nowNs);
+    SynthParams synthParams() const;
     void chokeVoices(int pad, int group, float frames);
     float param(int id) const { return params_[id].load(std::memory_order_relaxed); }
     uint32_t rnd();
@@ -92,9 +103,11 @@ private:
     int lastVariant_[kPadCount] = {};
     uint32_t rng_ = 0x9E3779B9u;
 
-    Comb combs_[4];
-    Allpass aps_[2];
+    Reverb drumRoom_;
+    SynthEngine synth_;
     float compEnv_ = 0;
+    float synthL_[SynthEngine::kMaxBlock];
+    float synthR_[SynthEngine::kMaxBlock];
 
     std::atomic<bool> running_{false};
     std::atomic<int> bursts_{1};

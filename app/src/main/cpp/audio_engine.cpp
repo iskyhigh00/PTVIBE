@@ -24,8 +24,6 @@ inline float softClip(float x) {
 constexpr int kGroupOf[kPadCount] = {0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0};
 inline bool isCymbal(int pad) { return pad >= 9; }
 
-constexpr int kCombLen[4] = {1116, 1188, 1277, 1356};
-constexpr int kApLen[2] = {556, 441};
 }  // namespace
 
 AudioEngine::AudioEngine() {
@@ -34,6 +32,16 @@ AudioEngine::AudioEngine() {
     params_[kComp].store(0.3f);
     params_[kMaster].store(0.9f);
     for (int i = 0; i < kPadCount; ++i) params_[kPadVol + i].store(1.0f);
+    params_[kChordVol].store(0.8f);
+    params_[kSoloVol].store(0.8f);
+    params_[kDrumVol].store(1.0f);
+    params_[kSynthRoom].store(0.3f);
+    params_[kChorusMix].store(0.35f);
+    params_[kCutoff].store(0.8f);
+    params_[kResonance].store(0.15f);
+    params_[kInstrument].store(0.0f);
+    params_[kGlideMs].store(250.0f);
+    params_[kGlideCurve].store(1.0f);
 }
 
 bool AudioEngine::start() {
@@ -63,15 +71,8 @@ bool AudioEngine::openAndStart() {
         buildSynthKit(sr_, kit_);  // stream aún parado: seguro
         kitRate_ = sr_;
     }
-    for (int i = 0; i < 4; ++i) {
-        combs_[i].buf.assign(std::max(8, kCombLen[i] * sr_ / 44100), 0.0f);
-        combs_[i].idx = 0;
-        combs_[i].damp = 0;
-    }
-    for (int i = 0; i < 2; ++i) {
-        aps_[i].buf.assign(std::max(8, kApLen[i] * sr_ / 44100), 0.0f);
-        aps_[i].idx = 0;
-    }
+    drumRoom_.init(sr_);
+    synth_.init(sr_);
     compEnv_ = 0;
     for (auto& v : voices_) v = Voice();
     stream_ = s;
@@ -136,8 +137,8 @@ void AudioEngine::trigger(int pad, float velocity, int64_t eventNs) {
     if (!running_.load(std::memory_order_acquire)) return;
     PadEvent ev;
     ev.type = 0;
-    ev.pad = pad;
-    ev.velocity = velocity;
+    ev.a = pad;
+    ev.f = velocity;
     ev.eventNs = eventNs > 0 ? eventNs : nowNs();
     queue_.push(ev);
 }
@@ -146,9 +147,46 @@ void AudioEngine::choke(int pad, int64_t eventNs) {
     if (!running_.load(std::memory_order_acquire)) return;
     PadEvent ev;
     ev.type = 1;
-    ev.pad = pad;
+    ev.a = pad;
     ev.eventNs = eventNs > 0 ? eventNs : nowNs();
     queue_.push(ev);
+}
+
+void AudioEngine::synthCmd(int type, int a, int b, float f) {
+    if (!running_.load(std::memory_order_acquire)) return;
+    PadEvent ev;
+    ev.type = type;
+    ev.a = a;
+    ev.b = b;
+    ev.f = f;
+    queue_.push(ev);
+}
+
+SynthParams AudioEngine::synthParams() const {
+    SynthParams p;
+    p.instrument = static_cast<int>(param(kInstrument));
+    p.glideMs = param(kGlideMs);
+    p.curve = static_cast<int>(param(kGlideCurve));
+    p.volume = param(kChordVol);
+    p.cutoff = param(kCutoff);
+    p.resonance = param(kResonance);
+    p.chorus = param(kChorusMix);
+    p.room = param(kSynthRoom);
+    return p;
+}
+
+void AudioEngine::handleEvent(const PadEvent& ev, int64_t now) {
+    if (ev.type <= 1) { startVoice(ev, now); return; }
+    const SynthParams p = synthParams();
+    switch (ev.type) {
+        case 10: synth_.noteOn(ev.a, ev.f, p); break;
+        case 11: synth_.glideTo(ev.a, ev.f, p, false); break;
+        case 12: synth_.spawn(ev.a, ev.b, ev.f, p); break;
+        case 13: synth_.glideTo(ev.a, ev.f, p, true); break;
+        case 14: synth_.release(ev.a); break;
+        case 15: synth_.releaseAll(); break;
+        default: break;
+    }
 }
 
 void AudioEngine::resetStats() {
@@ -196,7 +234,7 @@ void AudioEngine::chokeVoices(int pad, int group, float frames) {
 }
 
 void AudioEngine::startVoice(const PadEvent& ev, int64_t now) {
-    const int pad = ev.pad;
+    const int pad = ev.a;
     if (pad < 0 || pad >= kPadCount || kit_.empty()) return;
 
     if (ev.type == 1) {  // choke manual de platos
@@ -221,7 +259,7 @@ void AudioEngine::startVoice(const PadEvent& ev, int64_t now) {
         chokeVoices(pad, 0, 96.0f);                  // re-golpe sin clic
     }
 
-    const float vel = std::max(0.0f, std::min(ev.velocity, 1.0f));
+    const float vel = std::max(0.0f, std::min(ev.f, 1.0f));
     const int layer = vel < 0.4f ? 0 : (vel < 0.75f ? 1 : 2);
     const int variant = (lastVariant_[pad] + 1 + static_cast<int>(rnd() % (kVariants - 1))) % kVariants;
     lastVariant_[pad] = variant;
@@ -263,7 +301,7 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*, void* aud
     const int64_t now = nowNs();
 
     PadEvent ev;
-    while (queue_.pop(ev)) startVoice(ev, now);
+    while (queue_.pop(ev)) handleEvent(ev, now);
 
     std::fill(out, out + numFrames * 2, 0.0f);
 
@@ -285,54 +323,48 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*, void* aud
         }
     }
 
-    // Sala, compresión y master.
+    // Bus de batería: sala y compresión.
     const float room = param(kRoom);
     const float comp = param(kComp);
-    const float master = param(kMaster);
+    const float drumVol = param(kDrumVol);
     const float thr = 1.0f - 0.7f * comp;
     const float ratio = 1.0f + 5.0f * comp;
-    const float makeup = 1.0f + 0.5f * comp;
+    const float makeup = (1.0f + 0.5f * comp) * drumVol;
     const float atk = 1.0f - std::exp(-1.0f / (0.001f * sr_));
     const float rel = 1.0f - std::exp(-1.0f / (0.12f * sr_));
-    const bool useRoom = room > 0.001f && !combs_[0].buf.empty();
+    const bool useRoom = room > 0.001f && drumRoom_.ready;
 
     for (int32_t i = 0; i < numFrames; ++i) {
         float l = out[2 * i];
         float r = out[2 * i + 1];
-
         if (useRoom) {
-            const float in = (l + r) * 0.5f * 0.12f;
-            float y[4];
-            for (int k = 0; k < 4; ++k) {
-                Comb& c = combs_[k];
-                y[k] = c.buf[c.idx];
-                c.damp = y[k] * 0.65f + c.damp * 0.35f;
-                c.buf[c.idx] = in + c.damp * 0.8f;
-                if (++c.idx >= static_cast<int>(c.buf.size())) c.idx = 0;
-            }
-            float wl = y[0] + y[2];
-            float wr = y[1] + y[3];
-            Allpass* ap[2] = {&aps_[0], &aps_[1]};
-            float* w[2] = {&wl, &wr};
-            for (int k = 0; k < 2; ++k) {
-                const float bo = ap[k]->buf[ap[k]->idx];
-                const float o = -*w[k] + bo;
-                ap[k]->buf[ap[k]->idx] = *w[k] + bo * 0.5f;
-                if (++ap[k]->idx >= static_cast<int>(ap[k]->buf.size())) ap[k]->idx = 0;
-                *w[k] = o;
-            }
+            float wl, wr;
+            drumRoom_.process((l + r) * 0.5f * 0.12f, wl, wr);
             l += wl * room * 1.6f;
             r += wr * room * 1.6f;
         }
-
         const float lvl = std::max(std::fabs(l), std::fabs(r));
         compEnv_ += (lvl > compEnv_ ? atk : rel) * (lvl - compEnv_);
         float g = 1.0f;
         if (compEnv_ > thr) g = (thr + (compEnv_ - thr) / ratio) / compEnv_;
-        g *= makeup * master;
+        g *= makeup;
+        out[2 * i] = l * g;
+        out[2 * i + 1] = r * g;
+    }
 
-        out[2 * i] = softClip(l * g);
-        out[2 * i + 1] = softClip(r * g);
+    // Bus de acordes/solista y mezcla final.
+    const SynthParams sp = synthParams();
+    const float master = param(kMaster);
+    for (int32_t off = 0; off < numFrames; off += SynthEngine::kMaxBlock) {
+        const int n = std::min<int32_t>(SynthEngine::kMaxBlock, numFrames - off);
+        std::fill(synthL_, synthL_ + n, 0.0f);
+        std::fill(synthR_, synthR_ + n, 0.0f);
+        synth_.render(synthL_, synthR_, n, sp);
+        for (int i = 0; i < n; ++i) {
+            float* o = out + 2 * (off + i);
+            o[0] = softClip((o[0] + synthL_[i]) * master);
+            o[1] = softClip((o[1] + synthR_[i]) * master);
+        }
     }
     return oboe::DataCallbackResult::Continue;
 }

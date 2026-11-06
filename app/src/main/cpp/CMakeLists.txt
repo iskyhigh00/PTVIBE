@@ -5,6 +5,7 @@ find_package(oboe REQUIRED CONFIG)
 
 add_library(glidelive SHARED
     jni_bridge.cpp
+    chord_synth.cpp
     audio_engine.cpp
     synth_kit.cpp)
 

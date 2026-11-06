@@ -1,0 +1,40 @@
+package com.glidelive.theory
+
+enum class ChordType(val symbol: String, val label: String, val intervals: List<Int>) {
+    MAJ("", "Mayor", listOf(0, 4, 7)),
+    MIN("m", "m", listOf(0, 3, 7)),
+    DIM("dim", "dim", listOf(0, 3, 6)),
+    AUG("aug", "aug", listOf(0, 4, 8)),
+    DOM7("7", "7", listOf(0, 4, 7, 10)),
+    MAJ7("maj7", "maj7", listOf(0, 4, 7, 11)),
+    MIN7("m7", "m7", listOf(0, 3, 7, 10)),
+    MIN9("m9", "m9", listOf(0, 3, 7, 10, 14)),
+    MAJ9("maj9", "maj9", listOf(0, 4, 7, 11, 14)),
+    DOM7B9("7(♭9)", "7♭9", listOf(0, 4, 7, 10, 13)),
+    M7B5("m7(♭5)", "m7♭5", listOf(0, 3, 6, 10)),
+    SUS2("sus2", "sus2", listOf(0, 2, 7)),
+    SUS4("sus4", "sus", listOf(0, 5, 7)),
+    ADD9("add9", "add9", listOf(0, 4, 7, 14)),
+    SIX("6", "6", listOf(0, 4, 7, 9)),
+    MIN6("m6", "m6", listOf(0, 3, 7, 9)),
+    DOM11("11", "11", listOf(0, 4, 7, 10, 14, 17)),
+    DOM13("13", "13", listOf(0, 4, 7, 10, 14, 21)),
+    DIM7("dim7", "dim7", listOf(0, 3, 6, 9)),
+    MMAJ7("m(maj7)", "mMaj7", listOf(0, 3, 7, 11));
+
+    val pitchClasses: List<Int> get() = intervals.map { it % 12 }.distinct()
+
+    companion object {
+        /** Calidades ofrecidas como "extensión" rápida. */
+        val extensions = listOf(DOM7, MAJ7, MIN7, MIN9, MAJ9, DOM7B9, M7B5, SUS4, ADD9, SIX, DOM11, DOM13)
+
+        private val diatonicCandidates =
+            listOf(MAJ, MIN, DIM, AUG, MAJ7, DOM7, MIN7, M7B5, DIM7, MMAJ7)
+
+        /** Identifica el tipo por sus intervalos (mod 12); null si no coincide. */
+        fun identify(intervals: List<Int>): ChordType? {
+            val set = intervals.map { it % 12 }.toSet()
+            return diatonicCandidates.firstOrNull { it.pitchClasses.toSet() == set }
+        }
+    }
+}

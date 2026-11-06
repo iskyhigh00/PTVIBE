@@ -5,31 +5,37 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -39,6 +45,7 @@ import com.glidelive.audio.NativeEngine
 class MainActivity : ComponentActivity() {
     private val vm: EngineViewModel by viewModels()
     private val updateVm: UpdateViewModel by viewModels()
+    private val chordsVm: ChordsViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,14 +53,26 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(primary = Color(0xFFFF9A3C))) {
                 Surface(Modifier.fillMaxSize(), color = Color(0xFF140E0A)) {
-                    Row(Modifier.fillMaxSize()) {
-                        val kit by vm.kit.collectAsState()
-                        AndroidView(
-                            factory = { DrumPadsView(it) },
-                            update = { it.pressureSensitivity = kit.pressure },
-                            modifier = Modifier.weight(1f).fillMaxHeight(),
-                        )
-                        SidePanel(vm, updateVm)
+                    var mode by rememberSaveable { mutableStateOf(Mode.ACORDES) }
+                    var panel by rememberSaveable { mutableStateOf(true) }
+                    val kit by vm.kit.collectAsState()
+                    Column(Modifier.fillMaxSize()) {
+                        TopBar(mode, { mode = it }, chordsVm, panel) { panel = !panel }
+                        Row(Modifier.weight(1f).fillMaxWidth()) {
+                            Column(Modifier.weight(1f).fillMaxHeight()) {
+                                if (mode != Mode.BATERIA) {
+                                    ChordsScreen(chordsVm, compact = mode == Mode.MIXTO, Modifier.weight(1f))
+                                }
+                                if (mode != Mode.ACORDES) {
+                                    AndroidView(
+                                        factory = { DrumPadsView(it) },
+                                        update = { it.pressureSensitivity = kit.pressure },
+                                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                                    )
+                                }
+                            }
+                            if (panel) SidePanel(vm, updateVm, chordsVm)
+                        }
                     }
                 }
             }
@@ -66,8 +85,26 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        chordsVm.stopAll()
         NativeEngine.stop()
         super.onPause()
+    }
+}
+
+enum class Mode(val label: String) { ACORDES("Acordes"), BATERIA("Batería"), MIXTO("Mixto") }
+
+@Composable
+private fun TopBar(mode: Mode, onMode: (Mode) -> Unit, chords: ChordsViewModel, panel: Boolean, onPanel: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Mode.entries.forEach { m ->
+            FilterChip(selected = mode == m, onClick = { onMode(m) }, label = { Text(m.label) })
+        }
+        if (mode != Mode.BATERIA) KeyControls(chords)
+        TextButton(onClick = onPanel) { Text(if (panel) "Ocultar ajustes" else "Ajustes") }
     }
 }
 
@@ -119,28 +156,30 @@ private fun CalibrationPanel(vm: EngineViewModel) {
 }
 
 @Composable
-private fun SidePanel(vm: EngineViewModel, updateVm: UpdateViewModel) {
+private fun SidePanel(vm: EngineViewModel, updateVm: UpdateViewModel, chordsVm: ChordsViewModel) {
     val up by updateVm.state.collectAsState()
     var tab by remember { mutableIntStateOf(0) }
-    Column(Modifier.width(280.dp).fillMaxHeight()) {
-        TabRow(selectedTabIndex = tab) {
-            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Kit") })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Latencia") })
+    Column(Modifier.width(300.dp).fillMaxHeight()) {
+        ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp) {
+            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Sonido") })
+            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Kit") })
+            Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Latencia") })
             Tab(
-                selected = tab == 2, onClick = { tab = 2 },
+                selected = tab == 3, onClick = { tab = 3 },
                 text = { Text(if (up is UpdateState.Available) "Update •" else "Update") },
             )
         }
         when (tab) {
-            0 -> KitPanel(vm)
-            1 -> CalibrationPanel(vm)
+            0 -> SoundPanel(chordsVm)
+            1 -> KitPanel(vm)
+            2 -> CalibrationPanel(vm)
             else -> UpdatePanel(updateVm)
         }
     }
 }
 
 @Composable
-private fun LabeledSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, onChange: (Float) -> Unit) {
+internal fun LabeledSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, onChange: (Float) -> Unit) {
     Text("$label: %.2f".format(value), style = MaterialTheme.typography.labelMedium)
     Slider(value = value, onValueChange = onChange, valueRange = range)
 }

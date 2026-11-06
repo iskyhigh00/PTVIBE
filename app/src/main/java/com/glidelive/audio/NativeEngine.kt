@@ -43,6 +43,26 @@ object NativeEngine {
     const val P_MASTER = 4
     const val P_PAD_VOL = 8
 
+    fun synth(cmd: SynthCommand) = when (cmd) {
+        is SynthCommand.NoteOn -> nativeSynthCmd(10, cmd.slot, 0, cmd.midi.toFloat())
+        is SynthCommand.GlideTo -> nativeSynthCmd(11, cmd.slot, 0, cmd.midi.toFloat())
+        is SynthCommand.Spawn -> nativeSynthCmd(12, cmd.slot, cmd.fromSlot, cmd.midi.toFloat())
+        is SynthCommand.GlideRelease -> nativeSynthCmd(13, cmd.slot, 0, cmd.midi.toFloat())
+        is SynthCommand.Release -> nativeSynthCmd(14, cmd.slot, 0, 0f)
+        SynthCommand.ReleaseAll -> nativeSynthCmd(15, 0, 0, 0f)
+    }
+
+    const val P_CHORD_VOL = 21
+    const val P_SOLO_VOL = 22
+    const val P_DRUM_VOL = 23
+    const val P_SYNTH_ROOM = 24
+    const val P_CHORUS = 25
+    const val P_CUTOFF = 26
+    const val P_RESONANCE = 27
+    const val P_INSTRUMENT = 28
+    const val P_GLIDE_MS = 29
+    const val P_GLIDE_CURVE = 30
+
     fun setBursts(n: Int) = nativeSetBursts(n)
     fun autoTune() = nativeAutoTune()
     fun resetStats() = nativeResetStats()
@@ -71,6 +91,7 @@ object NativeEngine {
     private external fun nativeTrigger(pad: Int, velocity: Float, eventNs: Long)
     private external fun nativeChoke(pad: Int, eventNs: Long)
     private external fun nativeSetParam(id: Int, value: Float)
+    private external fun nativeSynthCmd(type: Int, a: Int, b: Int, f: Float)
     private external fun nativeSetBursts(bursts: Int)
     private external fun nativeAutoTune()
     private external fun nativeResetStats()
