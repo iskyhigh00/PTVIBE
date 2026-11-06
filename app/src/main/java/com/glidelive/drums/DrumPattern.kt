@@ -46,6 +46,8 @@ data class DrumPattern(
     val variations: List<Variation>,
     val fill: Map<String, String>,
     val end: Map<String, String>,
+    /** Breaks: último compás alternativo (paradas, golpes desplazados, toms) que entra como el relleno. */
+    val breaks: List<Variation> = emptyList(),
     val factory: Boolean = true,
 ) {
     val steps: Int get() = barSteps * bars
@@ -54,12 +56,17 @@ data class DrumPattern(
     val bpmDefault: Int get() = (bpmMin + bpmMax) / 2
 
     /** Pistas de la variación [v] con el último compás sustituido por el relleno. */
-    fun withFill(v: Int): Map<String, String> {
+    fun withFill(v: Int): Map<String, String> = withLastBar(v, fill)
+
+    /** Pistas de la variación [v] con el último compás sustituido por el break [i]. */
+    fun withBreak(v: Int, i: Int): Map<String, String> = withLastBar(v, breaks[i.coerceIn(0, breaks.size - 1)].tracks)
+
+    private fun withLastBar(v: Int, bar: Map<String, String>): Map<String, String> {
         val base = variations[v.coerceIn(0, variations.size - 1)].tracks
         val head = steps - barSteps
         val out = LinkedHashMap<String, String>()
         for ((k, s) in base) out[k] = s.take(head).padEnd(head, '.') + ".".repeat(barSteps)
-        for ((k, f) in fill) out[k] = (out[k] ?: ".".repeat(steps)).take(head) + f.padEnd(barSteps, '.').take(barSteps)
+        for ((k, f) in bar) out[k] = (out[k] ?: ".".repeat(steps)).take(head) + f.padEnd(barSteps, '.').take(barSteps)
         return out
     }
 
@@ -77,6 +84,7 @@ data class DrumPattern(
         }))
         put("fill", JSONObject(fill))
         put("end", JSONObject(end))
+        put("breaks", JSONArray(breaks.map { b -> JSONObject().put("name", b.name).put("tracks", JSONObject(b.tracks)) }))
     }
 
     companion object {
@@ -112,6 +120,9 @@ data class DrumPattern(
                     Variation(vo.getString("name"), map(vo.getJSONObject("tracks")))
                 },
                 fill = map(o.optJSONObject("fill")), end = map(o.optJSONObject("end")),
+                breaks = o.optJSONArray("breaks")?.let { a ->
+                    (0 until a.length()).map { Variation(a.getJSONObject(it).getString("name"), map(a.getJSONObject(it).getJSONObject("tracks"))) }
+                } ?: emptyList(),
                 factory = factory,
             )
         }

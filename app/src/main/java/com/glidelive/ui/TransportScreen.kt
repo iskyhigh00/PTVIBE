@@ -112,7 +112,10 @@ fun PatternBar(vm: TransportViewModel) {
                 colors = if (waiting) FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer) else FilterChipDefaults.filterChipColors(),
             )
         }
-        FilterChip(selected = u.fillOn, onClick = vm::fill, label = { Text("Relleno") })
+        FilterChip(selected = u.fillOn && u.activeBreak == null, onClick = vm::fill, label = { Text("Relleno") })
+        p?.breaks?.forEachIndexed { i, b ->
+            FilterChip(selected = u.fillOn && u.activeBreak == i, onClick = { vm.breakNow(i) }, label = { Text(b.name) })
+        }
         FilterChip(selected = u.endPending, onClick = vm::finish, label = { Text("Final") })
         GradientButton(if (u.patternOn) "Base" else "Base", vm::togglePattern, glyph = if (u.patternOn) "■" else "▶")
         TextButton(onClick = { muteMenu = true }) {

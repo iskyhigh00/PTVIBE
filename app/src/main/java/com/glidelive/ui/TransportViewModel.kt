@@ -60,6 +60,8 @@ data class TransportUi(
     val variationSwap: VariationSwap = VariationSwap.BAR,
     val patternOn: Boolean = false,
     val fillOn: Boolean = false,
+    /** Break en curso (índice) o null si el último compás alternativo es el relleno. */
+    val activeBreak: Int? = null,
     val endPending: Boolean = false,
     val muted: Set<Int> = emptySet(),
     val solo: Int? = null,
@@ -156,7 +158,7 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun selectPattern(p: DrumPattern, adopt: Boolean = _ui.value.adoptPattern) {
-        _ui.update { it.copy(patternId = p.id, variation = 0, pendingVariation = null, fillOn = false, endPending = false) }
+        _ui.update { it.copy(patternId = p.id, variation = 0, pendingVariation = null, fillOn = false, activeBreak = null, endPending = false) }
         NativeEngine.cancelQueuedPattern()
         if (adopt) {
             edit { it.copy(bpm = p.bpmDefault, meter = Meter(p.beats, p.beatUnit)) }
@@ -224,15 +226,21 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
      * relleno se hace sobre ella y pasa a ser la activa ahora mismo (se cancela la cola nativa para que el cambio
      * pendiente no pise el relleno ni la reversión).
      */
-    fun fill() {
+    fun fill() = lastBar(null)
+
+    /** Break [i]: último compás alternativo (parada, golpes desplazados o toms); vuelve a la variación al dar la vuelta. */
+    fun breakNow(i: Int) = lastBar(i)
+
+    private fun lastBar(breakIndex: Int?) {
         val u = _ui.value
         val p = u.pattern ?: return
         if (!u.patternOn) return
+        if (breakIndex != null && breakIndex !in p.breaks.indices) return
         val v = u.pendingVariation ?: u.variation
         if (u.pendingVariation != null) NativeEngine.cancelQueuedPattern()
-        sendPattern(p, p.withFill(v), restart = false)
+        sendPattern(p, if (breakIndex == null) p.withFill(v) else p.withBreak(v, breakIndex), restart = false)
         lastPass = NativeEngine.seqStatus()[2].toInt()
-        _ui.update { it.copy(variation = v, pendingVariation = null, fillOn = true) }
+        _ui.update { it.copy(variation = v, pendingVariation = null, fillOn = true, activeBreak = breakIndex) }
     }
 
     /** Final: entra justo al terminar el patrón y la base se detiene. */
@@ -338,7 +346,7 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
             u.copy(
                 playing = s[1] > 0.5,
                 recDrum = s[3] > 0.5, recChord = s[4] > 0.5,
-                fillOn = fillOn, patternOn = patternOn, endPending = endPending,
+                fillOn = fillOn, activeBreak = if (fillOn) u.activeBreak else null, patternOn = patternOn, endPending = endPending,
                 variation = variation, pendingVariation = pendingV,
             )
         }

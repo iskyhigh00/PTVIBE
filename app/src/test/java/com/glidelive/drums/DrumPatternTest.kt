@@ -52,6 +52,35 @@ class DrumPatternTest {
         assertEquals(10 * 48, len("diez8"))
     }
 
+    @Test fun slowBasesAndBreaks() {
+        val slow = patterns.filter { it.id.startsWith("l_") }
+        assertTrue("al menos 10 bases lentas", slow.size >= 10)
+        for (p in slow) assertTrue("${p.id}: lenta (<= 82 BPM)", p.bpmMax <= 82 && p.bpmMin >= 40)
+        for (p in patterns) {
+            assertEquals("${p.id}: dos breaks", 2, p.breaks.size)
+            for (b in p.breaks) {
+                assertTrue(b.tracks.isNotEmpty())
+                for ((k, str) in b.tracks) {
+                    assertTrue(DrumKeys.index(k) >= 0)
+                    assertEquals("${p.id}/${b.name}/$k", p.barSteps, str.length)
+                }
+            }
+        }
+        assertEquals(7 * 24 * 2, patterns.first { it.id == "l_78" }.lengthTicks)
+        assertEquals(40 * 24, patterns.first { it.id == "l_104" }.lengthTicks)
+        assertEquals(80 * 24, patterns.first { it.id == "l_cinco16" }.lengthTicks)
+    }
+
+    @Test fun breakReplacesOnlyTheLastBar() {
+        val p = patterns.first { it.id == "l_cinco16" }
+        val b = p.withBreak(0, 0)
+        val hc = p.variations[0].tracks["hc"]!!
+        assertEquals(hc.take(64), b["hc"]!!.take(64))              // compases 1-4 intactos
+        assertTrue(b["hc"]!!.takeLast(16).all { it == '.' })       // el break deja callar el hi-hat
+        assertTrue(b["cr"]!!.takeLast(16).contains('X'))           // y entra el plato en la parada
+        assertEquals(p.steps, b["k"]!!.length)
+    }
+
     @Test fun grouping2plus2plus3AccentsGroupStarts() {
         val p = patterns.first { it.id == "o78" }
         val hc = p.variations[0].tracks["hc"]!!
