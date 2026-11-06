@@ -227,7 +227,7 @@ fun LoopsPanel(vm: TransportViewModel) {
             }
         }
         Text("Bucle de batería: ${u.drumBars} × ${u.drumMeter.label}", style = MaterialTheme.typography.labelLarge)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Picker("Compás", Meter.all, { it.label }) { m -> vm.setDrumLoop(u.drumBars, m) }
             for (b in listOf(1, 2, 4, 8)) FilterChip(selected = u.drumBars == b, onClick = { vm.setDrumLoop(b, u.drumMeter) }, label = { Text("$b") })
         }
@@ -244,7 +244,7 @@ fun LoopsPanel(vm: TransportViewModel) {
             }
         }
         Text("Bucle de acordes: ${u.chordBars} × ${u.chordMeter.label}", style = MaterialTheme.typography.labelLarge)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Picker("Compás", Meter.all, { it.label }) { m -> vm.setChordLoop(u.chordBars, m) }
             for (b in listOf(1, 2, 4, 8)) FilterChip(selected = u.chordBars == b, onClick = { vm.setChordLoop(b, u.chordMeter) }, label = { Text("$b") })
         }
