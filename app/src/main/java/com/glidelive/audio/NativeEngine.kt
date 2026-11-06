@@ -106,9 +106,9 @@ object NativeEngine {
     fun setEndPattern(ticks: IntArray, pads: IntArray, vels: FloatArray, length: Int) =
         nativeSetEndPattern(ticks, pads, vels, ticks.size, length)
 
-    private val seqBuf = DoubleArray(8)
+    private val seqBuf = DoubleArray(10)
 
-    /** posTick, playing, vueltas del patrón, grabando batería, grabando acordes, eventos batería, eventos acordes, posición local del patrón */
+    /** posTick, playing, vueltas del patrón, grabando batería, grabando acordes, eventos batería, eventos acordes, posición local del patrón, patrón activo */
     fun seqStatus(): DoubleArray { nativeSeqStatus(seqBuf); return seqBuf }
 
     /** Eventos de batería/acordes ejecutados (6 doubles cada uno: tipo, a, f, glideMs, curva, tiempoMs). */

@@ -337,6 +337,7 @@ void AudioEngine::getSeqStatus(double* out) const {
     out[5] = seq_.drumEventCount.load();
     out[6] = seq_.chordEventCount.load();
     out[7] = static_cast<double>(seq_.patLocalTick.load());
+    out[8] = seq_.patternEnabled() ? 1 : 0;
 }
 
 int AudioEngine::pollViz(double* out, int maxEvents) {

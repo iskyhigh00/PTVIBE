@@ -100,9 +100,9 @@ Java_com_glidelive_audio_NativeEngine_nativeSetEndPattern(JNIEnv* env, jobject, 
 
 JNIEXPORT void JNICALL
 Java_com_glidelive_audio_NativeEngine_nativeSeqStatus(JNIEnv* env, jobject, jdoubleArray out) {
-    double tmp[8] = {0};
+    double tmp[10] = {0};
     g_engine.getSeqStatus(tmp);
-    if (env->GetArrayLength(out) >= 8) env->SetDoubleArrayRegion(out, 0, 8, tmp);
+    if (env->GetArrayLength(out) >= 10) env->SetDoubleArrayRegion(out, 0, 10, tmp);
 }
 
 JNIEXPORT jint JNICALL

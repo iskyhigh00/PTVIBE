@@ -75,6 +75,7 @@ public:
     bool scheduleChord(const LoopEvent& e);
     void recordChord(const LoopEvent& e);
     double tickPos() const { return tickPos_; }
+    bool patternEnabled() const { return patEnabled_.load(std::memory_order_relaxed); }
 
     int drumLen() const { return drumLen_; }
     int chordLen() const { return chordLen_; }

@@ -61,6 +61,7 @@ class MainActivity : ComponentActivity() {
     private val updateVm: UpdateViewModel by viewModels()
     private val chordsVm: ChordsViewModel by viewModels()
     private val soloVm: SoloViewModel by viewModels()
+    private val transportVm: TransportViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,6 +75,8 @@ class MainActivity : ComponentActivity() {
                     val kit by vm.kit.collectAsState()
                     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                         TopBar(mode, { mode = it }, chordsVm, soloVm, vm, panel) { panel = !panel }
+                        TransportBar(transportVm)
+                        if (mode == Mode.BATERIA || mode == Mode.MIXTO) PatternBar(transportVm)
                         Row(
                             Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -93,7 +96,7 @@ class MainActivity : ComponentActivity() {
                             }
                             if (panel) {
                                 GlassCard(Modifier.width(300.dp).fillMaxHeight().padding(bottom = 8.dp), padding = 0.dp) {
-                                    SidePanel(vm, updateVm, chordsVm, soloVm)
+                                    SidePanel(vm, updateVm, chordsVm, soloVm, transportVm)
                                 }
                             }
                         }
@@ -206,7 +209,7 @@ private fun CalibrationPanel(vm: EngineViewModel) {
 }
 
 @Composable
-private fun SidePanel(vm: EngineViewModel, updateVm: UpdateViewModel, chordsVm: ChordsViewModel, soloVm: SoloViewModel) {
+private fun SidePanel(vm: EngineViewModel, updateVm: UpdateViewModel, chordsVm: ChordsViewModel, soloVm: SoloViewModel, transportVm: TransportViewModel) {
     val up by updateVm.state.collectAsState()
     var tab by remember { mutableIntStateOf(0) }
     Column(Modifier.fillMaxSize()) {
@@ -214,9 +217,10 @@ private fun SidePanel(vm: EngineViewModel, updateVm: UpdateViewModel, chordsVm: 
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Acordes") })
             Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Solista") })
             Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Batería") })
-            Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("Latencia") })
+            Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("Bucles") })
+            Tab(selected = tab == 4, onClick = { tab = 4 }, text = { Text("Latencia") })
             Tab(
-                selected = tab == 4, onClick = { tab = 4 },
+                selected = tab == 5, onClick = { tab = 5 },
                 text = { Text(if (up is UpdateState.Available) "Actualizar •" else "Actualizar") },
             )
         }
@@ -224,7 +228,8 @@ private fun SidePanel(vm: EngineViewModel, updateVm: UpdateViewModel, chordsVm: 
             0 -> SoundPanel(chordsVm)
             1 -> SoloPanel(soloVm)
             2 -> KitPanel(vm)
-            3 -> CalibrationPanel(vm)
+            3 -> LoopsPanel(transportVm)
+            4 -> CalibrationPanel(vm)
             else -> UpdatePanel(updateVm)
         }
     }
