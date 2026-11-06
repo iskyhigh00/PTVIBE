@@ -251,6 +251,50 @@ SynthParams AudioEngine::synthParams() const {
     return p;
 }
 
+void AudioEngine::resetStats() {
+    lastMs_.store(0);
+    avgMs_.store(0);
+    maxMs_.store(0);
+    count_.store(0);
+}
+
+void AudioEngine::getStats(double* out) const {
+    for (int i = 0; i < kStatCount; ++i) out[i] = 0;
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (stream_) {
+        out[0] = stream_->getSampleRate();
+        out[1] = stream_->getFramesPerBurst();
+        out[2] = stream_->getBufferSizeInFrames();
+        out[3] = bursts_.load();
+        out[4] = mmap_ ? 1 : 0;
+        out[5] = stream_->getSharingMode() == oboe::SharingMode::Exclusive ? 1 : 0;
+        auto lat = stream_->calculateLatencyMillis();
+        out[6] = lat ? lat.value() : -1.0;
+        auto xr = stream_->getXRunCount();
+        out[10] = xr ? xr.value() : 0;
+        out[11] = 1;
+        out[12] = stream_->getAudioApi() == oboe::AudioApi::AAudio ? 1 : 0;
+    }
+    out[7] = lastMs_.load();
+    out[8] = avgMs_.load();
+    out[9] = maxMs_.load();
+}
+
+uint32_t AudioEngine::rnd() {
+    rng_ ^= rng_ << 13;
+    rng_ ^= rng_ >> 17;
+    rng_ ^= rng_ << 5;
+    return rng_;
+}
+
+void AudioEngine::chokeVoices(int pad, int group, float frames) {
+    for (auto& v : voices_) {
+        if (!v.active || v.envStep != 0) continue;
+        if ((group != 0 && v.group == group) || (group == 0 && v.pad == pad))
+            v.envStep = std::max(v.env, 0.001f) / std::max(frames, 8.0f);
+    }
+}
+
 void AudioEngine::pushViz(int type, int a, float f) {
     VizEvent v;
     v.timeMs = static_cast<double>(blockNs_) / 1.0e6;
