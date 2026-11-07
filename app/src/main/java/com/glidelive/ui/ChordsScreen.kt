@@ -33,6 +33,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.glidelive.audio.ExitMode
 import com.glidelive.theory.Bank
+import com.glidelive.viz.VizPrefs
+import com.glidelive.viz.VizTheme
 import com.glidelive.ui.components.GradientButton
 import com.glidelive.theory.ChordType
 import com.glidelive.theory.NoteNames
@@ -232,6 +234,14 @@ fun SoundPanel(vm: ChordsViewModel) {
         Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
+        val vizTheme by VizPrefs.theme.collectAsState()
+        val ctx = androidx.compose.ui.platform.LocalContext.current
+        Text("Estilo de las voces (pestaña Voces)", style = MaterialTheme.typography.labelLarge)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            VizTheme.entries.forEach { t ->
+                FilterChip(selected = vizTheme == t, onClick = { VizPrefs.set(ctx, t) }, label = { Text(t.label) })
+            }
+        }
         Text("Instrumento", style = MaterialTheme.typography.labelLarge)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             INSTRUMENTS.forEachIndexed { i, n ->

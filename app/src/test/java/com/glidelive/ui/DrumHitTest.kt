@@ -5,56 +5,80 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DrumHitTest {
-    @Test fun everyCellBelongsToExactlyOnePadAndEveryPadHasCells() {
-        val counts = IntArray(Pads.COUNT)
-        for (r in 0 until DrumHit.GRID_ROWS) for (c in 0 until DrumHit.GRID_COLS) {
-            val p = DrumHit.cellOwner(c, r)
-            assertTrue("celda ($c,$r) sin pad", p in 0 until Pads.COUNT)
-            counts[p]++
-        }
-        for (p in 0 until Pads.COUNT) {
-            val l = Pads.layout[p]
-            assertEquals("pad $p", l[2] * l[3], counts[p])  // el rectángulo del layout coincide con sus celdas
-        }
-    }
-
-    @Test fun wholeSurfaceFiresAPad() {
-        for ((w, h) in listOf(1600 to 800, 1800 to 700, 700 to 300, 2200 to 1000)) {
-            var y = 0f
-            while (y <= h) {
-                var x = 0f
-                while (x <= w) {
-                    assertTrue("toque ($x,$y) en ${w}x$h", DrumHit.hitTest(x, y, w, h) >= 0)
-                    x += 7f
-                }
-                y += 7f
+    @Test fun everyLayoutTilesTheWholeSurfaceWithoutOverlaps() {
+        for (layout in PadLayout.entries) {
+            val counts = IntArray(Pads.COUNT)
+            for (cell in layout.owner) {
+                assertTrue("${layout.name}: celda sin pad", cell in 0 until Pads.COUNT)
+                counts[cell]++
+            }
+            for (p in 0 until Pads.COUNT) {
+                val c = layout.cells[p]
+                if (c == null) assertEquals("${layout.name}: pad oculto $p", 0, counts[p])
+                else assertEquals("${layout.name}: pad $p", c[2] * c[3], counts[p])
             }
         }
     }
 
-    @Test fun centerOfEveryPadHitsThatPad() {
-        val w = 1600; val h = 800
-        val l = FloatArray(Pads.COUNT); val t = FloatArray(Pads.COUNT)
-        val r = FloatArray(Pads.COUNT); val b = FloatArray(Pads.COUNT)
-        DrumHit.geometry(w, h, 12f, l, t, r, b)
-        for (i in 0 until Pads.COUNT) assertEquals("pad $i", i, DrumHit.hitTest((l[i] + r[i]) / 2, (t[i] + b[i]) / 2, w, h))
-    }
-
-    @Test fun padsAreBigEnoughForFingers() {
-        // En una vista de 1000 x 420 dp, ningún pad baja de ~80 x 120 dp.
-        val w = 1000; val h = 420
-        val l = FloatArray(Pads.COUNT); val t = FloatArray(Pads.COUNT)
-        val r = FloatArray(Pads.COUNT); val b = FloatArray(Pads.COUNT)
-        DrumHit.geometry(w, h, 8f, l, t, r, b)
-        for (i in 0 until Pads.COUNT) {
-            assertTrue("pad $i ancho", r[i] - l[i] >= 80f)
-            assertTrue("pad $i alto", b[i] - t[i] >= 120f)
+    @Test fun mirroredLayoutIsTheMirrorOfTheKit() {
+        for (p in 0 until Pads.COUNT) {
+            val a = PadLayout.KIT.cells[p]!!
+            val b = PadLayout.KIT_LEFT.cells[p]!!
+            assertEquals(12 - a[0] - a[2], b[0]); assertEquals(a[1], b[1]); assertEquals(a[2], b[2]); assertEquals(a[3], b[3])
         }
     }
 
+    @Test fun wholeSurfaceFiresAPadInEveryLayout() {
+        for (layout in PadLayout.entries) for ((w, h) in listOf(1600 to 800, 700 to 300, 2200 to 1000)) {
+            var y = 0f
+            while (y <= h) {
+                var x = 0f
+                while (x <= w) {
+                    assertTrue("${layout.name} ($x,$y) en ${w}x$h", DrumHit.hitTest(layout, x, y, w, h) >= 0)
+                    x += 9f
+                }
+                y += 9f
+            }
+        }
+    }
+
+    @Test fun centerOfEveryVisiblePadHitsThatPad() {
+        val w = 1600; val h = 800
+        for (layout in PadLayout.entries) {
+            val l = FloatArray(Pads.COUNT); val t = FloatArray(Pads.COUNT)
+            val r = FloatArray(Pads.COUNT); val b = FloatArray(Pads.COUNT)
+            DrumHit.geometry(layout, w, h, 12f, l, t, r, b)
+            for (i in 0 until Pads.COUNT) {
+                if (!layout.visible(i)) continue
+                assertEquals("${layout.name} pad $i", i, DrumHit.hitTest(layout, (l[i] + r[i]) / 2, (t[i] + b[i]) / 2, w, h))
+            }
+        }
+    }
+
+    @Test fun padsAreBigEnoughForFingers() {
+        // Vista de 1000 x 420 dp: ningún pad visible baja de ~80 dp de ancho ni ~90 dp de alto.
+        val w = 1000; val h = 420
+        for (layout in PadLayout.entries) {
+            val l = FloatArray(Pads.COUNT); val t = FloatArray(Pads.COUNT)
+            val r = FloatArray(Pads.COUNT); val b = FloatArray(Pads.COUNT)
+            DrumHit.geometry(layout, w, h, 8f, l, t, r, b)
+            for (i in 0 until Pads.COUNT) {
+                if (!layout.visible(i)) continue
+                assertTrue("${layout.name} pad $i ancho ${r[i] - l[i]}", r[i] - l[i] >= 80f)
+                assertTrue("${layout.name} pad $i alto ${b[i] - t[i]}", b[i] - t[i] >= 90f)
+            }
+        }
+    }
+
+    @Test fun essentialLayoutHidesFourPads() {
+        assertEquals(4, (0 until Pads.COUNT).count { !PadLayout.ESSENTIAL.visible(it) })
+        assertTrue(PadLayout.ESSENTIAL.visible(Pads.KICK) && PadLayout.ESSENTIAL.visible(Pads.SNARE))
+    }
+
     @Test fun edgesStayInTheirPad() {
-        assertEquals(DrumHit.hitTest(0f, 0f, 1200, 600), DrumHit.hitTest(-5f, -5f, 1200, 600))
-        assertEquals(DrumHit.hitTest(1199f, 599f, 1200, 600), DrumHit.hitTest(1300f, 700f, 1200, 600))
+        val k = PadLayout.KIT
+        assertEquals(DrumHit.hitTest(k, 0f, 0f, 1200, 600), DrumHit.hitTest(k, -5f, -5f, 1200, 600))
+        assertEquals(DrumHit.hitTest(k, 1199f, 599f, 1200, 600), DrumHit.hitTest(k, 1300f, 700f, 1200, 600))
     }
 
     @Test fun velocityStrongInCenterSoftAtEdge() {

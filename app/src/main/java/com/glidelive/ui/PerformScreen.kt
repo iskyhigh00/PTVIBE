@@ -40,6 +40,7 @@ fun PerformScreen(
     modifier: Modifier = Modifier,
     horizontal: Boolean = false,
     showSoloControls: Boolean = solo,
+    padLayout: PadLayout = PadLayout.KIT,
 ) {
     val c by chordsVm.ui.collectAsState()
     val s by soloVm.ui.collectAsState()
@@ -93,7 +94,7 @@ fun PerformScreen(
                     host.chords.setData(rows, c.activeId, c.edits.keys)
                 }
                 if (solo) host.setSolo(s.layout, cfg)
-                if (drums) host.drums.pressureSensitivity = pressure
+                if (drums) { host.drums.pressureSensitivity = pressure; host.drums.padLayout = padLayout }
             },
             modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 4.dp),
         )

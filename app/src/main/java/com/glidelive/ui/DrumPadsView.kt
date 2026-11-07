@@ -39,23 +39,6 @@ object Pads {
     /** Líneas de cada nombre, calculadas una sola vez (onDraw no debe asignar memoria). */
     val lines: Array<Array<String>> = Array(COUNT) { names[it].split("\n").toTypedArray() }
 
-    // Cuadrícula de 12 x 6 celdas: [columna, fila, columnas, filas]. Teselan toda la superficie (sin huecos).
-    val layout = arrayOf(
-        intArrayOf(4, 4, 4, 2),   // bombo
-        intArrayOf(4, 2, 2, 2),   // caja
-        intArrayOf(6, 2, 2, 2),   // aros
-        intArrayOf(0, 2, 2, 2),   // hi-hat cerrado
-        intArrayOf(2, 2, 2, 2),   // hi-hat abierto
-        intArrayOf(0, 4, 4, 2),   // pedal hi-hat
-        intArrayOf(4, 0, 2, 2),   // tom 1
-        intArrayOf(6, 0, 2, 2),   // tom 2
-        intArrayOf(8, 2, 4, 4),   // tom de piso
-        intArrayOf(2, 0, 2, 2),   // crash
-        intArrayOf(8, 0, 2, 2),   // ride
-        intArrayOf(10, 0, 2, 2),  // campana
-        intArrayOf(0, 0, 2, 2),   // splash / china
-    )
-
     fun isCymbal(pad: Int) = pad in CRASH..SPLASH
     fun isHat(pad: Int) = pad in HH_CLOSED..HH_PEDAL
 }
@@ -67,6 +50,16 @@ object Pads {
 class DrumPadsView(context: Context) : View(context) {
     /** Sensibilidad por presión/tamaño del toque (si el dispositivo la reporta). */
     var pressureSensitivity = false
+
+    /** Distribución de los pads; al cambiarla se recalcula todo sin recrear la vista. */
+    var padLayout: PadLayout = PadLayout.KIT
+        set(v) {
+            if (field == v) return
+            field = v
+            pressed.clear(); flash.fill(0f)
+            if (width > 0) relayout(width, height)
+            invalidate()
+        }
 
     private val n = Pads.COUNT
     private val left = FloatArray(n)
@@ -105,11 +98,14 @@ class DrumPadsView(context: Context) : View(context) {
 
     private fun withAlpha(c: Int, a: Float) = (c and 0x00FFFFFF) or ((a.coerceIn(0f, 1f) * 255).toInt() shl 24)
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        DrumHit.geometry(w, h, 6f * dp, left, top, right, bottom)
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) = relayout(w, h)
+
+    private fun relayout(w: Int, h: Int) {
+        DrumHit.geometry(padLayout, w, h, 6f * dp, left, top, right, bottom)
         corner = 16f * dp
         val base = 0xFF15151F.toInt()
         for (i in 0 until n) {
+            if (!padLayout.visible(i)) continue
             val acc = accent(i)
             fillShaders[i] = LinearGradient(
                 0f, top[i], 0f, bottom[i],
@@ -123,6 +119,7 @@ class DrumPadsView(context: Context) : View(context) {
         }
         // Cada pad usa el mayor texto que cabe en su ancho (y no más de un 26 % de su alto).
         for (i in 0 until n) {
+            if (!padLayout.visible(i)) continue
             val maxW = (right[i] - left[i]) * 0.86f
             var ts = (bottom[i] - top[i]) * 0.26f
             val minTs = 9f * dp
@@ -170,7 +167,7 @@ class DrumPadsView(context: Context) : View(context) {
         val x = e.getX(idx)
         val y = e.getY(idx)
         if (x < 0f || y < 0f || x > width || y > height) return  // fuera de la vista (p. ej. Mixto con varias vistas)
-        val i = DrumHit.hitTest(x, y, width, height)
+        val i = DrumHit.hitTest(padLayout, x, y, width, height)
         if (i < 0) return
         val nx = DrumHit.norm(x, left[i], right[i])
         val ny = DrumHit.norm(y, top[i], bottom[i])
@@ -197,6 +194,7 @@ class DrumPadsView(context: Context) : View(context) {
     override fun onDraw(c: Canvas) {
         var animating = false
         for (i in 0 until n) {
+            if (!padLayout.visible(i)) continue
             val active = isPressed(i)
             val f = if (active) 1f else flash[i]
             val acc = accent(i)

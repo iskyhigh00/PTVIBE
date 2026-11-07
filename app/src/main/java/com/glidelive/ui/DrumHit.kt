@@ -5,30 +5,17 @@ import kotlin.math.max
 
 /**
  * Geometría y detección de toques de la batería (sin dependencias de Android, probada en tests).
- * Los 13 pads forman una cuadrícula de [GRID_COLS] x [GRID_ROWS] celdas que cubre toda la superficie: cada punto
- * de la vista pertenece a exactamente un pad, así que ningún toque se pierde y todo el pad es zona sensible.
+ * Cada [PadLayout] es una cuadrícula que cubre toda la superficie: cada punto de la vista pertenece a un pad
+ * (o a ninguno solo si una distribución oculta pads), así que ningún toque cae en un hueco.
  */
 object DrumHit {
-    const val GRID_COLS = 12
-    const val GRID_ROWS = 6
-
-    /** Dueño de cada celda de la cuadrícula (fila * GRID_COLS + columna), calculado una sola vez. */
-    private val owner = IntArray(GRID_COLS * GRID_ROWS) { -1 }.also { o ->
-        for (p in 0 until Pads.COUNT) {
-            val l = Pads.layout[p]
-            for (r in l[1] until l[1] + l[3]) for (c in l[0] until l[0] + l[2]) o[r * GRID_COLS + c] = p
-        }
-    }
-
-    /** Pad que ocupa la celda (col, fila), o -1. */
-    fun cellOwner(col: Int, row: Int): Int = owner[row * GRID_COLS + col]
-
-    /** Rectángulo visible de cada pad para una vista de [w] x [h], con [gap] de separación entre pads. */
-    fun geometry(w: Int, h: Int, gap: Float, l: FloatArray, t: FloatArray, r: FloatArray, b: FloatArray) {
-        val cw = w.toFloat() / GRID_COLS
-        val ch = h.toFloat() / GRID_ROWS
+    /** Rectángulo visible de cada pad para una vista de [w] x [h], con [gap] entre pads. Los ocultos quedan en 0. */
+    fun geometry(layout: PadLayout, w: Int, h: Int, gap: Float, l: FloatArray, t: FloatArray, r: FloatArray, b: FloatArray) {
+        val cw = w.toFloat() / layout.cols
+        val ch = h.toFloat() / layout.rows
         for (i in 0 until Pads.COUNT) {
-            val c = Pads.layout[i]
+            val c = layout.cells[i]
+            if (c == null) { l[i] = 0f; t[i] = 0f; r[i] = 0f; b[i] = 0f; continue }
             l[i] = c[0] * cw + gap / 2
             t[i] = c[1] * ch + gap / 2
             r[i] = (c[0] + c[2]) * cw - gap / 2
@@ -37,11 +24,11 @@ object DrumHit {
     }
 
     /** Pad tocado en (x, y) para una vista de [w] x [h]; los bordes se agrupan en el pad más cercano. */
-    fun hitTest(x: Float, y: Float, w: Int, h: Int): Int {
+    fun hitTest(layout: PadLayout, x: Float, y: Float, w: Int, h: Int): Int {
         if (w <= 0 || h <= 0) return -1
-        val col = (x / w * GRID_COLS).toInt().coerceIn(0, GRID_COLS - 1)
-        val row = (y / h * GRID_ROWS).toInt().coerceIn(0, GRID_ROWS - 1)
-        return owner[row * GRID_COLS + col]
+        val col = (x / w * layout.cols).toInt().coerceIn(0, layout.cols - 1)
+        val row = (y / h * layout.rows).toInt().coerceIn(0, layout.rows - 1)
+        return layout.owner[row * layout.cols + col]
     }
 
     /** Posición del toque dentro del pad, de -1 (izquierda/arriba) a 1 (derecha/abajo). */

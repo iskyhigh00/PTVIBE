@@ -4,11 +4,14 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
 import android.view.View
 import com.glidelive.theory.NoteNames
 import com.glidelive.viz.EventHub
+import com.glidelive.viz.VizPrefs
+import com.glidelive.viz.VizTheme
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -25,6 +28,8 @@ import kotlin.math.roundToInt
 class ChordVizView(context: Context) : View(context) {
     private val dp = resources.displayMetrics.density
     private val bg = Paint()
+    private val haloPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var appliedTheme: VizTheme? = null
     private val grid = Paint().apply { strokeWidth = 1f }
     private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 2.6f * dp; strokeCap = Paint.Cap.ROUND }
     private val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 8f * dp; strokeCap = Paint.Cap.ROUND }
@@ -70,13 +75,22 @@ class ChordVizView(context: Context) : View(context) {
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        bg.shader = LinearGradient(0f, 0f, 0f, h.toFloat(), 0xFF1B120C.toInt(), 0xFF0C0807.toInt(), Shader.TileMode.CLAMP)
+        applyTheme(w, h)
         small.textSize = 12f * dp
         smallC.textSize = 11f * dp
         val cols = (w / colX).toInt() + 3
         colN = IntArray(cols)
         colIdx = IntArray(cols * MAXV)
         colP = FloatArray(cols * MAXV)
+    }
+
+    private fun applyTheme(w: Int, h: Int) {
+        val t = VizPrefs.current
+        appliedTheme = t
+        bg.shader = LinearGradient(0f, 0f, 0f, h.toFloat(), t.bgTop, t.bgBottom, Shader.TileMode.CLAMP)
+        haloPaint.shader = if (t.halo != 0) {
+            RadialGradient(w / 2f, h * 0.14f, w * 0.55f, t.halo, t.halo and 0x00FFFFFF, Shader.TileMode.CLAMP)
+        } else null
     }
 
     override fun onAttachedToWindow() {
@@ -94,7 +108,7 @@ class ChordVizView(context: Context) : View(context) {
     /** En reposo no se redibuja; este sondeo barato despierta la vista cuando llegan eventos nuevos. */
     private fun scheduleIdleCheck() {
         val r = idleChecker ?: Runnable {
-            if (EventHub.chordSeq != lastSeq) postInvalidateOnAnimation() else scheduleIdleCheck()
+            if (EventHub.chordSeq != lastSeq || appliedTheme != VizPrefs.current) postInvalidateOnAnimation() else scheduleIdleCheck()
         }.also { idleChecker = it }
         removeCallbacks(r)
         postDelayed(r, 100)
@@ -109,13 +123,8 @@ class ChordVizView(context: Context) : View(context) {
 
     private fun yOf(p: Float) = chartTop + chartH / 2f - (p - center) * (chartH / SEMIS)
 
-    /** Color según el número de voces distintas: agudo blanco, bajo rojo, el resto según la tabla. */
-    private fun colorFor(rank: Int, n: Int): Int {
-        if (n <= 1 || rank == 0) return WHITE
-        if (rank >= n - 1) return RED
-        val pal = INTERIOR[min(n, 6) - 3]
-        return pal[min(rank - 1, pal.size - 1)]
-    }
+    /** Color según el estilo elegido y el número de voces distintas (agudo claro, bajo distinto). */
+    private fun colorFor(rank: Int, n: Int): Int = VizPrefs.current.color(rank, n)
 
     override fun onDraw(c: Canvas) {
         val w = width.toFloat(); val h = height.toFloat()
@@ -211,8 +220,10 @@ class ChordVizView(context: Context) : View(context) {
         }
 
         // Fase 2 (sin lock): dibujar desde la instantánea.
+        if (appliedTheme != VizPrefs.current) applyTheme(width, height)
         frame.set(0f, 0f, w, h)
         c.drawRoundRect(frame, 28f, 28f, bg)
+        if (haloPaint.shader != null) c.drawRoundRect(frame, 28f, 28f, haloPaint)
 
         // Cabecera: acorde actual (fundamental muy grande, calidad a su lado).
         val root = curRoot

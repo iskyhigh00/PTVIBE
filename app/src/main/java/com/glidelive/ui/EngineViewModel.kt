@@ -1,6 +1,7 @@
 package com.glidelive.ui
 
 import android.app.Application
+import android.content.Context
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import androidx.lifecycle.AndroidViewModel
@@ -24,6 +25,7 @@ data class KitSettings(
     val master: Float = 0.9f,
     val drumVol: Float = 1f,
     val pressure: Boolean = false,
+    val padLayout: PadLayout = PadLayout.KIT,
     val padVolume: List<Float> = List(Pads.COUNT) { 1f },
 )
 
@@ -37,7 +39,10 @@ class EngineViewModel(app: Application) : AndroidViewModel(app) {
     private val _bluetooth = MutableStateFlow(false)
     val bluetooth: StateFlow<Boolean> = _bluetooth
 
-    private val _kit = MutableStateFlow(KitSettings())
+    private val prefs = app.getSharedPreferences("ui", Context.MODE_PRIVATE)
+    private val _kit = MutableStateFlow(
+        KitSettings(padLayout = PadLayout.entries.firstOrNull { it.name == prefs.getString("pad_layout", null) } ?: PadLayout.KIT),
+    )
     val kit: StateFlow<KitSettings> = _kit
 
     /** Nivel de salida 0..1 para los visualizadores (~30 Hz). */
@@ -67,7 +72,9 @@ class EngineViewModel(app: Application) : AndroidViewModel(app) {
     fun reset() = NativeEngine.resetStats()
 
     fun editKit(f: (KitSettings) -> KitSettings) {
+        val before = _kit.value.padLayout
         _kit.update(f)
+        if (_kit.value.padLayout != before) prefs.edit().putString("pad_layout", _kit.value.padLayout.name).apply()
         pushKit(_kit.value)
     }
 

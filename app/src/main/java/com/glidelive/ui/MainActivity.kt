@@ -18,6 +18,7 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.glidelive.viz.EventHub
+import com.glidelive.viz.VizPrefs
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.systemGestures
@@ -85,6 +86,7 @@ class MainActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         enableEdgeToEdge()
         EventHub.start(lifecycleScope)
+        VizPrefs.init(this)
         sessionVm.attach(chordsVm, soloVm, vm, transportVm)
         setContent {
             AppTheme {
@@ -130,11 +132,12 @@ class MainActivity : ComponentActivity() {
                                             ChordsScreen(chordsVm, compact = true, Modifier.weight(1f))
                                         }
                                         Mode.SOLISTA -> SoloHost(soloVm, Modifier.weight(1f))
-                                        Mode.BATERIA -> DrumsHost(kit.pressure, Modifier.weight(1f))
+                                        Mode.BATERIA -> DrumsHost(kit.pressure, kit.padLayout, Modifier.weight(1f))
                                         Mode.DUO -> PerformScreen(
                                             chordsVm, soloVm, kit.pressure,
                                             viz = true, chords = true, solo = true, drums = false,
                                             modifier = Modifier.weight(1f),
+                                            padLayout = kit.padLayout,
                                         )
                                         // Un solo contenedor multitouch; con poca altura, las superficies van lado a lado.
                                         Mode.MIXTO -> PerformScreen(
@@ -143,6 +146,7 @@ class MainActivity : ComponentActivity() {
                                             modifier = Modifier.weight(1f),
                                             horizontal = shortScreen,
                                             showSoloControls = soloLayer,
+                                            padLayout = kit.padLayout,
                                         )
                                     }
                                 }
@@ -197,10 +201,10 @@ enum class Mode(val label: String) {
 }
 
 @Composable
-private fun DrumsHost(pressure: Boolean, modifier: Modifier) {
+private fun DrumsHost(pressure: Boolean, padLayout: PadLayout, modifier: Modifier) {
     AndroidView(
         factory = { DrumPadsView(it) },
-        update = { it.pressureSensitivity = pressure },
+        update = { it.pressureSensitivity = pressure; it.padLayout = padLayout },
         modifier = modifier.fillMaxWidth().heightIn(min = 160.dp),
     )
 }
@@ -344,6 +348,7 @@ internal fun LabeledSlider(label: String, value: Float, range: ClosedFloatingPoi
 private fun KitPanel(vm: EngineViewModel) {
     val k by vm.kit.collectAsState()
     Column(Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState())) {
+        PadLayoutPicker(k.padLayout) { l -> vm.editKit { it.copy(padLayout = l) } }
         LabeledSlider("Volumen general", k.master, 0f..1f) { v -> vm.editKit { it.copy(master = v) } }
         LabeledSlider("Afinación de la caja (semitonos)", k.snareTune, -6f..6f) { v -> vm.editKit { it.copy(snareTune = v) } }
         LabeledSlider("Afinación de los toms (semitonos)", k.tomTune, -6f..6f) { v -> vm.editKit { it.copy(tomTune = v) } }
