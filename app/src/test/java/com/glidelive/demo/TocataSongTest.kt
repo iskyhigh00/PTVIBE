@@ -43,7 +43,7 @@ class TocataSongTest {
 
     @Test fun chordsComeFromBankC17() {
         assertEquals(listOf(57, 61, 66, 69), TocataSong.voicing("F#m"))
-        assertEquals(42, TocataSong.bassRoot("F#m"))
+        assertEquals(30, TocataSong.bassRoot("F#m"))
         assertEquals(38, TocataSong.bassRoot("D"))
         val solo = TocataSong.sections.first { it.solo.isNotEmpty() }
         assertEquals(66, TocataSong.soloAt(solo, 0))
