@@ -152,6 +152,7 @@ private:
     void startVoice(const PadEvent& ev, int64_t nowNs);
     void triggerDrum(int pad, float vel, int delayFrames);
     void triggerBass(int note, float packed, int delayFrames);
+    void triggerPatternSynth(int pad, float packed);
     void execSynth(const LoopEvent& e);
     void pushViz(int type, int a, int b, float f, float glideMs = -1.0f);
     friend struct EngineSink;
@@ -191,6 +192,7 @@ private:
     SynthEngine synth_;
     BassSynth bass_;
     bool bassWasPlaying_ = false;
+    int patSynthLeft_[9] = {};  // muestras hasta soltar las voces 0..7 de acordes y el solista (8) tocadas por un patrón
     float compEnv_ = 0;
     float synthL_[SynthEngine::kMaxBlock];
     float synthR_[SynthEngine::kMaxBlock];

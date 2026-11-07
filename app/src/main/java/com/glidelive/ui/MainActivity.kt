@@ -70,6 +70,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.glidelive.audio.KitLoader
+import com.glidelive.theory.Scale
+import com.glidelive.theory.Bank
+import com.glidelive.demo.TocataSong
 import com.glidelive.audio.KitVoice
 import com.glidelive.audio.KitState
 import com.glidelive.audio.NativeEngine
@@ -96,6 +99,20 @@ class MainActivity : ComponentActivity() {
                     val cfg = LocalConfiguration.current
                     // En pantallas estrechas el panel de ajustes empieza cerrado para dejar sitio a los pads.
                     var panel by rememberSaveable { mutableStateOf(cfg.screenWidthDp >= 900) }
+                    var demoOpen by remember { mutableStateOf(false) }
+                    val startDemo: (Int) -> Unit = { i ->
+                        // Las notas de la canción: Fa# menor en acordes y solista, banco C17 con sus acordes.
+                        chordsVm.edit { it.copy(key = TocataSong.KEY, scale = Scale.NATURAL_MINOR, bank = Bank.C17, transpose = 0) }
+                        soloVm.edit { it.copy(scaleOverride = null, followChord = false) }
+                        transportVm.startDemo(i)
+                    }
+                    val demo by transportVm.demo.collectAsState()
+                    LaunchedEffect(demo.active, demo.section) {
+                        if (demo.active) TocataSong.sections[demo.section].soloInstrument?.let { inst ->
+                            soloVm.edit { it.copy(instrument = inst) }
+                        }
+                    }
+                    if (demoOpen) DemoDialog(transportVm, onDismiss = { demoOpen = false }, onStart = startDemo)
                     val shortScreen = cfg.screenHeightDp < 480
                     var fullscreen by rememberSaveable { mutableStateOf(false) }
                     var soloLayer by rememberSaveable { mutableStateOf(false) }
@@ -109,7 +126,8 @@ class MainActivity : ComponentActivity() {
                         Column(Modifier.fillMaxSize().windowInsetsPadding(playInsets)) {
                             if (!fullscreen) {
                                 TopBar(mode, { mode = it }, chordsVm, soloVm, vm, sessionVm, panel, { panel = !panel }, { fullscreen = true })
-                                TransportBar(transportVm)
+                                TransportBar(transportVm) { demoOpen = true }
+                                DemoStrip(transportVm) { demoOpen = true }
                                 if (mode == Mode.BATERIA || mode == Mode.MIXTO) {
                                     PatternBar(transportVm)
                                     BassBar(transportVm)

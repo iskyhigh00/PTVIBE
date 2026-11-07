@@ -58,7 +58,7 @@ import com.glidelive.ui.components.TonalButton
 
 /** Reloj maestro: Play/Stop, BPM, tap tempo, compás, metrónomo y grabación de bucles. */
 @Composable
-fun TransportBar(vm: TransportViewModel) {
+fun TransportBar(vm: TransportViewModel, onDemo: () -> Unit = {}) {
     val u by vm.ui.collectAsState()
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
@@ -81,6 +81,7 @@ fun TransportBar(vm: TransportViewModel) {
             selected = u.recChord, onClick = vm::toggleRecChord,
             label = { RecLabel(vm, drum = false, recording = u.recChord) },
         )
+        TextButton(onClick = onDemo) { Text("♪ Demo: Última tocata") }
     }
 }
 

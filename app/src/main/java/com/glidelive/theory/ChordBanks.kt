@@ -22,6 +22,7 @@ enum class Bank(val label: String, val curated: String? = null) {
     C14("C14 · Atardecer", "C14"),
     C15("C15 · Jazz menor", "C15"),
     C16("C16 · Suspensión", "C16"),
+    C17("C17 · Última tocata", "C17"),
 }
 
 object ChordBanks {

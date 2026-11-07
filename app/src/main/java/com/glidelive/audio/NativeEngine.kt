@@ -114,6 +114,10 @@ object NativeEngine {
     const val P_BASS_TONE = 43
     const val P_PAD_VOL2 = 44
 
+    /** Notas de acordes / solista dentro de un patrón (ver kChordPadBase / kSoloPadBase del motor). */
+    const val CHORD_PAD_BASE = 128
+    const val SOLO_PAD_BASE = 2048
+
     /** Parámetro de volumen del pad (los de percusión, 13..20, viven en otro bloque). */
     fun padVolParam(pad: Int) = if (pad < 13) P_PAD_VOL + pad else P_PAD_VOL2 + pad - 13
 

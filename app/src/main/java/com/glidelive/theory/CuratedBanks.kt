@@ -174,6 +174,17 @@ object CuratedBanks {
             CuratedPad(7, ChordType.MAJ7, "IV∆", listOf(43, 66, 71, 74, 78)),
             CuratedPad(9, ChordType.SUS4, "Vsus", listOf(45, 64, 69, 74, 76)),
         )),
+        // Acordes de "Última tocata" (Fa# menor), en el orden en que aparecen en la canción.
+        CuratedBank("C17", "Última tocata", 6, Scale.NATURAL_MINOR, listOf(
+            CuratedPad(6, ChordType.MIN, "i", listOf(42, 57, 61, 66, 69)),
+            CuratedPad(2, ChordType.MAJ, "VI", listOf(38, 54, 57, 62, 66)),
+            CuratedPad(1, ChordType.MIN, "v", listOf(37, 56, 61, 64, 68)),
+            CuratedPad(8, ChordType.MIN, "ii", listOf(44, 59, 63, 68, 71)),
+            CuratedPad(11, ChordType.MAJ, "IV", listOf(35, 54, 59, 63, 66)),
+            CuratedPad(7, ChordType.MAJ, "♭II", listOf(43, 59, 62, 67, 71)),
+            CuratedPad(9, ChordType.MAJ, "III", listOf(45, 61, 64, 69, 73)),
+            CuratedPad(6, ChordType.MAJ, "I", listOf(42, 58, 61, 66, 70)),
+        )),
     )
 
     fun byId(id: String): CuratedBank? = all.firstOrNull { it.id == id }

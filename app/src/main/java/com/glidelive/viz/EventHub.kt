@@ -29,6 +29,7 @@ object EventHub {
     private val buf = DoubleArray(6 * 128)
 
     @Synchronized fun addListener(l: (EngineEvent) -> Unit) { listeners.add(l) }
+    @Synchronized fun removeListener(l: (EngineEvent) -> Unit) { listeners.remove(l) }
 
     fun start(scope: CoroutineScope) {
         if (job?.isActive == true) return

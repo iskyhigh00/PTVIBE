@@ -45,6 +45,7 @@ public:
 
     float currentMidi(int slot) const { return voices_[slot].midi; }
     bool isActive(int slot) const { return voices_[slot].active; }
+    bool isHeld(int slot) const { return voices_[slot].active && voices_[slot].stage != 3; }
 
 private:
     struct Voice {

@@ -425,7 +425,8 @@ struct EngineSink : SeqSink {
     AudioEngine& e;
     explicit EngineSink(AudioEngine& eng) : e(eng) {}
     void drumHit(int pad, float vel, int off) override {
-        if (pad >= kBassPadBase) e.triggerBass(pad - kBassPadBase, vel, off);
+        if (pad >= kChordPadBase) e.triggerPatternSynth(pad, vel);
+        else if (pad >= kBassPadBase) e.triggerBass(pad - kBassPadBase, vel, off);
         else e.triggerDrum(pad, vel, off);
     }
     void synthEvent(const LoopEvent& ev) override { e.execSynth(ev); }
@@ -549,6 +550,29 @@ void AudioEngine::triggerBass(int note, float packed, int delayFrames) {
     const float vel = packed - ticks;
     const double spt = sr_ * 60.0 / (std::max(20.0f, param(kBpm)) * kPPQ);
     bass_.trigger(static_cast<float>(note), vel, delayFrames, static_cast<int>(std::max(1.0f, ticks) * spt));
+}
+
+void AudioEngine::triggerPatternSynth(int pad, float packed) {
+    const float ticks = std::floor(packed);
+    const double spt = sr_ * 60.0 / (std::max(20.0f, param(kBpm)) * kPPQ);
+    const int dur = static_cast<int>(std::max(1.0f, ticks) * spt);
+    const SynthParams p = synthParams();
+    if (pad >= kSoloPadBase) {
+        const float midi = static_cast<float>(pad - kSoloPadBase);
+        constexpr int idx = SynthEngine::kSoloVoices - 1;
+        synth_.setSolo(idx, midi, 0.75f, 0.0f, 1.0f);
+        synth_.soloOn(idx, midi, p);
+        patSynthLeft_[8] = dur;
+        return;
+    }
+    const int slot = std::min((pad - kChordPadBase) / 128, 7);
+    const float midi = static_cast<float>((pad - kChordPadBase) % 128);
+    LoopEvent e;
+    e.type = synth_.isHeld(slot) ? 11 : 10;  // si la voz sigue sonando, se desliza a la nota nueva
+    e.a = slot;
+    e.f = midi;
+    execSynth(e);
+    patSynthLeft_[slot] = dur;
 }
 
 void AudioEngine::triggerDrum(int pad, float velocity, int delayFrames) {
@@ -686,7 +710,24 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*, void* aud
 
     // Bajo (fuera del bus de batería).
     const bool seqPlaying = seq_.playing.load(std::memory_order_relaxed);
-    if (bassWasPlaying_ && !seqPlaying) bass_.allOff();
+    if (bassWasPlaying_ && !seqPlaying) {
+        bass_.allOff();
+        for (int& left : patSynthLeft_) if (left > 0) left = 1;
+    }
+    for (int i = 0; i < 9; ++i) {
+        if (patSynthLeft_[i] <= 0) continue;
+        patSynthLeft_[i] -= numFrames;
+        if (patSynthLeft_[i] > 0) continue;
+        patSynthLeft_[i] = 0;
+        if (i == 8) {
+            synth_.soloOff(SynthEngine::kSoloVoices - 1);
+        } else {
+            LoopEvent e;
+            e.type = 14;
+            e.a = i;
+            execSynth(e);
+        }
+    }
     bassWasPlaying_ = seqPlaying;
     bass_.render(out, numFrames, param(kBassTone), param(kBassVol));
 

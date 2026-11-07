@@ -8,7 +8,7 @@ import org.junit.Test
 /** Los bancos C1..C8 deben sonar bien en cualquier tonalidad: se comprueban las reglas de cada voicing. */
 class CuratedBanksTest {
     @Test fun sixteenBanksOfEightPadsLinkedFromTheBankSelector() {
-        assertEquals(16, CuratedBanks.all.size)
+        assertEquals(17, CuratedBanks.all.size)
         for (b in CuratedBanks.all) assertEquals(b.id, 8, b.pads.size)
         val linked = Bank.entries.mapNotNull { it.curated }
         assertEquals(CuratedBanks.all.map { it.id }, linked)

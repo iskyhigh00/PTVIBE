@@ -7,6 +7,8 @@ import androidx.lifecycle.viewModelScope
 import com.glidelive.audio.NativeEngine
 import com.glidelive.bass.Bass
 import com.glidelive.bass.BassLine
+import com.glidelive.demo.BAR
+import com.glidelive.demo.TocataSong
 import com.glidelive.drums.Compiled
 import com.glidelive.data.PatternRepository
 import com.glidelive.drums.DrumKeys
@@ -45,6 +47,9 @@ enum class EditPart(val label: String) { A("A"), B("B"), C("C"), D("D"), FILL("R
 
 /** Cuándo entra un cambio de variación: en el siguiente compás de la base o al instante. */
 enum class VariationSwap(val label: String) { BAR("Al compás"), NOW("Inmediato") }
+
+/** Demo de "Última tocata": sección que suena, posición dentro de ella y si está activa. */
+data class DemoUi(val active: Boolean = false, val section: Int = 0, val tick: Int = 0, val starting: Boolean = false)
 
 data class EditorState(val pattern: DrumPattern, val part: Int = 0)
 
@@ -101,6 +106,12 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private val _pos = MutableStateFlow(TransportPos())
     val pos: StateFlow<TransportPos> = _pos
+
+    private val _demo = MutableStateFlow(DemoUi())
+    val demo: StateFlow<DemoUi> = _demo
+    @Volatile private var demoQueued = -1
+    @Volatile private var demoSwapBase = 0
+    @Volatile private var demoEndSent = false
 
     private val taps = ArrayList<Long>()
     @Volatile private var lastPass = 0
@@ -197,6 +208,7 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
 
     /** Reenvía la base actual con el bajo nuevo (sin reiniciar el compás). */
     private fun resendBass() {
+        if (_demo.value.active) return
         val u = _ui.value
         val p = u.pattern ?: return
         if (u.pendingVariation != null) NativeEngine.cancelQueuedPattern()
@@ -228,7 +240,93 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun setBassKey(k: Int) { _ui.update { it.copy(bassKey = Math.floorMod(k, 12)) }; resendBass() }
 
+    // ---- demo de la canción ----
+    private fun tocata(): DrumPattern? = _ui.value.patterns.firstOrNull { it.id == "tocata" }
+
+    private fun buildDemo(i: Int) = TocataSong.build(TocataSong.sections[i], tocata()!!, Bass.lines.firstOrNull { it.id == "tocata" })
+
+    /** Toca la canción desde la sección [from] (batería, bajo, acordes y solos) encadenando las secciones al compás. */
+    fun startDemo(from: Int = 0) {
+        val p = tocata() ?: return
+        val idx = from.coerceIn(0, TocataSong.sections.size - 1)
+        NativeEngine.cancelQueuedPattern()
+        demoQueued = -1
+        demoEndSent = false
+        edit { it.copy(bpm = TocataSong.BPM, meter = Meter(4, 4), swing = 0f) }
+        val sec = TocataSong.sections[idx]
+        _ui.update {
+            it.copy(
+                patternId = p.id, variation = sec.variation, pendingVariation = null, fillOn = false, activeBreak = null,
+                endPending = false, bassId = "tocata", bassOn = true, bassKey = TocataSong.KEY,
+            )
+        }
+        val b = buildDemo(idx)
+        NativeEngine.setPattern(b.events.ticks, b.events.pads, b.events.vels, b.length, true, false)
+        val e = TocataSong.end()
+        NativeEngine.setEndPattern(e.ticks, e.pads, e.vels, BAR)
+        _demo.value = DemoUi(active = true, section = idx, tick = 0, starting = true)
+        if (!_ui.value.patternOn) {
+            _ui.update { it.copy(patternOn = true) }
+            NativeEngine.seq(NativeEngine.CMD_PATTERN_PLAY, 1)
+        }
+        if (!_ui.value.playing) play()
+    }
+
+    fun stopDemo() {
+        if (!_demo.value.active) return
+        endDemo()
+        stop()
+    }
+
+    /** Deja la demo y vuelve a la base normal (sin cortar el transporte). */
+    private fun endDemo() {
+        if (!_demo.value.active) return
+        _demo.value = DemoUi()
+        if (demoQueued >= 0) NativeEngine.cancelQueuedPattern()
+        demoQueued = -1
+        tocata()?.let { sendPattern(it, _ui.value.variation, restart = false) }
+    }
+
+    private fun demoTick(s: DoubleArray) {
+        val d = _demo.value
+        if (!d.active) return
+        val playing = s[1] > 0.5
+        val patOn = s[8] > 0.5
+        if (d.starting) {
+            if (playing && patOn) _demo.value = d.copy(starting = false)
+            return
+        }
+        if (!playing || !patOn) {  // se paró o terminó el final
+            _demo.value = DemoUi()
+            demoQueued = -1
+            tocata()?.let { sendPattern(it, 0, restart = true) }
+            if (demoEndSent && playing) stop()
+            demoEndSent = false
+            return
+        }
+        var section = d.section
+        if (demoQueued >= 0 && s[10].toInt() != demoSwapBase) {
+            section = demoQueued
+            demoQueued = -1
+            _ui.update { it.copy(variation = TocataSong.sections[section].variation) }
+        }
+        val local = s[7].toInt()
+        val len = TocataSong.sections[section].lengthTicks
+        if (demoQueued < 0 && local > 24 && section + 1 < TocataSong.sections.size) {
+            val b = buildDemo(section + 1)
+            demoSwapBase = s[10].toInt()
+            demoQueued = section + 1
+            NativeEngine.queuePattern(b.events.ticks, b.events.pads, b.events.vels, b.length, len)
+        } else if (section == TocataSong.sections.size - 1 && !demoEndSent && local > 24) {
+            demoEndSent = true
+            NativeEngine.seq(NativeEngine.CMD_PATTERN_END)
+            _ui.update { it.copy(endPending = true) }
+        }
+        _demo.value = d.copy(section = section, tick = Math.floorMod(local, len))
+    }
+
     fun selectPattern(p: DrumPattern, adopt: Boolean = _ui.value.adoptPattern) {
+        endDemo()
         _ui.update { it.copy(patternId = p.id, variation = 0, pendingVariation = null, fillOn = false, activeBreak = null, endPending = false) }
         NativeEngine.cancelQueuedPattern()
         if (adopt) {
@@ -264,6 +362,7 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
      * base, igual que el relleno y el final; con "Inmediato" (o sin base sonando) se aplica al instante.
      */
     fun selectVariation(i: Int) {
+        endDemo()
         val u = _ui.value
         val p = u.pattern ?: return
         val idx = i.coerceIn(0, p.variations.size - 1)
@@ -306,6 +405,7 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
     fun breakNow(i: Int) = lastBar(i)
 
     private fun lastBar(breakIndex: Int?) {
+        if (_demo.value.active) return
         val u = _ui.value
         val p = u.pattern ?: return
         if (!u.patternOn) return
@@ -319,6 +419,7 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
 
     /** Final: entra justo al terminar el patrón y la base se detiene. */
     fun finish() {
+        if (_demo.value.active) { endDemo(); }
         if (!_ui.value.patternOn) return
         NativeEngine.seq(NativeEngine.CMD_PATTERN_END)
         _ui.update { it.copy(endPending = true) }
@@ -394,6 +495,7 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
             beat = ((pos % bt) / beatTicks).toInt() + 1,
             drumEvents = s[5].toInt(), chordEvents = s[6].toInt(),
         )
+        demoTick(s)
         val pass = s[2].toInt()
         EventHub.ghostLoopMs = if (snap.chordLoopOn && s[6] > 0 && s[1] > 0.5)
             snap.chordBars * snap.chordMeter.barTicks * 60000.0 / (snap.bpm * 96.0) else 0.0

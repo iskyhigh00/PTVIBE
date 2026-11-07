@@ -7,6 +7,10 @@
 constexpr int kPPQ = 96;  // ticks por negra
 // Eventos de patrón con pad >= kBassPadBase son notas de bajo: midi = pad - kBassPadBase, f = ticks de duración + velocidad (0..1).
 constexpr int kBassPadBase = 64;
+// Notas de acordes en patrón: pad = kChordPadBase + voz*128 + midi (voz 0..7); f = ticks de duración + velocidad.
+constexpr int kChordPadBase = 128;
+// Nota del solista en patrón: pad = kSoloPadBase + midi.
+constexpr int kSoloPadBase = 2048;
 
 struct LoopEvent {
     int32_t tick = 0;
