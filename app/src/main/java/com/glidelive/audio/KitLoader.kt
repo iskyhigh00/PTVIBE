@@ -34,7 +34,7 @@ object KitLoader {
     @Volatile private var wanted = KitVoice.BANDA
 
     /** Carga (una sola vez por versión) y activa el kit con la sonoridad pedida. */
-    suspend fun load(ctx: Context, voice: KitVoice = wanted) = withContext(Dispatchers.IO) {
+    suspend fun load(ctx: Context, voice: KitVoice = wanted): Unit = withContext(Dispatchers.IO) {
         wanted = voice
         mutex.withLock {
             if (voice != wanted) return@withLock
