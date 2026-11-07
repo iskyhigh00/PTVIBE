@@ -7,6 +7,7 @@ import android.media.AudioManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.glidelive.audio.KitLoader
+import com.glidelive.audio.KitVoice
 import com.glidelive.audio.LatencyStats
 import com.glidelive.audio.NativeEngine
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +27,7 @@ data class KitSettings(
     val drumVol: Float = 1f,
     val pressure: Boolean = false,
     val padLayout: PadLayout = PadLayout.KIT,
+    val voice: KitVoice = KitVoice.BANDA,
     val padVolume: List<Float> = List(Pads.COUNT) { 1f },
 )
 
@@ -41,7 +43,10 @@ class EngineViewModel(app: Application) : AndroidViewModel(app) {
 
     private val prefs = app.getSharedPreferences("ui", Context.MODE_PRIVATE)
     private val _kit = MutableStateFlow(
-        KitSettings(padLayout = PadLayout.entries.firstOrNull { it.name == prefs.getString("pad_layout", null) } ?: PadLayout.KIT),
+        KitSettings(
+            padLayout = PadLayout.entries.firstOrNull { it.name == prefs.getString("pad_layout", null) } ?: PadLayout.KIT,
+            voice = KitVoice.entries.firstOrNull { it.name == prefs.getString("kit_voice", null) } ?: KitVoice.BANDA,
+        ),
     )
     val kit: StateFlow<KitSettings> = _kit
 
@@ -49,7 +54,7 @@ class EngineViewModel(app: Application) : AndroidViewModel(app) {
     val level = MutableStateFlow(0f)
 
     init {
-        viewModelScope.launch { KitLoader.load(app) }
+        viewModelScope.launch { KitLoader.load(app, _kit.value.voice) }
         viewModelScope.launch(Dispatchers.Default) {
             while (isActive) {
                 level.value = NativeEngine.level()
@@ -72,9 +77,14 @@ class EngineViewModel(app: Application) : AndroidViewModel(app) {
     fun reset() = NativeEngine.resetStats()
 
     fun editKit(f: (KitSettings) -> KitSettings) {
-        val before = _kit.value.padLayout
+        val before = _kit.value
         _kit.update(f)
-        if (_kit.value.padLayout != before) prefs.edit().putString("pad_layout", _kit.value.padLayout.name).apply()
+        val now = _kit.value
+        if (now.padLayout != before.padLayout) prefs.edit().putString("pad_layout", now.padLayout.name).apply()
+        if (now.voice != before.voice) {
+            prefs.edit().putString("kit_voice", now.voice.name).apply()
+            viewModelScope.launch { KitLoader.load(getApplication(), now.voice) }
+        }
         pushKit(_kit.value)
     }
 

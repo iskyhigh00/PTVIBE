@@ -70,6 +70,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.glidelive.audio.KitLoader
+import com.glidelive.audio.KitVoice
 import com.glidelive.audio.KitState
 import com.glidelive.audio.NativeEngine
 
@@ -350,6 +351,12 @@ private fun KitPanel(vm: EngineViewModel) {
     val k by vm.kit.collectAsState()
     Column(Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState())) {
         PadLayoutPicker(k.padLayout) { l -> vm.editKit { it.copy(padLayout = l) } }
+        Text("Sonido del kit", style = MaterialTheme.typography.labelMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            KitVoice.entries.forEach { v ->
+                FilterChip(selected = k.voice == v, onClick = { vm.editKit { it.copy(voice = v) } }, label = { Text(v.label) })
+            }
+        }
         LabeledSlider("Volumen general", k.master, 0f..1f) { v -> vm.editKit { it.copy(master = v) } }
         LabeledSlider("Afinación de la caja (semitonos)", k.snareTune, -6f..6f) { v -> vm.editKit { it.copy(snareTune = v) } }
         LabeledSlider("Afinación de los toms (semitonos)", k.tomTune, -6f..6f) { v -> vm.editKit { it.copy(tomTune = v) } }

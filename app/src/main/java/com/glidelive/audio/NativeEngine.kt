@@ -151,7 +151,8 @@ object NativeEngine {
     fun kitBegin() = nativeKitBegin()
     fun kitSet(pad: Int, layer: Int, variant: Int, data: FloatArray, channels: Int, rate: Int) =
         nativeKitSet(pad, layer, variant, data, channels, rate)
-    fun kitCommit() = nativeKitCommit()
+    fun kitCommit(slot: Int) = nativeKitCommit(slot)
+    fun kitSelect(slot: Int): Boolean = nativeKitSelect(slot)
     fun kitUseSampled(on: Boolean) = nativeKitUseSampled(on)
 
     fun level(): Float = nativeGetLevel()
@@ -196,7 +197,8 @@ object NativeEngine {
     private external fun nativeReadRecording(dst: FloatArray): Int
     private external fun nativeKitBegin()
     private external fun nativeKitSet(pad: Int, layer: Int, variant: Int, data: FloatArray, channels: Int, rate: Int)
-    private external fun nativeKitCommit()
+    private external fun nativeKitCommit(slot: Int)
+    private external fun nativeKitSelect(slot: Int): Boolean
     private external fun nativeKitUseSampled(on: Boolean)
     private external fun nativeGetLevel(): Float
     private external fun nativeSoloSet(idx: Int, pitch: Float, filter: Float, vib: Float, vol: Float)

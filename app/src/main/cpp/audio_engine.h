@@ -83,7 +83,8 @@ public:
     // Carga de kits (hilo de fondo): el hilo de audio solo lee un puntero atómico.
     void kitBegin();
     void kitSet(int pad, int layer, int variant, const float* data, int frames, int channels, int rate);
-    void kitCommit();
+    void kitCommit(int slot);
+    bool kitSelect(int slot);
     void kitUseSampled(bool sampled);
 
     // Secuenciador / patrones / visualización / grabación de audio
@@ -160,7 +161,9 @@ private:
     std::vector<std::unique_ptr<Kit>> kits_;  // nunca se liberan mientras vive el motor
     std::unique_ptr<Kit> pending_;
     const Kit* synthKit_ = nullptr;
-    const Kit* sampledKit_ = nullptr;
+    const Kit* sampledKits_[2] = {nullptr, nullptr};
+    int kitSlot_ = 0;
+    bool useSampled_ = true;
     std::atomic<const Kit*> active_{nullptr};
     int kitRate_ = 0;
     int sr_ = 48000;

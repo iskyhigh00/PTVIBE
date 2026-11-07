@@ -64,7 +64,12 @@ Java_com_glidelive_audio_NativeEngine_nativeKitSet(JNIEnv* env, jobject, jint pa
 }
 
 JNIEXPORT void JNICALL
-Java_com_glidelive_audio_NativeEngine_nativeKitCommit(JNIEnv*, jobject) { g_engine.kitCommit(); }
+Java_com_glidelive_audio_NativeEngine_nativeKitCommit(JNIEnv*, jobject, jint slot) { g_engine.kitCommit(slot); }
+
+JNIEXPORT jboolean JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeKitSelect(JNIEnv*, jobject, jint slot) {
+    return g_engine.kitSelect(slot) ? JNI_TRUE : JNI_FALSE;
+}
 
 JNIEXPORT void JNICALL
 Java_com_glidelive_audio_NativeEngine_nativeKitUseSampled(JNIEnv*, jobject, jboolean sampled) {

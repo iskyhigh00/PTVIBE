@@ -249,18 +249,28 @@ void AudioEngine::kitSet(int pad, int layer, int variant, const float* data, int
     s.rate = rate;
 }
 
-void AudioEngine::kitCommit() {
+void AudioEngine::kitCommit(int slot) {
     std::lock_guard<std::mutex> lock(mutex_);
     kitLoading_.store(false, std::memory_order_relaxed);
-    if (!pending_) return;
-    sampledKit_ = pending_.get();
+    if (!pending_ || slot < 0 || slot > 1) return;
+    sampledKits_[slot] = pending_.get();
     kits_.push_back(std::move(pending_));
-    active_.store(sampledKit_, std::memory_order_release);
+    if (slot == kitSlot_ && useSampled_) active_.store(sampledKits_[slot], std::memory_order_release);
+}
+
+bool AudioEngine::kitSelect(int slot) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (slot < 0 || slot > 1) return false;
+    kitSlot_ = slot;
+    if (!sampledKits_[slot]) return false;
+    if (useSampled_) active_.store(sampledKits_[slot], std::memory_order_release);
+    return true;
 }
 
 void AudioEngine::kitUseSampled(bool sampled) {
     std::lock_guard<std::mutex> lock(mutex_);
-    const Kit* k = sampled ? sampledKit_ : synthKit_;
+    useSampled_ = sampled;
+    const Kit* k = sampled && sampledKits_[kitSlot_] ? sampledKits_[kitSlot_] : synthKit_;
     if (k) active_.store(k, std::memory_order_release);
 }
 
