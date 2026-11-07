@@ -381,7 +381,7 @@ private fun KitPanel(vm: EngineViewModel) {
         )
         Text(
             "Muestras: MuldjordKit de Lars Muldjord (licencia CC BY 4.0), versión SFZ de kinwie. " +
-                "Recortadas y mezcladas a estéreo para esta app.",
+                "Recortadas y mezcladas a estéreo para esta app. Percusión de cumbia: Versilian Community Sample Library (CC0).",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text("Volumen de cada pad", style = MaterialTheme.typography.titleSmall)
