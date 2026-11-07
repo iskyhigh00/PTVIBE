@@ -49,4 +49,15 @@ class ChordTimelineTest {
         tl.onEvent(15, 0, 0, 0f, 0f, 0, 500.0)
         assertTrue(tl.spans.all { it.endMs < Double.POSITIVE_INFINITY })
     }
+
+    @Test fun releasedVoiceFadesOutOverItsReleaseTime() {
+        val tl = ChordTimeline()
+        tl.onEvent(10, 0, 0, 60f, 0f, 0, 0.0)
+        tl.onEvent(14, 0, 0, 0f, 3000f, 0, 1000.0)     // se apaga en 3 s
+        val sp = tl.spans[0]
+        assertEquals(1f, sp.fadeAt(900.0), 0.001f)
+        assertEquals(0.5f, sp.fadeAt(2500.0), 0.001f)
+        assertTrue(sp.activeAt(3900.0))
+        assertTrue(!sp.activeAt(4100.0))
+    }
 }

@@ -78,7 +78,7 @@ class SceneManager(
             put("chords", JSONObject().apply {
                 put("key", c.key); put("scale", c.scale.name); put("transpose", c.transpose); put("bank", c.bank.name)
                 put("quality", c.quality?.name ?: ""); put("instrument", c.instrument); put("glideMs", c.glideMs)
-                put("curve", c.curve.name); put("trigger", c.trigger.name); put("exit", c.exit.name); put("tailMs", c.tailMs); put("rangeLo", c.rangeLo); put("rangeHi", c.rangeHi)
+                put("curve", c.curve.name); put("trigger", c.trigger.name); put("exit", c.exit.name); put("tailMs", c.tailMs); put("fadeMs", c.fadeMs); put("rangeLo", c.rangeLo); put("rangeHi", c.rangeHi)
                 put("cutoff", c.cutoff.toDouble()); put("resonance", c.resonance.toDouble()); put("chorus", c.chorus.toDouble())
                 put("room", c.room.toDouble()); put("volume", c.volume.toDouble())
                 put("edits", JSONObject().also { eo ->
@@ -125,6 +125,7 @@ class SceneManager(
                 pick { TriggerMode.valueOf(j.getString("trigger")) }?.let { u = u.copy(trigger = it) }
                 pick { ExitMode.valueOf(j.getString("exit")) }?.let { u = u.copy(exit = it) }
                 if (j.has("tailMs")) u = u.copy(tailMs = j.getInt("tailMs").coerceIn(200, 4000))
+                if (j.has("fadeMs")) u = u.copy(fadeMs = j.getInt("fadeMs").coerceIn(500, 8000))
                 if (j.has("rangeLo")) u = u.copy(rangeLo = j.getInt("rangeLo"))
                 if (j.has("rangeHi")) u = u.copy(rangeHi = j.getInt("rangeHi"))
                 if (j.has("cutoff")) u = u.copy(cutoff = j.getDouble("cutoff").toFloat())

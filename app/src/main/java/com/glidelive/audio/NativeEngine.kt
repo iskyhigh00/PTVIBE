@@ -58,7 +58,7 @@ object NativeEngine {
         is SynthCommand.GlideTo -> seq(11, cmd.slot, 0, cmd.midi.toFloat())
         is SynthCommand.Spawn -> seq(12, cmd.slot, cmd.fromSlot, cmd.midi.toFloat())
         is SynthCommand.GlideRelease -> seq(13, cmd.slot, cmd.glideMs, cmd.midi.toFloat())
-        is SynthCommand.Release -> seq(14, cmd.slot, 0, 0f)
+        is SynthCommand.Release -> seq(14, cmd.slot, cmd.releaseMs, 0f)
         SynthCommand.ReleaseAll -> seq(15, 0, 0, 0f)
     }
 

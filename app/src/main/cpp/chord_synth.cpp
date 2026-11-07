@@ -80,6 +80,7 @@ void SynthEngine::noteOn(int slot, float midi, const SynthParams& p) {
     v.progStep = 0;
     v.releaseAfterGlide = false;
     v.relStep = 0;
+    v.relOverride = 0;
     v.vel = 0.8f;
     v.age = 0;
     if (!was) v.env = 0;  // si seguía sonando, la envolvente continúa (sin clic)
@@ -108,10 +109,11 @@ void SynthEngine::spawn(int slot, int fromSlot, float midi, const SynthParams& p
     glideTo(slot, midi, p, false);
 }
 
-void SynthEngine::release(int slot) {
+void SynthEngine::release(int slot, float releaseMs) {
     if (slot < 0 || slot >= kVoices) return;
     Voice& v = voices_[slot];
     if (!v.active || v.stage == 3) return;
+    v.relOverride = releaseMs > 0 ? releaseMs * 0.001f : 0.0f;
     v.stage = 3;
     v.relStep = -1.0f;  // se calcula en render con el release del instrumento
     v.releaseAfterGlide = false;
@@ -204,7 +206,7 @@ void SynthEngine::render(float* outL, float* outR, int n, const SynthParams& p) 
                     v.env *= susMul;
                     break;
                 default:
-                    if (v.relStep < 0) v.relStep = std::max(v.env, 0.001f) / (in.r * sr_);
+                    if (v.relStep < 0) v.relStep = std::max(v.env, 0.001f) / ((v.relOverride > 0 ? v.relOverride : in.r) * sr_);
                     v.env -= v.relStep;
                     if (v.env <= 0.0f) { v.env = 0; v.active = false; }
                     break;

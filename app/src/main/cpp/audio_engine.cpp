@@ -396,7 +396,11 @@ void AudioEngine::execSynth(const LoopEvent& e) {
             pushViz(e.type, e.a, 0, e.f, q.glideMs);
             return;
         }
-        case 14: synth_.release(e.a); break;
+        case 14:
+            // b > 0: apagado propio en ms (la salida fundida se desvanece despacio); 0 = release del instrumento.
+            synth_.release(e.a, static_cast<float>(e.b));
+            pushViz(e.type, e.a, 0, e.f, static_cast<float>(e.b));
+            return;
         case 15: synth_.releaseAll(); break;
         default: return;
     }

@@ -59,6 +59,7 @@ class ChordVizView(context: Context) : View(context) {
     private var colN = IntArray(0)          // voces visibles en cada columna (de agudo a grave)
     private var colIdx = IntArray(0)        // índice de span por columna y rango
     private var colP = FloatArray(0)        // altura por columna y rango
+    private var colA = FloatArray(0)        // opacidad (desvanecimiento al apagarse)
     private var actIdx = IntArray(MAXV)     // voces activas en el playhead
     private var actP = FloatArray(MAXV)
     private var actN = 0
@@ -73,6 +74,7 @@ class ChordVizView(context: Context) : View(context) {
     private var curAge = 0.0
     private var ord = IntArray(64)
     private var pitchOf = FloatArray(64)
+    private var fadeOf = FloatArray(64)
     private var lastVoice = IntArray(64)    // última columna en la que se dibujó cada voz
     private val midiLabels = arrayOfNulls<String>(128)
     private var lastSeq = -1L
@@ -91,6 +93,7 @@ class ChordVizView(context: Context) : View(context) {
         colN = IntArray(cols)
         colIdx = IntArray(cols * MAXV)
         colP = FloatArray(cols * MAXV)
+        colA = FloatArray(cols * MAXV)
     }
 
     private fun applyTheme(w: Int, h: Int) {
@@ -125,7 +128,7 @@ class ChordVizView(context: Context) : View(context) {
 
     private fun ensureVoices(n: Int) {
         if (ord.size < n) {
-            ord = IntArray(n * 2); pitchOf = FloatArray(n * 2); lastVoice = IntArray(n * 2)
+            ord = IntArray(n * 2); pitchOf = FloatArray(n * 2); fadeOf = FloatArray(n * 2); lastVoice = IntArray(n * 2)
             px = FloatArray(n * 2); py = FloatArray(n * 2)
         }
     }
@@ -201,6 +204,7 @@ class ChordVizView(context: Context) : View(context) {
                     val tt = if (future) (if (ghost > 0) t - ghost else Double.NaN) else t
                     if (tt.isNaN() || tt > now || !sp.activeAt(tt)) continue
                     val p = sp.pitchAt(tt)
+                    fadeOf[i] = sp.fadeAt(tt)
                     // inserción estable, de agudo a grave
                     var j = k
                     while (j > 0 && pitchOf[ord[j - 1]] < p) { j-- }
@@ -212,7 +216,7 @@ class ChordVizView(context: Context) : View(context) {
                 }
                 val base = cols * MAXV
                 val kk = min(k, MAXV)
-                for (r in 0 until kk) { colIdx[base + r] = ord[r]; colP[base + r] = pitchOf[ord[r]] }
+                for (r in 0 until kk) { colIdx[base + r] = ord[r]; colP[base + r] = pitchOf[ord[r]]; colA[base + r] = fadeOf[ord[r]] }
                 colN[cols] = kk
                 cols++
                 x += colX
@@ -303,7 +307,12 @@ class ChordVizView(context: Context) : View(context) {
                 val p = colP[base + r]
                 if (!lastP.isNaN() && abs(lastP - p) < 0.05f) continue   // voces que coinciden: una sola línea
                 lastP = p
-                if (li >= 0) { spanColor[li * cols + col] = colorFor(rank, dn); spanY[li * cols + col] = yOf(p) }
+                if (li >= 0) {
+                    // La opacidad va en el color (en pasos de 1/16) para que el trazo se corte solo al cambiar.
+                    val fa = (Math.round(colA[base + r] * 16f) / 16f).coerceIn(0.0625f, 1f)
+                    spanColor[li * cols + col] = withA(colorFor(rank, dn), fa)
+                    spanY[li * cols + col] = yOf(p)
+                }
                 rank++
             }
         }
@@ -448,8 +457,9 @@ class ChordVizView(context: Context) : View(context) {
 
     /** Dibuja el tramo acumulado en [path]: brillo suave (solo pasado) y línea fina y nítida. */
     private fun flushRun(c: Canvas, color: Int, future: Boolean) {
-        if (!future) { glow.color = withA(color, 0.10f); c.drawPath(path, glow) }
-        line.color = withA(color, if (future) 0.30f else 1f)
+        val a = (color ushr 24) / 255f
+        if (!future) { glow.color = withA(color, 0.10f * a); c.drawPath(path, glow) }
+        line.color = withA(color, a * (if (future) 0.30f else 1f))
         c.drawPath(path, line)
         path.rewind()
     }

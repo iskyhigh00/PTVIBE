@@ -49,6 +49,8 @@ data class ChordsUi(
     val trigger: TriggerMode = TriggerMode.HOLD,
     val exit: ExitMode = ExitMode.BLEND,
     val tailMs: Int = 1500,
+    /** Desvanecimiento final de la salida fundida (ms). */
+    val fadeMs: Int = 3000,
     val rangeLo: Int = 45,  // A2
     val rangeHi: Int = 72,  // C5
     val cutoff: Float = 0.8f,
@@ -177,7 +179,7 @@ class ChordsViewModel : ViewModel() {
     fun stopAll(immediate: Boolean = false) {
         val u = _ui.value
         if (immediate || u.exit == ExitMode.CUT) player.stopAll(ExitMode.CUT)
-        else player.stopAll(ExitMode.BLEND, u.glideMs, u.tailMs)
+        else player.stopAll(ExitMode.BLEND, u.glideMs, u.tailMs, u.fadeMs)
         SharedHarmony.update { it.copy(chordPcs = emptyList()) }
         _ui.update { it.copy(activeId = null) }
     }

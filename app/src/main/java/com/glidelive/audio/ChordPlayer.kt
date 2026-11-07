@@ -110,7 +110,7 @@ class ChordPlayer(
      * release; el bajo y la mediana siguen sonando y se sueltan pasados [tailMs]. Con 1 o 2 voces siguen todas y se
      * sueltan tras la cola. Un play() o stopAll() posterior cancela la cola y suelta esas voces al instante.
      */
-    fun stopAll(mode: ExitMode = ExitMode.CUT, glideMs: Int = 0, tailMs: Int = 1500) {
+    fun stopAll(mode: ExitMode = ExitMode.CUT, glideMs: Int = 0, tailMs: Int = 1500, fadeMs: Int = DEFAULT_FADE_MS) {
         flushTail()
         if (!sounding) return
         val notes = lastVoicing
@@ -122,7 +122,7 @@ class ChordPlayer(
             val keep: List<Int>
             if (n >= 3) {
                 val mid = n / 2
-                val exitMs = maxOf(glideMs, 600)
+                val exitMs = maxOf(glideMs, MIN_EXIT_GLIDE_MS)
                 for (k in 1 until n) {
                     if (k == mid) continue
                     sink(SynthCommand.GlideRelease(slots[order[k]], notes[order[mid]], exitMs))
@@ -133,12 +133,20 @@ class ChordPlayer(
             }
             tailSlots = keep.toIntArray()
             tailJob = schedule(tailMs.toLong()) {
-                for (s in tailSlots) sink(SynthCommand.Release(s))
+                // Al final de la cola, el bajo y la nota fundida se desvanecen despacio ([fadeMs]).
+                for (s in tailSlots) sink(SynthCommand.Release(s, fadeMs))
                 tailSlots = IntArray(0)
                 tailJob = null
             }
         }
         sounding = false
         slots = IntArray(0)
+    }
+
+    companion object {
+        /** Las voces superiores tardan al menos esto en fundirse en la nota del medio. */
+        const val MIN_EXIT_GLIDE_MS = 1500
+        /** Desvanecimiento final de la salida (bajo y nota fundida). */
+        const val DEFAULT_FADE_MS = 3000
     }
 }

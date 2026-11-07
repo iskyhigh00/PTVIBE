@@ -271,6 +271,9 @@ fun SoundPanel(vm: ChordsViewModel) {
         Text("Cola de salida: ${u.tailMs} ms", style = MaterialTheme.typography.labelMedium)
         Slider(value = u.tailMs.toFloat(), valueRange = 200f..4000f,
             onValueChange = { v -> vm.edit { it.copy(tailMs = v.toInt()) } })
+        Text("Desvanecer al final: ${"%.1f".format(u.fadeMs / 1000f)} s", style = MaterialTheme.typography.labelMedium)
+        Slider(value = u.fadeMs.toFloat(), valueRange = 500f..8000f,
+            onValueChange = { v -> vm.edit { it.copy(fadeMs = v.toInt()) } })
         Text("Rango de notas: ${NoteNames.midiName(u.rangeLo)} – ${NoteNames.midiName(u.rangeHi)}",
             style = MaterialTheme.typography.labelMedium)
         Slider(value = u.rangeLo.toFloat(), valueRange = 28f..60f,

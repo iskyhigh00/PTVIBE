@@ -68,14 +68,24 @@ class ChordPlayerTest {
         assertEquals(1500L, tasks[0].delayMs)
         cmds.clear()
         tasks[0].action()
-        assertEquals(2, cmds.filterIsInstance<SynthCommand.Release>().size)
+        val rel = cmds.filterIsInstance<SynthCommand.Release>()
+        assertEquals(2, rel.size)
+        // la salida termina con un desvanecimiento largo (al menos 3 s)
+        assertTrue(rel.all { it.releaseMs >= 3000 })
+    }
+
+    @Test fun blendFusesSlowly() {
+        play(cm9)
+        cmds.clear()
+        player.stopAll(ExitMode.BLEND, 250, 1500)
+        assertTrue(cmds.filterIsInstance<SynthCommand.GlideRelease>().all { it.glideMs >= ChordPlayer.MIN_EXIT_GLIDE_MS })
     }
 
     @Test fun blendKeepsLongerUserGlide() {
         play(cm9)
         cmds.clear()
-        player.stopAll(ExitMode.BLEND, 1200, 1500)
-        assertTrue(cmds.filterIsInstance<SynthCommand.GlideRelease>().all { it.glideMs == 1200 })
+        player.stopAll(ExitMode.BLEND, 2200, 1500)
+        assertTrue(cmds.filterIsInstance<SynthCommand.GlideRelease>().all { it.glideMs == 2200 })
     }
 
     @Test fun playAfterBlendCancelsTailAndReleasesBeforeNoteOn() {

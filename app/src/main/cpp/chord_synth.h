@@ -30,7 +30,7 @@ public:
     void noteOn(int slot, float midi, const SynthParams& p);
     void glideTo(int slot, float midi, const SynthParams& p, bool releaseAfter);
     void spawn(int slot, int fromSlot, float midi, const SynthParams& p);
-    void release(int slot);
+    void release(int slot, float releaseMs = 0);
     void releaseAll();
 
     // Suma estéreo en outL/outR (n <= kMaxBlock). No asigna memoria.
@@ -58,6 +58,7 @@ private:
         float vel = 0.8f;
         float age = 0;
         float vibPhase = 0;
+        float relOverride = 0;  // segundos de apagado propios (salida larga); 0 = release del instrumento
         float ph[9] = {};
         Svf filter;
     };

@@ -34,6 +34,14 @@ class Seg(val t0: Double, val t1: Double, val from: Float, val to: Float, val cu
 /** Una nota sostenida de una voz, con su historial de glides. */
 class Span(val slot: Int, val startMs: Double, startMidi: Float) {
     var endMs: Double = Double.POSITIVE_INFINITY
+    /** Momento en que empezó a apagarse (para dibujarla desvaneciéndose); infinito = no se está apagando. */
+    var relStartMs: Double = Double.POSITIVE_INFINITY
+
+    /** Opacidad en [t]: 1 mientras suena y baja a 0 durante el apagado. */
+    fun fadeAt(t: Double): Float {
+        if (t <= relStartMs || endMs <= relStartMs) return 1f
+        return (1.0 - (t - relStartMs) / (endMs - relStartMs)).coerceIn(0.0, 1.0).toFloat()
+    }
     val segs = ArrayList<Seg>().apply { add(Seg(startMs, startMs, startMidi, startMidi, 0)) }
 
     val lastPitch: Float get() = segs.last().to
@@ -91,7 +99,7 @@ class ChordTimeline {
                 sp.segs.add(Seg(t, t + glideMs, start, midi, curve))
                 mark(t, a, midi)
             }
-            14 -> open[a]?.let { it.endMs = t + 250; open[a] = null }
+            14 -> open[a]?.let { it.relStartMs = t; it.endMs = t + maxOf(250.0, glideMs.toDouble()); open[a] = null }
             15 -> for (i in open.indices) open[i]?.let { it.endMs = t + 250; open[i] = null }
         }
         prune(t)
