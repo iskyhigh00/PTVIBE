@@ -2,9 +2,9 @@ package com.glidelive.ui
 
 /**
  * Distribuciones de los pads de batería. Cada una es una cuadrícula; [cells] da, para cada pad (0..12),
- * [columna, fila, columnas, filas] o null si ese pad no se muestra en esa distribución.
+ * [columna, fila, columnas, filas] o null si ese pad no se muestra en esa distribución (los que faltan al final, ocultos).
  */
-enum class PadLayout(val label: String, val hint: String, val cols: Int, val rows: Int, val cells: Array<IntArray?>) {
+enum class PadLayout(val label: String, val hint: String, val cols: Int, val rows: Int, base: Array<IntArray?>) {
     KIT(
         "Kit clásico", "Como una batería vista desde arriba", 12, 6,
         arrayOf(
@@ -80,7 +80,28 @@ enum class PadLayout(val label: String, val hint: String, val cols: Int, val row
             intArrayOf(10, 0, 2, 2),  // campana
             intArrayOf(0, 0, 2, 2),   // splash / china
         ),
+    ),
+    CUMBIA(
+        "Cumbia", "Percusión de cumbia + bombo, caja y hi-hat", 12, 6,
+        arrayOf(
+            intArrayOf(0, 4, 4, 2),   // bombo
+            intArrayOf(4, 4, 3, 2),   // caja
+            intArrayOf(10, 4, 2, 2),  // aros
+            intArrayOf(7, 4, 3, 2),   // hi-hat cerrado
+            null, null, null, null, null, null, null, null, null,
+            intArrayOf(0, 0, 3, 2),   // güiro corto
+            intArrayOf(3, 0, 3, 2),   // güiro largo
+            intArrayOf(6, 0, 3, 2),   // maracas
+            intArrayOf(6, 2, 3, 2),   // conga
+            intArrayOf(3, 2, 3, 2),   // quinto (alegre)
+            intArrayOf(9, 2, 3, 2),   // tumba
+            intArrayOf(0, 2, 3, 2),   // bongó
+            intArrayOf(9, 0, 3, 2),   // campana
+        ),
     );
+
+    /** Celda de cada pad (null = oculto); siempre de largo [Pads.COUNT]. */
+    val cells: Array<IntArray?> = Array(Pads.COUNT) { base.getOrNull(it) }
 
     /** Dueño de cada celda (fila * cols + columna), o -1; calculado una sola vez. */
     val owner: IntArray = IntArray(cols * rows) { -1 }.also { o ->

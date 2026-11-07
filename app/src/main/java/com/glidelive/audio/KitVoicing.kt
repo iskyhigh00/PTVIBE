@@ -52,7 +52,7 @@ object KitVoicing {
 
     /** Devuelve una copia procesada (intercalada, [channels] canales) con el mismo pico que el original. */
     fun apply(voice: KitVoice, pad: Int, data: FloatArray, channels: Int, rate: Int): FloatArray {
-        if (voice == KitVoice.ORIGINAL || data.isEmpty()) return data
+        if (voice == KitVoice.ORIGINAL || data.isEmpty() || pad >= 13) return data  // la percusión queda tal cual
         val chain = chainFor(pad)
         val out = data.copyOf()
         for (b in chain.bands) biquad(out, channels, rate, b)

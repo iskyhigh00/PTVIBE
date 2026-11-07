@@ -139,8 +139,50 @@ Sample make(int pad, int layer, int var, int sr) {
             }
             return o;
         }
-        default:  // splash / china
+        case 12:  // splash / china
             return cymbal(sr, 0.9f, 5.0f, 4.5f, 0.55f, 0.7f, 0.3f + 0.2f * I, 1.25f * vr, 0.7f * I, seed);
+        case 13:
+        case 14: {  // güiro: raspado de dientes (ruido brillante pulsado)
+            Sample o;
+            const float dur = pad == 13 ? 0.16f : 0.42f;
+            const int n = static_cast<int>(sr * dur);
+            o.data.resize(n);
+            Noise nz(seed);
+            OnePole hp;
+            const float rate = (pad == 13 ? 75.0f : 55.0f) * vr;
+            for (int i = 0; i < n; ++i) {
+                const float t = static_cast<float>(i) / sr;
+                const float teeth = 0.5f + 0.5f * std::sin(2 * kPi * rate * t);
+                const float env = std::min(1.0f, t * 60.0f) * std::min(1.0f, (dur - t) * 25.0f);
+                o.data[i] = hp.hp(nz.next(), 0.35f) * teeth * teeth * env * 0.6f * I;
+            }
+            return o;
+        }
+        case 15:  // maracas: ruido agudo muy corto
+            return cymbal(sr, 0.09f, 200.0f, 45.0f, 0.9f, 0.0f, 0.55f, vr, 0.6f * I, seed);
+        case 16:  // conga
+            return sweep(sr, 0.5f, 245.0f * vr, 205.0f * vr, 40.0f, 9.0f, 0.8f * I, 0.25f * I, 400.0f, seed);
+        case 17:  // quinto (alegre): más agudo y seco
+            return sweep(sr, 0.4f, 330.0f * vr, 290.0f * vr, 40.0f, 12.0f, 0.75f * I, 0.35f * I, 500.0f, seed);
+        case 18:  // tumba
+            return sweep(sr, 0.6f, 175.0f * vr, 150.0f * vr, 30.0f, 7.0f, 0.85f * I, 0.2f * I, 350.0f, seed);
+        case 19:  // bongó
+            return sweep(sr, 0.3f, 520.0f * vr, 450.0f * vr, 50.0f, 16.0f, 0.7f * I, 0.4f * I, 600.0f, seed);
+        default: {  // campana (cencerro): dos parciales cuadrados
+            Sample o;
+            const int n = static_cast<int>(sr * 0.35f);
+            o.data.resize(n);
+            double p1 = 0, p2 = 0;
+            OnePole lp;
+            for (int i = 0; i < n; ++i) {
+                const float t = static_cast<float>(i) / sr;
+                p1 += 562.0 * vr / sr; p2 += 845.0 * vr / sr;
+                p1 -= std::floor(p1); p2 -= std::floor(p2);
+                const float x = (p1 < 0.5 ? 1.0f : -1.0f) + (p2 < 0.5 ? 1.0f : -1.0f);
+                o.data[i] = lp.lp(x, 0.35f) * 0.3f * I * expo(t, 14.0f) * (1.0f - expo(t, 3000.0f));
+            }
+            return o;
+        }
     }
 }
 }  // namespace

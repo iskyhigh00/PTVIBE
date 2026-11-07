@@ -23,7 +23,7 @@ object KitLoader {
     private val _state = MutableStateFlow<KitState>(KitState.Idle)
     val state: StateFlow<KitState> = _state
 
-    private const val PADS = 13
+    private const val PADS = 21
     private const val LAYERS = 3
     private const val VARIANTS = 3
 

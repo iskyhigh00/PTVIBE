@@ -29,11 +29,20 @@ object Pads {
     const val RIDE = 10
     const val BELL = 11
     const val SPLASH = 12
-    const val COUNT = 13
+    const val GUIRO_SHORT = 13
+    const val GUIRO_LONG = 14
+    const val MARACAS = 15
+    const val CONGA = 16
+    const val QUINTO = 17
+    const val TUMBA = 18
+    const val BONGO = 19
+    const val COWBELL = 20
+    const val COUNT = 21
 
     val names = arrayOf(
         "BOMBO", "CAJA", "AROS\n(rim)", "HI-HAT\nCERRADO", "HI-HAT\nABIERTO", "PEDAL\nHI-HAT",
         "TOM 1", "TOM 2", "TOM DE\nPISO", "CRASH", "RIDE", "CAMPANA\nRIDE", "SPLASH\n/ CHINA",
+        "GÜIRO\ncorto", "GÜIRO\nlargo", "MARACAS", "CONGA", "QUINTO\n(alegre)", "TUMBA", "BONGÓ", "CAMPANA\n(cencerro)",
     )
 
     /** Líneas de cada nombre, calculadas una sola vez (onDraw no debe asignar memoria). */
@@ -41,6 +50,7 @@ object Pads {
 
     fun isCymbal(pad: Int) = pad in CRASH..SPLASH
     fun isHat(pad: Int) = pad in HH_CLOSED..HH_PEDAL
+    fun isPercussion(pad: Int) = pad in GUIRO_SHORT..COWBELL
 }
 
 /**
@@ -90,6 +100,7 @@ class DrumPadsView(context: Context) : View(context) {
     private var corner = 18f
 
     private fun accent(i: Int) = when {
+        Pads.isPercussion(i) -> ORANGE
         Pads.isCymbal(i) -> GOLD
         Pads.isHat(i) -> MINT
         i == Pads.KICK -> PINK
@@ -247,5 +258,6 @@ class DrumPadsView(context: Context) : View(context) {
         const val PINK = 0xFFFF6B9D.toInt()
         const val MINT = 0xFF00E5A0.toInt()
         const val GOLD = 0xFFFFC857.toInt()
+        const val ORANGE = 0xFFFF8A3D.toInt()
     }
 }

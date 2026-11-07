@@ -4,10 +4,14 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 object DrumKeys {
-    val keys = listOf("k", "s", "r", "hc", "ho", "hp", "t1", "t2", "tf", "cr", "rd", "bl", "sp")
+    val keys = listOf(
+        "k", "s", "r", "hc", "ho", "hp", "t1", "t2", "tf", "cr", "rd", "bl", "sp",
+        "gc", "gl", "mr", "cg", "qu", "tu", "bg", "cb",
+    )
     val labels = listOf(
         "Bombo", "Caja", "Aros (rim)", "Hi-hat cerrado", "Hi-hat abierto", "Pedal hi-hat",
         "Tom 1", "Tom 2", "Tom de piso", "Crash", "Ride", "Campana ride", "Splash / china",
+        "Güiro corto", "Güiro largo", "Maracas", "Conga", "Quinto (alegre)", "Tumba", "Bongó", "Campana (cencerro)",
     )
 
     fun index(key: String) = keys.indexOf(key)

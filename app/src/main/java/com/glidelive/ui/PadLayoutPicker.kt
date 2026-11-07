@@ -32,6 +32,7 @@ private val MINT = Color(0xFF00E5A0)
 private val VIOLET = Color(0xFF6B4EFF)
 
 private fun padColor(p: Int) = when {
+    Pads.isPercussion(p) -> Color(0xFFFF8A3D)
     Pads.isCymbal(p) -> GOLD
     Pads.isHat(p) -> MINT
     p == Pads.KICK -> PINK

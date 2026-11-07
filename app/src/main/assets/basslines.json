@@ -29,6 +29,34 @@
    "end": "0:F#1:16:X"
   },
   {
+   "id": "cumbia",
+   "name": "Cumbia (tónica y quinta)",
+   "root": "A",
+   "variations": [
+    {
+     "name": "A",
+     "bars": 2,
+     "notes": "0:A1:6:X 6:A1:2:o 8:E1:6:x 14:E1:2:o 16:E1:6:X 22:E1:2:o 24:B1:6:x 30:G#1:2:o"
+    },
+    {
+     "name": "B",
+     "bars": 4,
+     "notes": "0:A1:6:X 6:A1:2:o 8:E1:8:x 16:D2:6:X 22:D2:2:o 24:A1:8:x 32:E1:6:X 38:E1:2:o 40:B1:8:x 48:A1:6:X 54:A1:2:o 56:E1:8:x"
+    },
+    {
+     "name": "C",
+     "bars": 2,
+     "notes": "0:A1:4:X 4:C2:4:x 8:E2:4:x 12:C2:4:x 16:E1:4:X 20:G#1:4:x 24:B1:4:x 28:G#1:4:x"
+    },
+    {
+     "name": "D",
+     "bars": 2,
+     "notes": "0:A1:3:X 3:A1:1:o 4:E1:4:x 8:A1:3:X 11:A1:1:o 12:E1:4:x 16:E1:3:X 19:E1:1:o 20:B1:4:x 24:E1:3:X 27:E1:1:o 28:G#1:4:x"
+    }
+   ],
+   "end": "0:A1:16:X"
+  },
+  {
    "id": "rock8",
    "name": "Raíz en corcheas",
    "root": "E",

@@ -177,7 +177,10 @@ class SceneManager(
                 if (j.has("drumVol")) u = u.copy(drumVol = j.getDouble("drumVol").toFloat())
                 if (j.has("pressure")) u = u.copy(pressure = j.getBoolean("pressure"))
                 j.optJSONArray("padVolume")?.let { a ->
-                    if (a.length() == u.padVolume.size) u = u.copy(padVolume = List(a.length()) { a.getDouble(it).toFloat() })
+                    // Escenas antiguas (menos pads): los que faltan quedan como están.
+                    if (a.length() <= u.padVolume.size) {
+                        u = u.copy(padVolume = List(u.padVolume.size) { i -> if (i < a.length()) a.getDouble(i).toFloat() else u.padVolume[i] })
+                    }
                 }
                 u
             }

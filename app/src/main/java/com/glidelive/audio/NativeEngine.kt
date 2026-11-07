@@ -112,6 +112,10 @@ object NativeEngine {
     const val P_MUTE_MASK = 41
     const val P_BASS_VOL = 42
     const val P_BASS_TONE = 43
+    const val P_PAD_VOL2 = 44
+
+    /** Parámetro de volumen del pad (los de percusión, 13..20, viven en otro bloque). */
+    fun padVolParam(pad: Int) = if (pad < 13) P_PAD_VOL + pad else P_PAD_VOL2 + pad - 13
 
     fun seq(cmd: Int, a: Int = 0, b: Int = 0, f: Float = 0f) = synchronized(pushLock) { nativeSynthCmd(cmd, a, b, f) }
 

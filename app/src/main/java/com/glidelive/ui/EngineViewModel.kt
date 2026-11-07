@@ -95,7 +95,7 @@ class EngineViewModel(app: Application) : AndroidViewModel(app) {
         NativeEngine.setParam(NativeEngine.P_COMP, k.comp)
         NativeEngine.setParam(NativeEngine.P_MASTER, k.master)
         NativeEngine.setParam(NativeEngine.P_DRUM_VOL, k.drumVol)
-        k.padVolume.forEachIndexed { i, v -> NativeEngine.setParam(NativeEngine.P_PAD_VOL + i, v) }
+        k.padVolume.forEachIndexed { i, v -> NativeEngine.setParam(NativeEngine.padVolParam(i), v) }
     }
 
     private fun bluetoothOutputActive(): Boolean {

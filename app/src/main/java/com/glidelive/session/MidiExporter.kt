@@ -12,7 +12,7 @@ object MidiExporter {
     const val PPQ = 480
     private const val BEND_RANGE = 12f  // semitonos (se fija con RPN)
 
-    private val gmDrum = intArrayOf(36, 38, 37, 42, 46, 44, 48, 45, 43, 49, 51, 53, 55)
+    private val gmDrum = intArrayOf(36, 38, 37, 42, 46, 44, 48, 45, 43, 49, 51, 53, 55, 73, 74, 70, 63, 62, 64, 60, 56)
 
     private class Ev(val tick: Long, val order: Int, val bytes: ByteArray)
 

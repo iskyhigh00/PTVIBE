@@ -21,7 +21,7 @@ class DrumHitTest {
     }
 
     @Test fun mirroredLayoutIsTheMirrorOfTheKit() {
-        for (p in 0 until Pads.COUNT) {
+        for (p in 0 until 13) {
             val a = PadLayout.KIT.cells[p]!!
             val b = PadLayout.KIT_LEFT.cells[p]!!
             assertEquals(12 - a[0] - a[2], b[0]); assertEquals(a[1], b[1]); assertEquals(a[2], b[2]); assertEquals(a[3], b[3])
@@ -71,8 +71,14 @@ class DrumHitTest {
     }
 
     @Test fun essentialLayoutHidesFourPads() {
-        assertEquals(4, (0 until Pads.COUNT).count { !PadLayout.ESSENTIAL.visible(it) })
+        assertEquals(4, (0 until 13).count { !PadLayout.ESSENTIAL.visible(it) })
         assertTrue(PadLayout.ESSENTIAL.visible(Pads.KICK) && PadLayout.ESSENTIAL.visible(Pads.SNARE))
+    }
+
+    @Test fun cumbiaLayoutShowsAllPercussion() {
+        for (p in Pads.GUIRO_SHORT..Pads.COWBELL) assertTrue("pad $p", PadLayout.CUMBIA.visible(p))
+        for (p in Pads.GUIRO_SHORT..Pads.COWBELL) assertTrue("pad $p solo en Cumbia", !PadLayout.KIT.visible(p))
+        assertEquals(Pads.COUNT, com.glidelive.drums.DrumKeys.keys.size)
     }
 
     @Test fun edgesStayInTheirPad() {

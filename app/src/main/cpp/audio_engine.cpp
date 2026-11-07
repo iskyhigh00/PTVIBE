@@ -22,8 +22,9 @@ inline float softClip(float x) {
 }
 
 // Grupo de choke: 1 = hi-hat (cerrado, abierto, pedal).
-constexpr int kGroupOf[kPadCount] = {0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0};
-inline bool isCymbal(int pad) { return pad >= 9; }
+constexpr int kGroupOf[kPadCount] = {0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 2, 2, 0, 0, 0, 0, 0, 0};  // 2: güiro (corta al anterior)
+inline bool isCymbal(int pad) { return pad >= 9 && pad <= 12; }
+inline int padVolParam(int pad) { return pad < 13 ? kPadVol + pad : kPadVol2 + (pad - 13); }
 
 }  // namespace
 
@@ -32,7 +33,7 @@ AudioEngine::AudioEngine() {
     params_[kRoom].store(0.25f);
     params_[kComp].store(0.3f);
     params_[kMaster].store(0.9f);
-    for (int i = 0; i < kPadCount; ++i) params_[kPadVol + i].store(1.0f);
+    for (int i = 0; i < kPadCount; ++i) params_[padVolParam(i)].store(1.0f);
     params_[kBassVol].store(0.8f);
     params_[kBassTone].store(0.5f);
     params_[kChordVol].store(0.8f);
@@ -601,7 +602,7 @@ void AudioEngine::triggerDrum(int pad, float velocity, int delayFrames) {
     slot->rate = (tune == 0 ? 1.0f : std::exp2(tune / 12.0f)) * ratio;
     float g = real ? std::min(1.6f, std::max(0.35f, std::pow(vel / centerReal[layer], 0.6f)))
                    : vel / nominalSynth[layer];
-    slot->gain = g * human * param(kPadVol + pad);
+    slot->gain = g * human * param(padVolParam(pad));
     slot->env = 1.0f;
     slot->envStep = 0;
     slot->pad = pad;
