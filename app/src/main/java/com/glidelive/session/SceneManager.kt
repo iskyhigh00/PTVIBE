@@ -55,6 +55,17 @@ class SceneManager(
 
     fun load(i: Int) { slotJson(i)?.let { apply(it) } }
 
+    /** Guardado automático: lo último que tenías (kit y volúmenes de cada pad, acordes, solista, base y tempo). */
+    fun saveLast() {
+        runCatching { prefs.edit().putString("last", capture().toString()).apply() }
+    }
+
+    /** Recupera lo guardado al cerrar la app o actualizarla; si no hay nada o está dañado, deja los valores por defecto. */
+    fun restoreLast() {
+        val raw = prefs.getString("last", null) ?: return
+        runCatching { apply(JSONObject(raw)) }
+    }
+
     fun resetSlot(i: Int) { prefs.edit().remove("slot_$i").apply(); refresh() }
 
     // ---------- capturar ----------

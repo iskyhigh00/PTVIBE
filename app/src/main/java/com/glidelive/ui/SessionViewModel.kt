@@ -10,7 +10,10 @@ import com.glidelive.session.MidiInput
 import com.glidelive.session.RecordingResult
 import com.glidelive.session.SceneManager
 import com.glidelive.session.SessionRecorder
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
@@ -19,6 +22,7 @@ import java.io.File
 
 data class SessionUi(val recording: Boolean = false, val seconds: Int = 0, val last: RecordingResult? = null)
 
+@OptIn(FlowPreview::class)
 class SessionViewModel(private val app: Application) : AndroidViewModel(app) {
     private val _ui = MutableStateFlow(SessionUi())
     val ui: StateFlow<SessionUi> = _ui
@@ -28,9 +32,21 @@ class SessionViewModel(private val app: Application) : AndroidViewModel(app) {
         private set
 
     fun attach(chords: ChordsViewModel, solo: SoloViewModel, engine: EngineViewModel, transport: TransportViewModel) {
-        if (scenes == null) scenes = SceneManager(app, chords, solo, engine, transport)
+        if (scenes == null) {
+            val mgr = SceneManager(app, chords, solo, engine, transport)
+            scenes = mgr
+            mgr.restoreLast()   // vuelve todo como lo dejaste (también tras una actualización)
+            viewModelScope.launch {
+                combine(chords.ui, solo.ui, engine.kit, transport.ui) { _, _, _, _ -> Unit }
+                    .debounce(800)
+                    .collect { mgr.saveLast() }
+            }
+        }
         midi.start()
     }
+
+    /** Guarda ya mismo (p. ej. al pasar la app a segundo plano). */
+    fun flush() { scenes?.saveLast() }
 
     fun toggleRecord(bpm: Int, sampleRate: Int) {
         if (recorder.isRecording) {
