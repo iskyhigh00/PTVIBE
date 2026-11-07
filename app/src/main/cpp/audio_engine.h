@@ -6,6 +6,7 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+#include "bass_synth.h"
 #include "chord_synth.h"
 #include "dsp.h"
 #include "sequencer.h"
@@ -62,6 +63,8 @@ enum Param {
     kRecQuant = 39,
     kChordQuant = 40,
     kMuteMask = 41,
+    kBassVol = 42,
+    kBassTone = 43,
     kParamCount = 64
 };
 
@@ -147,6 +150,7 @@ private:
     void handleEvent(const PadEvent& ev, int64_t nowNs);
     void startVoice(const PadEvent& ev, int64_t nowNs);
     void triggerDrum(int pad, float vel, int delayFrames);
+    void triggerBass(int note, float packed, int delayFrames);
     void execSynth(const LoopEvent& e);
     void pushViz(int type, int a, int b, float f, float glideMs = -1.0f);
     friend struct EngineSink;
@@ -184,6 +188,8 @@ private:
     std::atomic<bool> recording_{false};
     Reverb drumRoom_;
     SynthEngine synth_;
+    BassSynth bass_;
+    bool bassWasPlaying_ = false;
     float compEnv_ = 0;
     float synthL_[SynthEngine::kMaxBlock];
     float synthR_[SynthEngine::kMaxBlock];

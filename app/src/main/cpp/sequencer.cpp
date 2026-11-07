@@ -227,7 +227,7 @@ void Sequencer::runPattern(const PatBuf& p, double origin, bool wrap, double ta,
     const double le = ls + (tb - ta);
     for (int i = 0; i < p.n; ++i) {
         const LoopEvent& ev = p.ev[i];
-        if (mask & (1u << ev.a)) continue;
+        if (ev.a < 32 && (mask & (1u << ev.a))) continue;
         const double e = ev.tick + shiftFor(ev.tick);
         if (e >= ls - kEps && e < le - kEps) sink.drumHit(ev.a, ev.f, off(ta - t0 + std::max(0.0, e - ls)));
         else if (wrap && e + p.length >= ls - kEps && e + p.length < le - kEps)

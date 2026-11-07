@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.glidelive.drums.DrumKeys
+import com.glidelive.theory.NoteNames
 import com.glidelive.ui.components.GradientButton
 import com.glidelive.ui.components.TonalButton
 
@@ -191,10 +192,35 @@ fun PatternBar(vm: TransportViewModel) {
         }
         TextButton(onClick = { p?.let(vm::openEditor) }) { Text(if (p?.factory == false) "Editar base" else "Duplicar y editar") }
         if (p != null && !p.factory) TextButton(onClick = { vm.deleteUserPattern(p.id) }) { Text("Borrar base") }
-        if (p != null) Text("${p.meter} · ${p.bpmMin}–${p.bpmMax} BPM · inspirada en el estilo de Gavin Harrison",
+        if (p != null) Text("${p.meter} · ${p.bpmMin}–${p.bpmMax} BPM" + if (p.bass == null) " · inspirada en el estilo de Gavin Harrison" else "",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     if (u.editor != null) SequencerDialog(vm)
+}
+
+/** Bases de bajo: línea, tono, sonido; sigue a la variación (A–D), el relleno y el final de la batería. */
+@Composable
+fun BassBar(vm: TransportViewModel) {
+    val u by vm.ui.collectAsState()
+    var soundMenu by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Picker("Bajo: " + (u.bassLine?.name ?: "—"), u.bassLines, { it.name }) { vm.selectBass(it.id) }
+        FilterChip(selected = u.bassOn, onClick = vm::toggleBass, label = { Text(if (u.bassOn) "Bajo suena" else "Bajo mudo") })
+        Picker("Tono: ${NoteNames.name(u.bassKey)}", (0..11).toList(), { NoteNames.name(it) }) { vm.setBassKey(it) }
+        TextButton(onClick = { soundMenu = true }) { Text("Sonido del bajo…") }
+        DropdownMenu(expanded = soundMenu, onDismissRequest = { soundMenu = false }) {
+            Column(Modifier.padding(horizontal = 16.dp).width(260.dp)) {
+                LabeledSlider("Volumen del bajo", u.bassVol, 0f..1.5f) { v -> vm.edit { it.copy(bassVol = v) } }
+                LabeledSlider("Tono (opaco → brillante)", u.bassTone, 0f..1f) { v -> vm.edit { it.copy(bassTone = v) } }
+            }
+        }
+        Text("Sigue a la variación, el relleno y el final de la base",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)

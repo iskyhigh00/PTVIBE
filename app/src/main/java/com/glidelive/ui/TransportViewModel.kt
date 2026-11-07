@@ -5,6 +5,9 @@ import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.glidelive.audio.NativeEngine
+import com.glidelive.bass.Bass
+import com.glidelive.bass.BassLine
+import com.glidelive.drums.Compiled
 import com.glidelive.data.PatternRepository
 import com.glidelive.drums.DrumKeys
 import com.glidelive.drums.DrumPattern
@@ -77,8 +80,16 @@ data class TransportUi(
     val drumLoopOn: Boolean = true,
     val chordLoopOn: Boolean = true,
     val editor: EditorState? = null,
+    val bassLines: List<BassLine> = emptyList(),
+    val bassId: String? = null,
+    val bassOn: Boolean = true,
+    /** Tono del bajo (0 = Do … 11 = Si). */
+    val bassKey: Int = 6,
+    val bassVol: Float = 0.8f,
+    val bassTone: Float = 0.5f,
 ) {
     val pattern: DrumPattern? get() = patterns.firstOrNull { it.id == patternId }
+    val bassLine: BassLine? get() = bassLines.firstOrNull { it.id == bassId }
 }
 
 /** Posición y contadores que cambian a cada tiempo: viven aparte para no recomponer toda la barra. */
@@ -98,10 +109,18 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
 
     init {
         PatternRepository.load(app)
+        Bass.load(app)
         val list = PatternRepository.all.value
-        _ui.update { it.copy(patterns = list, patternId = list.firstOrNull()?.id) }
+        val first = list.firstOrNull()
+        val firstBass = Bass.lines.firstOrNull { it.id == first?.bass }
+        _ui.update {
+            it.copy(
+                patterns = list, patternId = first?.id, bassLines = Bass.lines,
+                bassId = firstBass?.id ?: Bass.lines.firstOrNull()?.id, bassKey = firstBass?.root ?: it.bassKey,
+            )
+        }
         push()
-        list.firstOrNull()?.let { sendPattern(it, it.variations[0].tracks, restart = true) }
+        first?.let { sendPattern(it, 0, restart = true) }
         viewModelScope.launch(Dispatchers.Default) {
             PatternRepository.all.collect { l -> _ui.update { it.copy(patterns = l) } }
         }
@@ -122,6 +141,8 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
         NativeEngine.setParam(NativeEngine.P_REC_QUANT, u.recQuant.ticks.toFloat())
         NativeEngine.setParam(NativeEngine.P_CHORD_QUANT, u.chordQuant.code.toFloat())
         NativeEngine.setParam(NativeEngine.P_MUTE_MASK, muteMask(u).toFloat())
+        NativeEngine.setParam(NativeEngine.P_BASS_VOL, u.bassVol)
+        NativeEngine.setParam(NativeEngine.P_BASS_TONE, u.bassTone)
     }
 
     private fun muteMask(u: TransportUi): Int {
@@ -150,12 +171,62 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     // ---- bases de batería ----
-    private fun sendPattern(p: DrumPattern, tracks: Map<String, String>, restart: Boolean) {
-        val c = p.compile(tracks)
-        NativeEngine.setPattern(c.ticks, c.pads, c.vels, p.lengthTicks, restart, false)
-        val e = p.compileEnd()
-        NativeEngine.setEndPattern(e.ticks, e.pads, e.vels, p.barTicks)
+    private fun activeBass(): BassLine? = _ui.value.let { if (it.bassOn) it.bassLine else null }
+
+    /** Batería de la variación [v] (con [last] en la última vuelta: relleno o break) más el bajo de esa variación. */
+    private fun build(p: DrumPattern, v: Int, last: Map<String, String>? = null): Pair<Compiled, Int> {
+        val vi = v.coerceIn(0, p.variations.size - 1)
+        val normal = p.compile(p.variations[vi].tracks)
+        val lastC = last?.let { p.compile(it) } ?: normal
+        val line = activeBass() ?: return Bass.merge(normal, lastC, p.lengthTicks, null, 0)
+        val bv = line.variation(vi)
+        val bass = Bass.compile(bv.notes, line.unit, Bass.shift(line.root, _ui.value.bassKey))
+        return Bass.merge(normal, lastC, p.lengthTicks, bass, line.lengthTicks(bv))
     }
+
+    private fun sendPattern(p: DrumPattern, v: Int, restart: Boolean, last: Map<String, String>? = null) {
+        val (c, len) = build(p, v, last)
+        NativeEngine.setPattern(c.ticks, c.pads, c.vels, len, restart, false)
+        val e = p.compileEnd()
+        val line = activeBass()
+        val (ec, elen) = if (line != null && line.end.isNotEmpty()) {
+            Bass.merge(e, e, p.barTicks, Bass.compile(line.end, line.unit, Bass.shift(line.root, _ui.value.bassKey)), p.barTicks)
+        } else e to p.barTicks
+        NativeEngine.setEndPattern(ec.ticks, ec.pads, ec.vels, elen)
+    }
+
+    /** Reenvía la base actual con el bajo nuevo (sin reiniciar el compás). */
+    private fun resendBass() {
+        val u = _ui.value
+        val p = u.pattern ?: return
+        if (u.pendingVariation != null) NativeEngine.cancelQueuedPattern()
+        _ui.update { it.copy(pendingVariation = null, fillOn = false, activeBreak = null) }
+        sendPattern(p, u.pendingVariation ?: u.variation, restart = false)
+        u.pendingVariation?.let { v -> _ui.update { it.copy(variation = v) } }
+    }
+
+    fun selectBass(id: String?) {
+        val line = _ui.value.bassLines.firstOrNull { it.id == id }
+        _ui.update { it.copy(bassId = line?.id ?: it.bassId, bassOn = line != null) }
+        resendBass()
+    }
+
+    /** Carga de escena / autoguardado del bajo (los null no cambian). */
+    fun applyBass(id: String?, on: Boolean?, key: Int?, vol: Float?, tone: Float?) {
+        _ui.update { u ->
+            u.copy(
+                bassId = u.bassLines.firstOrNull { it.id == id }?.id ?: u.bassId, bassOn = on ?: u.bassOn,
+                bassKey = key?.let { Math.floorMod(it, 12) } ?: u.bassKey,
+                bassVol = vol ?: u.bassVol, bassTone = tone ?: u.bassTone,
+            )
+        }
+        push()
+        resendBass()
+    }
+
+    fun toggleBass() { _ui.update { it.copy(bassOn = !it.bassOn) }; resendBass() }
+
+    fun setBassKey(k: Int) { _ui.update { it.copy(bassKey = Math.floorMod(k, 12)) }; resendBass() }
 
     fun selectPattern(p: DrumPattern, adopt: Boolean = _ui.value.adoptPattern) {
         _ui.update { it.copy(patternId = p.id, variation = 0, pendingVariation = null, fillOn = false, activeBreak = null, endPending = false) }
@@ -163,7 +234,10 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
         if (adopt) {
             edit { it.copy(bpm = p.bpmDefault, meter = Meter(p.beats, p.beatUnit)) }
         }
-        sendPattern(p, p.variations[0].tracks, restart = true)
+        p.bass?.let { id ->
+            Bass.lines.firstOrNull { it.id == id }?.let { line -> _ui.update { it.copy(bassId = line.id, bassOn = true, bassKey = line.root) } }
+        }
+        sendPattern(p, 0, restart = true)
         lastPass = 0
     }
 
@@ -197,7 +271,7 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
         if (!queue) {
             if (u.pendingVariation != null) NativeEngine.cancelQueuedPattern()
             _ui.update { it.copy(variation = idx, pendingVariation = null, fillOn = false) }
-            sendPattern(p, p.variations[idx].tracks, restart = false)
+            sendPattern(p, idx, restart = false)
             return
         }
         if (idx == u.variation) {  // volver a la activa cancela la espera
@@ -208,10 +282,10 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
             return
         }
         if (u.pendingVariation == idx) return
-        val c = p.compile(p.variations[idx].tracks)
+        val (c, len) = build(p, idx)
         swapBase = NativeEngine.seqStatus()[10].toInt()
         _ui.update { it.copy(pendingVariation = idx) }  // reemplaza a la que hubiera en espera
-        NativeEngine.queuePattern(c.ticks, c.pads, c.vels, p.lengthTicks, p.barTicks)
+        NativeEngine.queuePattern(c.ticks, c.pads, c.vels, len, p.barTicks)
     }
 
     fun togglePattern() {
@@ -238,7 +312,7 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
         if (breakIndex != null && breakIndex !in p.breaks.indices) return
         val v = u.pendingVariation ?: u.variation
         if (u.pendingVariation != null) NativeEngine.cancelQueuedPattern()
-        sendPattern(p, if (breakIndex == null) p.withFill(v) else p.withBreak(v, breakIndex), restart = false)
+        sendPattern(p, v, restart = false, last = if (breakIndex == null) p.withFill(v) else p.withBreak(v, breakIndex))
         lastPass = NativeEngine.seqStatus()[2].toInt()
         _ui.update { it.copy(variation = v, pendingVariation = null, fillOn = true, activeBreak = breakIndex) }
     }
@@ -350,7 +424,7 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
                 variation = variation, pendingVariation = pendingV,
             )
         }
-        revert?.let { p -> sendPattern(p, p.variations[revertVariation.coerceIn(0, p.variations.size - 1)].tracks, false) }
+        revert?.let { p -> sendPattern(p, revertVariation, false) }
     }
 
     // ---- secuenciador por pasos ----
@@ -418,7 +492,7 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
     /** Aplica la base editada al motor para probarla. */
     fun editorTry() {
         val p = _ui.value.editor?.pattern ?: return
-        sendPattern(p, p.variations[0].tracks, restart = true)
+        sendPattern(p, 0, restart = true)
         _ui.update { it.copy(patternId = p.id, variation = 0) }
         if (!_ui.value.patternOn) togglePattern()
     }
@@ -427,7 +501,7 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
         val e = _ui.value.editor ?: return
         viewModelScope.launch(Dispatchers.IO) { PatternRepository.saveUser(app, e.pattern) }
         _ui.update { it.copy(patternId = e.pattern.id, editor = e.copy(pattern = e.pattern.copy(factory = false))) }
-        sendPattern(e.pattern, e.pattern.variations[0].tracks, restart = true)
+        sendPattern(e.pattern, 0, restart = true)
     }
 
     fun deleteUserPattern(id: String) {

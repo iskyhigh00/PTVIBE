@@ -33,6 +33,8 @@ AudioEngine::AudioEngine() {
     params_[kComp].store(0.3f);
     params_[kMaster].store(0.9f);
     for (int i = 0; i < kPadCount; ++i) params_[kPadVol + i].store(1.0f);
+    params_[kBassVol].store(0.8f);
+    params_[kBassTone].store(0.5f);
     params_[kChordVol].store(0.8f);
     params_[kSoloVol].store(0.8f);
     params_[kDrumVol].store(1.0f);
@@ -104,6 +106,7 @@ bool AudioEngine::openAndStart(bool reopen) {
         }
         drumRoom_.init(sr_);
         synth_.init(sr_);
+        bass_.init(sr_);
         seq_.init(sr_);
         {  // clics del metrónomo
             auto make = [&](Sample& smp, float f, float dur) {
@@ -420,7 +423,10 @@ void AudioEngine::execSynth(const LoopEvent& e) {
 struct EngineSink : SeqSink {
     AudioEngine& e;
     explicit EngineSink(AudioEngine& eng) : e(eng) {}
-    void drumHit(int pad, float vel, int off) override { e.triggerDrum(pad, vel, off); }
+    void drumHit(int pad, float vel, int off) override {
+        if (pad >= kBassPadBase) e.triggerBass(pad - kBassPadBase, vel, off);
+        else e.triggerDrum(pad, vel, off);
+    }
     void synthEvent(const LoopEvent& ev) override { e.execSynth(ev); }
     void releaseChords() override {
         LoopEvent ev;
@@ -535,6 +541,13 @@ void AudioEngine::startVoice(const PadEvent& ev, int64_t now) {
     }
     seq_.recordDrum(pad, ev.f);
     triggerDrum(pad, ev.f, 0);
+}
+
+void AudioEngine::triggerBass(int note, float packed, int delayFrames) {
+    const float ticks = std::floor(packed);
+    const float vel = packed - ticks;
+    const double spt = sr_ * 60.0 / (std::max(20.0f, param(kBpm)) * kPPQ);
+    bass_.trigger(static_cast<float>(note), vel, delayFrames, static_cast<int>(std::max(1.0f, ticks) * spt));
 }
 
 void AudioEngine::triggerDrum(int pad, float velocity, int delayFrames) {
@@ -669,6 +682,12 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*, void* aud
         out[2 * i] = l * g;
         out[2 * i + 1] = r * g;
     }
+
+    // Bajo (fuera del bus de batería).
+    const bool seqPlaying = seq_.playing.load(std::memory_order_relaxed);
+    if (bassWasPlaying_ && !seqPlaying) bass_.allOff();
+    bassWasPlaying_ = seqPlaying;
+    bass_.render(out, numFrames, param(kBassTone), param(kBassVol));
 
     // Bus de acordes/solista y mezcla final.
     const SynthParams sp = synthParams();

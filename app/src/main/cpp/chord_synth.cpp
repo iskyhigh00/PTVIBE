@@ -10,12 +10,14 @@ struct Inst {
     float cutMul;
     float gain;
 };
-const Inst kInst[5] = {
+const Inst kInst[7] = {
     {0.003f, 1.4f, 0.45f, 0.40f, 0.35f, 4.0f, 0.22f},  // piano eléctrico
     {0.010f, 0.01f, 1.0f, 0.08f, 0.0f, 4.0f, 0.12f},   // órgano
     {0.500f, 0.60f, 0.8f, 1.20f, 0.0f, 0.8f, 0.20f},   // pad
     {0.300f, 0.30f, 0.85f, 0.70f, 0.0f, 1.2f, 0.17f},  // cuerdas
     {0.010f, 0.20f, 0.7f, 0.20f, 0.0f, 1.0f, 0.15f},   // lead
+    {0.002f, 0.05f, 1.0f, 0.15f, 0.0f, 1.5f, 0.42f},   // guitarra limpia
+    {0.002f, 0.05f, 1.0f, 0.12f, 0.0f, 1.0f, 0.11f},   // guitarra con distorsión y wah
 };
 
 inline float shape(float p, int curve) {
@@ -131,9 +133,41 @@ void SynthEngine::setSolo(int idx, float pitch, float filter, float vib, float v
     soloVol_[idx].store(vol, std::memory_order_relaxed);
 }
 
+void SynthEngine::pluckString(GString& g, float freq, bool dist) {
+    const float d = std::min(static_cast<float>(kGBuf - 4), std::max(2.0f, sr_ / freq));
+    const int len = static_cast<int>(d) + 2;
+    const float c = dist ? 0.75f : 0.45f;  // púa: más brillante con distorsión
+    float lp = 0;
+    for (int k = 0; k < kGBuf; ++k) g.buf[k] = 0;
+    for (int k = 0; k < len; ++k) {
+        seed_ = seed_ * 1664525u + 1013904223u;
+        const float r = static_cast<float>(seed_ >> 8) / 8388608.0f - 1.0f;
+        lp += c * (r - lp);
+        g.buf[(g.w - len + k) & (kGBuf - 1)] = lp * 1.6f;
+    }
+    g.last = 0;
+    g.pluck = false;
+}
+
+float SynthEngine::stringSample(GString& g, float freq, float damp, float loop) {
+    const float d = std::min(static_cast<float>(kGBuf - 4), std::max(2.0f, sr_ / freq - 0.5f));
+    float rp = static_cast<float>(g.w) - d;
+    while (rp < 0) rp += kGBuf;
+    const int i0 = static_cast<int>(rp);
+    const float fr = rp - i0;
+    const float x0 = g.buf[i0 & (kGBuf - 1)], x1 = g.buf[(i0 + 1) & (kGBuf - 1)];
+    const float y = x0 + (x1 - x0) * fr;
+    const float lp = damp * y + (1.0f - damp) * g.last;
+    g.last = y;
+    g.buf[g.w] = lp * loop;
+    g.w = (g.w + 1) & (kGBuf - 1);
+    return y;
+}
+
 void SynthEngine::soloOn(int idx, float midi, const SynthParams& p) {
     if (idx < 0 || idx >= kSoloVoices) return;
     soloPitch_[idx].store(midi, std::memory_order_relaxed);
+    strings_[idx].pluck = true;
     noteOn(kSoloBase + idx, midi, p);
     voices_[kSoloBase + idx].vibPhase = 0;
 }
@@ -152,7 +186,10 @@ void SynthEngine::render(float* outL, float* outR, int n, const SynthParams& p) 
         Voice& v = voices_[vi];
         if (!v.active) continue;
         const bool solo = vi >= kSoloBase;
-        const int ii = std::min(std::max(solo ? p.soloInstrument : p.instrument, 0), 4);
+        int ii = std::min(std::max(solo ? p.soloInstrument : p.instrument, 0), 6);
+        if (!solo && ii > 4) ii = 0;
+        const bool guitar = ii >= 5;
+        const bool dist = ii == 6;
         const Inst& in = kInst[ii];
         const float volScale = solo ? p.soloVolume : p.volume;
         // Las voces de acordes sostienen sin caer mientras el acorde suena (Sostener / Alternar / Mientras toco);
@@ -167,9 +204,25 @@ void SynthEngine::render(float* outL, float* outR, int n, const SynthParams& p) 
             vibMod = soloVib_[k].load(std::memory_order_relaxed);
             volMod = soloVol_[k].load(std::memory_order_relaxed);
         }
-        const float cut = 150.0f * std::exp2(p.cutoff * 7.0f) * in.cutMul *
-                          (solo ? std::exp2((filterMod - 1.0f) * 5.0f) : 1.0f);
-        v.filter.set(cut, p.resonance, static_cast<float>(sr_));
+        float cut = 150.0f * std::exp2(p.cutoff * 7.0f) * in.cutMul *
+                    (solo && !dist ? std::exp2((filterMod - 1.0f) * 5.0f) : 1.0f);
+        if (dist) cut = 4200.0f;  // caja de amplificador
+        v.filter.set(cut, dist ? 0.1f : p.resonance, static_cast<float>(sr_));
+        GString* gs = guitar ? &strings_[vi - kSoloBase] : nullptr;
+        float gDamp = 0, gLoopK = 0, wg = 0, wa1 = 0, wa2 = 0, wa3 = 0;
+        const float wk = 0.32f;
+        if (gs) {
+            const float f0 = 440.0f * std::exp2((v.midi - 69.0f) / 12.0f);
+            if (gs->pluck) pluckString(*gs, f0, dist);
+            gDamp = dist ? 0.62f : 0.5f;
+            gLoopK = -6.9f / (dist ? 9.0f : 3.5f);  // segundos hasta -60 dB
+            // Wah: el dedo (eje del filtro) mueve el pedal.
+            const float wf = 380.0f * std::exp2(std::min(std::max(filterMod, 0.0f), 1.2f) * 2.5f);
+            wg = std::tan(3.14159265f * std::min(wf, 0.45f * sr_) / sr_);
+            wa1 = 1.0f / (1.0f + wg * (wg + wk));
+            wa2 = wg * wa1;
+            wa3 = wg * wa2;
+        }
         const float vg = volScale * (solo ? volMod * volMod : 1.0f);
 
         for (int i = 0; i < n; ++i) {
@@ -220,6 +273,22 @@ void SynthEngine::render(float* outL, float* outR, int n, const SynthParams& p) 
             v.age += invSr;
             float s = 0;
             switch (ii) {
+                case 5: {  // guitarra limpia: cuerda + leve saturación de válvula
+                    const float y = stringSample(*gs, f, gDamp, std::exp(gLoopK / f));
+                    s = std::tanh(y * 1.6f) * 0.8f;
+                    break;
+                }
+                case 6: {  // guitarra con distorsión y wah
+                    const float y = stringSample(*gs, f, gDamp, std::exp(gLoopK / f));
+                    const float x = std::tanh(y * 10.0f);
+                    const float v3 = x - gs->wah2;
+                    const float v1 = wa1 * gs->wah1 + wa2 * v3;
+                    const float v2 = gs->wah2 + wa2 * gs->wah1 + wa3 * v3;
+                    gs->wah1 = 2 * v1 - gs->wah1;
+                    gs->wah2 = 2 * v2 - gs->wah2;
+                    s = v1 * wk * 2.2f + v2 * 0.25f;
+                    break;
+                }
                 case 0: {  // piano eléctrico FM
                     const float pc = adv(v.ph[0], dt);
                     const float pm = adv(v.ph[1], dt);

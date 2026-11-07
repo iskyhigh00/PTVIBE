@@ -110,7 +110,10 @@ class MainActivity : ComponentActivity() {
                             if (!fullscreen) {
                                 TopBar(mode, { mode = it }, chordsVm, soloVm, vm, sessionVm, panel, { panel = !panel }, { fullscreen = true })
                                 TransportBar(transportVm)
-                                if (mode == Mode.BATERIA || mode == Mode.MIXTO) PatternBar(transportVm)
+                                if (mode == Mode.BATERIA || mode == Mode.MIXTO) {
+                                    PatternBar(transportVm)
+                                    BassBar(transportVm)
+                                }
                                 if (mode == Mode.MIXTO) {
                                     Row(Modifier.padding(horizontal = 16.dp)) {
                                         FilterChip(selected = soloLayer, onClick = { soloLayer = !soloLayer },

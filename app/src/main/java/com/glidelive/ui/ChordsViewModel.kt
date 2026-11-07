@@ -27,6 +27,9 @@ enum class GlideCurve(val label: String) { LINEAR("Recta"), SMOOTH("Suave"), SLO
 
 val INSTRUMENTS = listOf("Piano eléctrico", "Órgano", "Pad", "Cuerdas", "Lead")
 
+/** Instrumentos del solista: los de acordes más las guitarras (cuerda pulsada). */
+val SOLO_INSTRUMENTS = INSTRUMENTS + listOf("Guitarra limpia", "Guitarra wah + distorsión")
+
 /** Edición de un pad: tipo, inversión, octava y notas fijadas (tonePc -> MIDI). */
 data class PadEdit(
     val type: ChordType? = null,

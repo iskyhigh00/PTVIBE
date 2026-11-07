@@ -92,10 +92,14 @@ fun SoloPanel(vm: SoloViewModel) {
     ) {
         Text("Instrumento del solista", style = MaterialTheme.typography.labelLarge)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            INSTRUMENTS.forEachIndexed { i, n ->
+            SOLO_INSTRUMENTS.forEachIndexed { i, n ->
                 FilterChip(selected = u.instrument == i, onClick = { vm.edit { it.copy(instrument = i) } },
                     label = { Text(n) })
             }
+        }
+        if (u.instrument == 6) {
+            Text("Wah: con la expresión «Filtro», subir o bajar el dedo mueve el pedal.", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         LabeledSlider("Volumen del solista", u.volume, 0f..1f) { v -> vm.edit { it.copy(volume = v) } }
         Text("Suavidad del deslizamiento: ${u.smoothMs} ms", style = MaterialTheme.typography.labelMedium)

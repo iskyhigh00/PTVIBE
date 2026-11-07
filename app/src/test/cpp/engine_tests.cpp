@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <thread>
 #include <vector>
+#include "bass_synth.h"
 #include "chord_synth.h"
 #include "sequencer.h"
 #include "synth_kit.h"
@@ -386,6 +387,67 @@ void testQueuedSwapCancelAndReplace() {
 
 }  // namespace
 
+// Altura por autocorrelación (busca el primer máximo entre 30 y 400 Hz).
+double zeroCrossHz(const std::vector<float>& x, int sr) {
+    int best = 0; double bestV = -1e9;
+    for (int lag = sr / 400; lag <= sr / 30; ++lag) {
+        double acc = 0;
+        for (size_t i = 0; i + lag < x.size(); ++i) acc += static_cast<double>(x[i]) * x[i + lag];
+        acc /= static_cast<double>(x.size() - lag);
+        if (acc > bestV) { bestV = acc; best = lag; }
+    }
+    return best ? static_cast<double>(sr) / best : 0;
+}
+
+// Bajo: suena en la altura pedida, respeta el desplazamiento dentro del bloque y se apaga al terminar la duración.
+void testBassNote() {
+    static BassSynth b;
+    b.init(48000);
+    b.trigger(42.0f, 0.8f, 100, 48000 / 2);  // F#2 (92.5 Hz), medio segundo
+    std::vector<float> st(2 * 512);
+    std::vector<float> mono;
+    for (int blk = 0; blk < 120; ++blk) {
+        std::fill(st.begin(), st.end(), 0.0f);
+        b.render(st.data(), 512, 0.1f, 1.0f);
+        for (int i = 0; i < 512; ++i) mono.push_back(st[2 * i]);
+    }
+    bool silentBefore = true;
+    for (int i = 0; i < 100; ++i) if (std::fabs(mono[i]) > 1e-6f) silentBefore = false;
+    CHECK(silentBefore, "bajo: nada antes del desplazamiento");
+    std::vector<float> seg(mono.begin() + 4800, mono.begin() + 4800 + 9600);
+    const double hz = zeroCrossHz(seg, 48000);
+    CHECK(hz > 89 && hz < 96, "bajo: F#2 cerca de 92.5 Hz");
+    float peak = 0;
+    for (float x : seg) peak = std::fmax(peak, std::fabs(x));
+    CHECK(peak > 0.02f, "bajo: suena");
+    CHECK(!b.active(), "bajo: se apaga despues de la duracion");
+}
+
+// Guitarras del solista: suenan, sin NaN, y la cuerda sigue al dedo.
+void testSoloGuitars() {
+    for (int inst = 5; inst <= 6; ++inst) {
+        static SynthEngine eng;
+        eng.init(48000);
+        SynthParams sp;
+        sp.soloInstrument = inst;
+        sp.room = 0; sp.chorus = 0;
+        eng.soloOn(0, 64.0f, sp);
+        eng.setSolo(0, 64.0f, 0.5f, 0.0f, 1.0f);
+        std::vector<float> l(512), rr(512);
+        float peak = 0;
+        bool finite = true;
+        for (int blk = 0; blk < 40; ++blk) {
+            if (blk == 20) eng.setSolo(0, 66.0f, 0.9f, 0.0f, 1.0f);  // bend de un tono
+            std::fill(l.begin(), l.end(), 0.0f); std::fill(rr.begin(), rr.end(), 0.0f);
+            eng.render(l.data(), rr.data(), 512, sp);
+            for (float x : l) { peak = std::fmax(peak, std::fabs(x)); if (!std::isfinite(x)) finite = false; }
+        }
+        CHECK(finite, "guitarra: sin NaN");
+        CHECK(peak > 0.01f && peak < 4.0f, "guitarra: nivel razonable");
+        CHECK(std::fabs(eng.currentMidi(SynthEngine::kSoloBase) - 66.0f) < 0.1f, "guitarra: sigue el bend");
+    }
+}
+
 int main() {
     testPatternSampleAccurate();
     testPolyrhythm();
@@ -404,6 +466,8 @@ int main() {
     testQueuedSwapMidBlock();
     testQueuedSwapImmediateWhenIdle();
     testQueuedSwapCancelAndReplace();
+    testBassNote();
+    testSoloGuitars();
     if (fails) { std::printf("FALLOS: %d\n", fails); return 1; }
     std::printf("OK: todas las pruebas de host pasan\n");
     return 0;

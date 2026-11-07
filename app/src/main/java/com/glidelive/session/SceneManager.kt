@@ -103,6 +103,8 @@ class SceneManager(
                 put("bpm", t.bpm); put("beats", t.meter.beats); put("unit", t.meter.unit); put("swing", t.swing.toDouble())
                 put("metro", t.metro); put("pattern", t.patternId ?: ""); put("variation", t.variation)
                 put("recQuant", t.recQuant.name); put("chordQuant", t.chordQuant.name)
+                put("bass", t.bassId ?: ""); put("bassOn", t.bassOn); put("bassKey", t.bassKey)
+                put("bassVol", t.bassVol.toDouble()); put("bassTone", t.bassTone.toDouble())
             })
         }
     }
@@ -191,6 +193,15 @@ class SceneManager(
                 recQuant = pick { RecQuant.valueOf(j.getString("recQuant")) } ?: RecQuant.FREE,
                 chordQuant = pick { ChordQuant.valueOf(j.getString("chordQuant")) } ?: ChordQuant.OFF,
             )
+            if (j.has("bass") || j.has("bassOn") || j.has("bassVol")) {
+                transport.applyBass(
+                    id = j.optString("bass").ifEmpty { null },
+                    on = if (j.has("bassOn")) j.getBoolean("bassOn") else null,
+                    key = if (j.has("bassKey")) j.getInt("bassKey") else null,
+                    vol = if (j.has("bassVol")) j.getDouble("bassVol").toFloat() else null,
+                    tone = if (j.has("bassTone")) j.getDouble("bassTone").toFloat() else null,
+                )
+            }
         }
     }
 }

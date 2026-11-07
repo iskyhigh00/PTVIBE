@@ -4,7 +4,7 @@
 #include "dsp.h"
 
 struct SynthParams {
-    int instrument = 0;     // 0 EP, 1 órgano, 2 pad, 3 cuerdas, 4 lead
+    int instrument = 0;     // 0 EP, 1 órgano, 2 pad, 3 cuerdas, 4 lead, 5 guitarra limpia, 6 guitarra wah (solo solista)
     float glideMs = 250;
     int curve = 1;          // 0 lineal, 1 S suave, 2 lenta al inicio
     float volume = 0.8f;
@@ -64,6 +64,20 @@ private:
     };
 
     void startGlide(Voice& v, float target, const SynthParams& p);
+
+    // Guitarra del solista: cuerda pulsada (Karplus-Strong) por dedo; la altura sigue al dedo y la cuerda se estira.
+    static constexpr int kGBuf = 4096;
+    struct GString {
+        float buf[kGBuf] = {};
+        int w = 0;
+        float last = 0;
+        bool pluck = false;
+        float wah1 = 0, wah2 = 0;
+    };
+    void pluckString(GString& g, float freq, bool dist);
+    float stringSample(GString& g, float freq, float damp, float loop);
+    GString strings_[kSoloVoices];
+    uint32_t seed_ = 987654321u;
 
     int sr_ = 48000;
     Voice voices_[kVoices];

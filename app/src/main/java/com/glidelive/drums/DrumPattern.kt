@@ -49,6 +49,8 @@ data class DrumPattern(
     /** Breaks: último compás alternativo (paradas, golpes desplazados, toms) que entra como el relleno. */
     val breaks: List<Variation> = emptyList(),
     val factory: Boolean = true,
+    /** Línea de bajo que acompaña a esta base (id en basslines.json), si la hay. */
+    val bass: String? = null,
 ) {
     val steps: Int get() = barSteps * bars
     val lengthTicks: Int get() = steps * unit
@@ -85,6 +87,7 @@ data class DrumPattern(
         put("fill", JSONObject(fill))
         put("end", JSONObject(end))
         put("breaks", JSONArray(breaks.map { b -> JSONObject().put("name", b.name).put("tracks", JSONObject(b.tracks)) }))
+        bass?.let { put("bass", it) }
     }
 
     companion object {
@@ -124,6 +127,7 @@ data class DrumPattern(
                     (0 until a.length()).map { Variation(a.getJSONObject(it).getString("name"), map(a.getJSONObject(it).getJSONObject("tracks"))) }
                 } ?: emptyList(),
                 factory = factory,
+                bass = o.optString("bass").ifEmpty { null },
             )
         }
 

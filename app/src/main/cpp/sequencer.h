@@ -5,6 +5,8 @@
 #include <cstdint>
 
 constexpr int kPPQ = 96;  // ticks por negra
+// Eventos de patrón con pad >= kBassPadBase son notas de bajo: midi = pad - kBassPadBase, f = ticks de duración + velocidad (0..1).
+constexpr int kBassPadBase = 64;
 
 struct LoopEvent {
     int32_t tick = 0;

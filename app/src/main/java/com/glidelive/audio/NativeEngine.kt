@@ -110,6 +110,8 @@ object NativeEngine {
     const val P_REC_QUANT = 39
     const val P_CHORD_QUANT = 40
     const val P_MUTE_MASK = 41
+    const val P_BASS_VOL = 42
+    const val P_BASS_TONE = 43
 
     fun seq(cmd: Int, a: Int = 0, b: Int = 0, f: Float = 0f) = synchronized(pushLock) { nativeSynthCmd(cmd, a, b, f) }
 
