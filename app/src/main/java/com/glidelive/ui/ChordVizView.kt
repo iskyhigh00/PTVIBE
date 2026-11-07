@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
@@ -31,8 +32,16 @@ class ChordVizView(context: Context) : View(context) {
     private val haloPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var appliedTheme: VizTheme? = null
     private val grid = Paint().apply { strokeWidth = 1f }
-    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 2.6f * dp; strokeCap = Paint.Cap.ROUND }
-    private val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 8f * dp; strokeCap = Paint.Cap.ROUND }
+    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeWidth = 1.7f * dp; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+    }
+    private val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeWidth = 4.5f * dp; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+    }
+    private val path = Path()
+    private var spanColor = IntArray(0)   // color de cada voz en cada columna (0 = no se dibuja)
+    private var spanY = FloatArray(0)
+    private var semisCur = 22f            // rango vertical visible (semitonos); se ajusta a las notas
     private val dot = Paint(Paint.ANTI_ALIAS_FLAG)
     private val big = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.LEFT; isFakeBoldText = true }
     private val accP = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.LEFT; isFakeBoldText = true }
@@ -44,7 +53,7 @@ class ChordVizView(context: Context) : View(context) {
     private var py = FloatArray(64)
     private var center = 60f
     private val windowMs = 8000.0
-    private val colX = 3f * dp
+    private val colX = 2f * dp
 
     // Instantánea por columna (se rellena bajo el lock del historial y se dibuja ya sin él)
     private var colN = IntArray(0)          // voces visibles en cada columna (de agudo a grave)
@@ -121,7 +130,7 @@ class ChordVizView(context: Context) : View(context) {
         }
     }
 
-    private fun yOf(p: Float) = chartTop + chartH / 2f - (p - center) * (chartH / SEMIS)
+    private fun yOf(p: Float) = chartTop + chartH / 2f - (p - center) * (chartH / semisCur)
 
     /** Color según el estilo elegido y el número de voces distintas (agudo claro, bajo distinto). */
     private fun colorFor(rank: Int, n: Int): Int = VizPrefs.current.color(rank, n)
@@ -147,15 +156,27 @@ class ChordVizView(context: Context) : View(context) {
             n = spans.size
             ensureVoices(n)
             // Centro vertical: sigue a las notas activas con suavidad.
-            var sum = 0f; var cnt = 0
+            var cnt = 0
+            var pMin = Float.MAX_VALUE; var pMax = -Float.MAX_VALUE
             var latest = -1.0e18
             for (i in 0 until n) {
                 val sp = spans[i]
-                if (sp.activeAt(now)) { sum += sp.pitchAt(now); cnt++ }
+                if (sp.activeAt(now)) {
+                    val pp = sp.pitchAt(now)
+                    if (pp < pMin) pMin = pp
+                    if (pp > pMax) pMax = pp
+                    cnt++
+                }
                 if (sp.startMs > latest) latest = sp.startMs
                 if (sp.endMs != Double.POSITIVE_INFINITY && sp.endMs > latest) latest = sp.endMs
             }
-            if (cnt > 0) { center += (sum / cnt - center) * 0.08f; busy = true }
+            if (cnt > 0) {
+                // Centro y zoom siguen al conjunto de notas: así las líneas se separan y se leen bien.
+                center += ((pMin + pMax) / 2f - center) * 0.08f
+                val target = (pMax - pMin + 12f).coerceIn(16f, 36f)
+                semisCur += (target - semisCur) * 0.06f
+                busy = true
+            }
             val marks = tl.marks
             val nm = marks.size
             if (markT.size < nm) { markT = DoubleArray(nm * 2); markName = arrayOfNulls(nm * 2) }
@@ -232,12 +253,16 @@ class ChordVizView(context: Context) : View(context) {
         c.save()
         c.clipRect(0f, chartTop, w, h)
 
-        // Cuadrícula: una línea por semitono.
-        val lo = (center - SEMIS / 2).toInt() - 1
-        for (m in lo..lo + SEMIS.toInt() + 2) {
-            val y = yOf(m.toFloat())
-            grid.color = if (Math.floorMod(m, 12) == 0) 0x40FFFFFF else 0x16FFFFFF
+        // Cuadrícula horizontal: una línea por semitono si caben limpias; si no, solo las de cada otro semitono.
+        val lo = (center - semisCur / 2).toInt() - 1
+        val step = if (chartH / semisCur >= 5f * dp) 1 else 2
+        grid.strokeWidth = 1f
+        var m = lo - Math.floorMod(lo, step)
+        while (m <= lo + semisCur.toInt() + 3) {
+            val y = Math.round(yOf(m.toFloat())).toFloat() + 0.5f   // alineada al píxel: línea nítida
+            grid.color = if (Math.floorMod(m, 12) == 0) 0x38FFFFFF else 0x10FFFFFF
             c.drawLine(0f, y, w, y, grid)
+            m += step
         }
         // Cuadrícula vertical muy tenue cada segundo: se desplaza con el tiempo.
         grid.color = 0x0DFFFFFF
@@ -257,13 +282,13 @@ class ChordVizView(context: Context) : View(context) {
             c.drawLine(x, chartTop, x, h, grid)
         }
 
-        // Voces.
-        java.util.Arrays.fill(lastVoice, 0, n, -2)
+        // Voces: una curva continua por voz (sin segmentos sueltos ni cuentas); brillo suave solo en lo ya tocado.
+        val cap = min(n, SPAN_CAP)
+        val off = n - cap
+        if (spanColor.size < cap * cols) { spanColor = IntArray(cap * cols); spanY = FloatArray(cap * cols) }
+        java.util.Arrays.fill(spanColor, 0, cap * cols, 0)
         for (col in 0 until cols) {
-            val x = col * colX
-            val a = if (x > playX) 0.30f else 1f
             val base = col * MAXV
-            // Notas distintas de la columna (las que coinciden se funden en una sola línea).
             var dn = 0
             var lastP = Float.NaN
             for (r in 0 until colN[col]) {
@@ -274,19 +299,40 @@ class ChordVizView(context: Context) : View(context) {
             var rank = 0
             lastP = Float.NaN
             for (r in 0 until colN[col]) {
-                val idx = colIdx[base + r]
+                val li = colIdx[base + r] - off
                 val p = colP[base + r]
-                if (!lastP.isNaN() && abs(lastP - p) < 0.05f) continue
+                if (!lastP.isNaN() && abs(lastP - p) < 0.05f) continue   // voces que coinciden: una sola línea
                 lastP = p
-                val colr = colorFor(rank, dn)
-                val y = yOf(p)
-                if (lastVoice[idx] == col - 1) {
-                    glow.color = withA(colr, 0.16f * a); c.drawLine(px[idx], py[idx], x, y, glow)
-                    line.color = withA(colr, a); c.drawLine(px[idx], py[idx], x, y, line)
-                }
-                px[idx] = x; py[idx] = y; lastVoice[idx] = col
+                if (li >= 0) { spanColor[li * cols + col] = colorFor(rank, dn); spanY[li * cols + col] = yOf(p) }
                 rank++
             }
+        }
+        for (li in 0 until cap) {
+            val rowBase = li * cols
+            var runColor = 0
+            var runFuture = false
+            for (col in 0 until cols) {
+                val colr = spanColor[rowBase + col]
+                if (colr == 0) {
+                    if (runColor != 0) { flushRun(c, runColor, runFuture); runColor = 0 }
+                    continue
+                }
+                val x = col * colX
+                val y = spanY[rowBase + col]
+                val fut = x > playX
+                if (runColor == 0) {
+                    runColor = colr; runFuture = fut
+                    path.moveTo(x, y)
+                } else if (colr != runColor || fut != runFuture) {
+                    path.lineTo(x, y)                 // el tramo anterior termina aquí...
+                    flushRun(c, runColor, runFuture)
+                    runColor = colr; runFuture = fut  // ...y el siguiente empieza exactamente en el mismo punto
+                    path.moveTo(x, y)
+                } else {
+                    path.lineTo(x, y)
+                }
+            }
+            if (runColor != 0) flushRun(c, runColor, runFuture)
         }
 
         // Salida proyectada (solo si no hay un bucle de acordes sonando).
@@ -294,7 +340,8 @@ class ChordVizView(context: Context) : View(context) {
 
         // Playhead fijo con puntos brillantes y la nota a su derecha.
         grid.color = 0x99FFFFFF.toInt()
-        c.drawLine(playX, chartTop, playX, h, grid)
+        grid.strokeWidth = 1f
+        c.drawLine(Math.round(playX).toFloat() + 0.5f, chartTop, Math.round(playX).toFloat() + 0.5f, h, grid)
         val lineH = small.textSize
         var prevY = -1.0e9f
         var far = false
@@ -302,9 +349,9 @@ class ChordVizView(context: Context) : View(context) {
             val p = actP[r]
             val col = colorFor(r, actN)
             val y = yOf(p)
-            dot.color = withA(col, if (r == 0) 0.30f else 0.25f)
-            c.drawCircle(playX, y, (if (r == 0) 17f else 11f) * dp, dot)
-            dot.color = col; c.drawCircle(playX, y, 5f * dp, dot)
+            dot.color = withA(col, if (r == 0) 0.22f else 0.16f)
+            c.drawCircle(playX, y, (if (r == 0) 10f else 8f) * dp, dot)
+            dot.color = col; c.drawCircle(playX, y, 3.6f * dp, dot)
             // Etiquetas demasiado juntas: se alterna entre un desplazamiento cercano y otro lejano.
             far = if (abs(y - prevY) < 1.2f * lineH) !far else false
             prevY = y
@@ -374,25 +421,21 @@ class ChordVizView(context: Context) : View(context) {
             val colr = colorFor(r, n)
             val y0 = yOf(actP[r])
             val converge = r != midR && r != bassR
-            val segs = if (converge) 14 else 8
-            var x0 = playX; var yy0 = y0
-            for (sgi in 1..segs) {
-                val t = sgi / segs.toFloat()
-                val x1: Float; val y1: Float; val al: Float
-                if (converge) {
-                    x1 = playX + (endX - playX) * t
+            path.rewind()
+            path.moveTo(playX, y0)
+            if (converge) {
+                val segs = 28
+                for (sgi in 1..segs) {
+                    val t = sgi / segs.toFloat()
                     val sm = t * t * (3 - 2 * t)
-                    y1 = y0 + (yMid - y0) * sm
-                    al = 0.35f * (1f - t)
-                } else {
-                    x1 = playX + (w - playX) * t
-                    y1 = y0
-                    al = 0.30f - 0.20f * t
+                    path.lineTo(playX + (endX - playX) * t, y0 + (yMid - y0) * sm)
                 }
-                glow.color = withA(colr, 0.12f * al / 0.35f); c.drawLine(x0, yy0, x1, y1, glow)
-                line.color = withA(colr, al); c.drawLine(x0, yy0, x1, y1, line)
-                x0 = x1; yy0 = y1
+            } else {
+                path.lineTo(w, y0)
             }
+            // Trazo único con transparencia uniforme (sin solapes): se ve limpio y se atenúa hacia el borde.
+            line.color = withA(colr, if (converge) 0.28f else 0.24f)
+            c.drawPath(path, line)
         }
         // Etiquetas tenues de la mediana y el bajo donde terminan las curvas.
         small.color = withA(colorFor(midR, n), 0.45f)
@@ -403,12 +446,20 @@ class ChordVizView(context: Context) : View(context) {
         }
     }
 
+    /** Dibuja el tramo acumulado en [path]: brillo suave (solo pasado) y línea fina y nítida. */
+    private fun flushRun(c: Canvas, color: Int, future: Boolean) {
+        if (!future) { glow.color = withA(color, 0.10f); c.drawPath(path, glow) }
+        line.color = withA(color, if (future) 0.30f else 1f)
+        c.drawPath(path, line)
+        path.rewind()
+    }
+
     private fun withA(c: Int, a: Float) = (c and 0x00FFFFFF) or ((a.coerceIn(0f, 1f) * 255).toInt() shl 24)
 
     private companion object {
         const val MAXV = 16
         const val RECENT_MS = 4000.0
-        const val SEMIS = 28f
+        const val SPAN_CAP = 48
         val WHITE = 0xFFFFFFFF.toInt()
         val RED = 0xFFFF5A4D.toInt()
         val LILA = 0xFFB48CFF.toInt()

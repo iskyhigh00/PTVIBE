@@ -127,7 +127,7 @@ class MainActivity : ComponentActivity() {
                                         Mode.VOCES -> {
                                             AndroidView(
                                                 factory = { ChordVizView(it) },
-                                                modifier = Modifier.weight(1.1f).fillMaxWidth().padding(bottom = 6.dp),
+                                                modifier = Modifier.weight(2.2f).fillMaxWidth().padding(bottom = 6.dp),
                                             )
                                             ChordsScreen(chordsVm, compact = true, Modifier.weight(1f))
                                         }

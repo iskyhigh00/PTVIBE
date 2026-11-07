@@ -45,7 +45,7 @@ class PerformHost(context: Context) : LinearLayout(context) {
         showViz = viz; showChords = chords; showSolo = solo; showDrums = drums; horizontalMode = horizontal
         orientation = if (horizontal) HORIZONTAL else VERTICAL
         removeAllViews()
-        if (viz) addView(this.viz, lp(0.8f))
+        if (viz) addView(this.viz, lp(1.1f))
         if (chords) addView(this.chords, lp(1.2f))
         if (solo) addView(soloFrame, lp(if (drums && !horizontal) 1.0f else 1.3f))
         if (drums) addView(this.drums, lp(1.3f))
