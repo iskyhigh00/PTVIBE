@@ -9,6 +9,7 @@ import com.glidelive.audio.NativeEngine
 import com.glidelive.theory.Bank
 import com.glidelive.theory.Chord
 import com.glidelive.theory.ChordBanks
+import com.glidelive.theory.CuratedBanks
 import com.glidelive.theory.ChordType
 import com.glidelive.theory.PadDef
 import com.glidelive.theory.Scale
@@ -82,9 +83,11 @@ internal object PadRows {
     fun get(tonic: Int, scale: Scale, bank: Bank, quality: ChordType?, transpose: Int): Entry {
         val k = Key(tonic, scale, bank, quality, transpose)
         entry?.let { if (k == key) return it }
-        val rows = when (bank) {
-            Bank.DIATONIC -> ChordBanks.diatonic(tonic, scale, quality)
-            Bank.II_V_I -> ChordBanks.iiVI(transpose)
+        val curated = bank.curated?.let { CuratedBanks.byId(it) }
+        val rows = when {
+            curated != null -> CuratedBanks.rows(curated, tonic)
+            bank == Bank.II_V_I -> ChordBanks.iiVI(transpose)
+            else -> ChordBanks.diatonic(tonic, scale, quality)
         }
         val e = Entry(rows, rows.flatten().associateBy { it.id })
         key = k
@@ -117,8 +120,11 @@ class ChordsViewModel : ViewModel() {
         }
     }
 
-    private fun publishKey(u: ChordsUi) =
-        SharedHarmony.update { it.copy(tonic = u.tonic, scale = u.scale) }
+    /** Tonalidad y escala para el solista; los bancos C1..C8 traen su propia escala (mayor, menor, dórica). */
+    private fun publishKey(u: ChordsUi) {
+        val bankScale = u.bank.curated?.let { CuratedBanks.byId(it)?.scale }
+        SharedHarmony.update { it.copy(tonic = u.tonic, scale = bankScale ?: u.scale) }
+    }
 
     fun edit(f: (ChordsUi) -> ChordsUi) {
         _ui.update(f)
@@ -147,10 +153,17 @@ class ChordsViewModel : ViewModel() {
             return
         }
         val chord = u.chordOf(def)
-        val e = u.edits[id] ?: PadEdit()
+        val e = u.edits[id]
         val tones = chord.tones
-        val inv = e.inversion.coerceIn(0, tones.size - 1)
-        player.play(tones, if (inv > 0) inv else null, e.fixed, e.octave, u.rangeLo, u.rangeHi)
+        val fixedVoicing = def.voicing
+        if (fixedVoicing != null && (e == null || e.isDefault)) {
+            // Bancos C1..C8: voicing diseñado y verificado, siempre igual (suena bien sea cual sea el anterior).
+            player.playVoicing(fixedVoicing)
+        } else {
+            val ed = e ?: PadEdit()
+            val inv = ed.inversion.coerceIn(0, tones.size - 1)
+            player.play(tones, if (inv > 0) inv else null, ed.fixed, ed.octave, u.rangeLo, u.rangeHi)
+        }
         SharedHarmony.update { it.copy(chordPcs = tones) }
         _ui.update { it.copy(activeId = id) }
     }

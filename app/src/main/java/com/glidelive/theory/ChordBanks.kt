@@ -1,10 +1,19 @@
 package com.glidelive.theory
 
-data class PadDef(val id: String, val chord: Chord, val roman: String)
+/** Pad de acorde. [voicing]: notas MIDI fijas (bancos C1..C8); null = las elige el voice leading. */
+data class PadDef(val id: String, val chord: Chord, val roman: String, val voicing: List<Int>? = null)
 
-enum class Bank(val label: String) {
+enum class Bank(val label: String, val curated: String? = null) {
     DIATONIC("Del tono"),
     II_V_I("Cadena ii–V–I"),
+    C1("C1 · Nocturno", "C1"),
+    C2("C2 · Amanecer", "C2"),
+    C3("C3 · Cuarto menor", "C3"),
+    C4("C4 · Soul", "C4"),
+    C5("C5 · Cielo abierto", "C5"),
+    C6("C6 · Gospel", "C6"),
+    C7("C7 · Cine", "C7"),
+    C8("C8 · Brillo", "C8"),
 }
 
 object ChordBanks {

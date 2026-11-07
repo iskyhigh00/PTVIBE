@@ -116,4 +116,16 @@ class ChordPlayerTest {
         tasks[0].action()
         assertEquals(1, cmds.filterIsInstance<SynthCommand.Release>().size)
     }
+
+    @Test fun fixedVoicingIsPlayedExactlyAndGlidesFromThePrevious() {
+        player.playVoicing(listOf(41, 64, 67, 69, 72))          // Fmaj9 del banco C5
+        val ons = cmds.filterIsInstance<SynthCommand.NoteOn>()
+        assertEquals(listOf(41, 64, 67, 69, 72), ons.map { it.midi })
+        cmds.clear()
+        player.playVoicing(listOf(45, 64, 67, 69, 72))          // Am7: solo se mueve el bajo
+        val glides = cmds.filterIsInstance<SynthCommand.GlideTo>()
+        assertEquals(5, glides.size)
+        assertEquals(setOf(45, 64, 67, 69, 72), glides.map { it.midi }.toSet())
+        assertEquals(listOf(45, 64, 67, 69, 72), player.lastVoicing)
+    }
 }

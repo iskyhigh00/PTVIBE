@@ -21,6 +21,9 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -87,13 +90,17 @@ fun ChordsScreen(vm: ChordsViewModel, compact: Boolean, modifier: Modifier = Mod
             }
         }
 
-        val padRows = u.rows
+        val allRows = u.rows
+        // Compacto (Voces / Mixto): con más de dos filas se muestra una sola, más grande, y se elige cuál.
+        var rowSel by rememberSaveable { mutableIntStateOf(1) }
+        val oneRow = compact && allRows.size > 2
+        val padRows = if (oneRow) listOf(allRows[rowSel.coerceIn(0, allRows.size - 1)]) else allRows
         val rows = remember(padRows, u.edits) {
             padRows.map { row -> row.map { PadUi(it.id, u.chordOf(it).name(), it.roman + " · " + u.chordOf(it).type.plain) } }
         }
         val edited = u.edits.keys
         val pending by vm.pending.collectAsState()
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        Box(Modifier.weight(1f).fillMaxWidth().heightIn(min = 64.dp)) {
         AndroidView(
             factory = { ChordPadsView(it) },
             update = {
@@ -116,6 +123,13 @@ fun ChordsScreen(vm: ChordsViewModel, compact: Boolean, modifier: Modifier = Mod
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (oneRow) {
+                val names = if (u.bank == Bank.DIATONIC) listOf("Tríadas", "Séptimas", "Prestados")
+                    else List(allRows.size) { "Fila ${it + 1}" }
+                names.forEachIndexed { i, n ->
+                    FilterChip(selected = rowSel == i, onClick = { rowSel = i }, label = { Text(n) })
+                }
+            }
             Text("Deslizar ${u.glideMs} ms", style = MaterialTheme.typography.labelMedium)
             Slider(
                 value = u.glideMs.toFloat(),

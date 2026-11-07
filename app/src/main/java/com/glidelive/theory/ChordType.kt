@@ -20,7 +20,10 @@ enum class ChordType(val symbol: String, val label: String, val intervals: List<
     DOM11("11", "11", listOf(0, 4, 7, 10, 14, 17)),
     DOM13("13", "13", listOf(0, 4, 7, 10, 14, 21)),
     DIM7("dim7", "dim7", listOf(0, 3, 6, 9)),
-    MMAJ7("m(maj7)", "mMaj7", listOf(0, 3, 7, 11));
+    MMAJ7("m(maj7)", "mMaj7", listOf(0, 3, 7, 11)),
+    DOM7SUS4("7sus4", "7sus4", listOf(0, 5, 7, 10)),
+    DOM9("9", "9", listOf(0, 4, 7, 10, 14)),
+    SIX_NINE("6/9", "6/9", listOf(0, 4, 7, 9, 14));
 
     /** Descripción corta en palabras, para el subtítulo del pad. */
     val plain: String
@@ -32,6 +35,7 @@ enum class ChordType(val symbol: String, val label: String, val intervals: List<
             ADD9 -> "mayor + 9ª"; SIX -> "mayor 6ª"; MIN6 -> "menor 6ª"
             DOM11 -> "dominante 11ª"; DOM13 -> "dominante 13ª"
             DIM7 -> "disminuido 7ª"; MMAJ7 -> "menor-mayor 7ª"
+            DOM7SUS4 -> "dominante sus4"; DOM9 -> "dominante 9ª"; SIX_NINE -> "mayor 6/9"
         }
 
     /** Nombre para botones: palabras primero, símbolo entre paréntesis. */

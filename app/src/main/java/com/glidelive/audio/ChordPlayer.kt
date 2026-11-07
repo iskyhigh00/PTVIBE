@@ -41,7 +41,6 @@ class ChordPlayer(
         lo: Int,
         hi: Int,
     ): VoiceLeading.Result {
-        flushTail()
         val res = VoiceLeading.resolve(
             prev = lastVoicing,
             tones = tones,
@@ -50,6 +49,21 @@ class ChordPlayer(
             bassTone = bassTone,
             fixed = fixed,
         )
+        return apply(res)
+    }
+
+    /**
+     * Toca un voicing fijo (notas MIDI, puede repetir clases de altura). Las voces glisan desde el acorde anterior
+     * con la misma alineación sin cruces que el voice leading normal.
+     */
+    fun playVoicing(voicing: List<Int>): VoiceLeading.Result {
+        val notes = voicing.sorted()
+        val (links, cost) = VoiceLeading.align(lastVoicing, notes)
+        return apply(VoiceLeading.Result(notes, notes.indices.toList(), links, cost))
+    }
+
+    private fun apply(res: VoiceLeading.Result): VoiceLeading.Result {
+        flushTail()
         val notes = res.notes
         if (!sounding || slots.isEmpty()) {
             slots = IntArray(notes.size) { it }
