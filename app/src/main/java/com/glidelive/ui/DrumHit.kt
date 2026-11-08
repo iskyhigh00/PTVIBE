@@ -31,6 +31,24 @@ object DrumHit {
         return layout.owner[row * layout.cols + col]
     }
 
+    /**
+     * Como [hitTest], pero los huecos entre pads (el [gap] que los separa) no tocan nada: un roce entre dos pads no suena.
+     * Devuelve -1 si el toque cae en un hueco.
+     */
+    fun hitTestStrict(layout: PadLayout, x: Float, y: Float, w: Int, h: Int, gap: Float): Int {
+        val i = hitTest(layout, x, y, w, h)
+        if (i < 0) return -1
+        val c = layout.cells[i] ?: return -1
+        val cw = w.toFloat() / layout.cols
+        val ch = h.toFloat() / layout.rows
+        val l = c[0] * cw + gap / 2; val t = c[1] * ch + gap / 2
+        val r = (c[0] + c[2]) * cw - gap / 2; val b = (c[1] + c[3]) * ch - gap / 2
+        // Los bordes de la vista cuentan como parte del pad (no hay vecino al otro lado).
+        val inX = x >= l - (if (c[0] == 0) gap else 0f) && x <= r + (if (c[0] + c[2] == layout.cols) gap else 0f)
+        val inY = y >= t - (if (c[1] == 0) gap else 0f) && y <= b + (if (c[1] + c[3] == layout.rows) gap else 0f)
+        return if (inX && inY) i else -1
+    }
+
     /** Posición del toque dentro del pad, de -1 (izquierda/arriba) a 1 (derecha/abajo). */
     fun norm(v: Float, lo: Float, hi: Float): Float = ((v - lo) / max(hi - lo, 1f) * 2f - 1f).coerceIn(-1f, 1f)
 

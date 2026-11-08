@@ -135,8 +135,23 @@ class DrumPadsView(context: Context) : View(context) {
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) = relayout(w, h)
 
+    // Los pads se iluminan con cada golpe real del motor: toques, teclas asignadas, MIDI y bases.
+    private val hitListener: (com.glidelive.viz.EngineEvent) -> Unit = { e ->
+        if (e.type == 0 && e.a in 0 until Pads.COUNT) post { flash[e.a] = 1f; invalidate() }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        com.glidelive.viz.EventHub.addListener(hitListener)
+    }
+
+    override fun onDetachedFromWindow() {
+        com.glidelive.viz.EventHub.removeListener(hitListener)
+        super.onDetachedFromWindow()
+    }
+
     private fun relayout(w: Int, h: Int) {
-        DrumHit.geometry(padLayout, w, h, 6f * dp, left, top, right, bottom)
+        DrumHit.geometry(padLayout, w, h, GAP_DP * dp, left, top, right, bottom)
         corner = 16f * dp
         val base = 0xFF15151F.toInt()
         for (i in 0 until n) {
@@ -202,7 +217,7 @@ class DrumPadsView(context: Context) : View(context) {
         val x = e.getX(idx)
         val y = e.getY(idx)
         if (x < 0f || y < 0f || x > width || y > height) return  // fuera de la vista (p. ej. Mixto con varias vistas)
-        val i = DrumHit.hitTest(padLayout, x, y, width, height)
+        val i = DrumHit.hitTestStrict(padLayout, x, y, width, height, GAP_DP * dp)  // el hueco entre pads no suena
         if (i < 0) return
         val nx = DrumHit.norm(x, left[i], right[i])
         val ny = DrumHit.norm(y, top[i], bottom[i])
@@ -275,6 +290,7 @@ class DrumPadsView(context: Context) : View(context) {
 
     private companion object {
         const val CHOKE_MS = 350L
+        const val GAP_DP = 12f
         const val VIOLET = 0xFF6B4EFF.toInt()
         const val PINK = 0xFFFF6B9D.toInt()
         const val MINT = 0xFF00E5A0.toInt()

@@ -114,6 +114,17 @@ class MidiInput(ctx: Context) {
     }
 
     private fun noteOn(ch: Int, note: Int, vel: Int, ts: Long) {
+        if (vel > 0 && com.glidelive.ui.PadBindings.learnMidi(note)) return  // asignando una tecla a un pad: no suena
+        if (ch != 9) {
+            // Teclas asignadas a pads (cualquier pad, también combos); lo que no está asignado sigue tocando el solista.
+            val bound = com.glidelive.ui.PadBindings.padForMidi(note)
+            if (bound != null) {
+                val ns = if (ts > 0 && ts <= System.nanoTime()) ts else 0L
+                val v = (vel / 127f).coerceAtLeast(0.05f)
+                for (m in com.glidelive.ui.Pads.members(bound)) NativeEngine.triggerNs(m, v, ns)
+                return
+            }
+        }
         if (ch == 9) {
             val pad = padOfNote[note] ?: return
             // Instante del mensaje (base System.nanoTime = reloj monotónico del motor); 0 = ahora.

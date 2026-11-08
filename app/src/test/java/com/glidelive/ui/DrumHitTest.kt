@@ -99,4 +99,21 @@ class DrumHitTest {
             assertEquals(DrumHit.VELOCITY, DrumHit.velocity(pad, nx, ny), 0f)
         }
     }
+
+    @Test fun gapsBetweenPadsAreDeadAndPadCentersStillHit() {
+        val w = 1600; val h = 800; val gap = 24f
+        for (layout in PadLayout.entries) {
+            val l = FloatArray(Pads.TOTAL); val t = FloatArray(Pads.TOTAL)
+            val r = FloatArray(Pads.TOTAL); val b = FloatArray(Pads.TOTAL)
+            DrumHit.geometry(layout, w, h, gap, l, t, r, b)
+            for (i in 0 until Pads.TOTAL) {
+                if (!layout.visible(i)) continue
+                val cx = (l[i] + r[i]) / 2; val cy = (t[i] + b[i]) / 2
+                assertEquals("${layout.name} centro de $i", i, DrumHit.hitTestStrict(layout, cx, cy, w, h, gap))
+                // Justo dentro del borde del pad sigue sonando; justo fuera (en el hueco) no.
+                assertEquals("${layout.name} borde interior de $i", i, DrumHit.hitTestStrict(layout, l[i] + 2f, cy, w, h, gap))
+                if (l[i] > gap) assertEquals("${layout.name} hueco a la izquierda de $i", -1, DrumHit.hitTestStrict(layout, l[i] - gap / 2, cy, w, h, gap))
+            }
+        }
+    }
 }

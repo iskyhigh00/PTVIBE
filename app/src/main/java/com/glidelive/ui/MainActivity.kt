@@ -92,6 +92,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         EventHub.start(lifecycleScope)
         VizPrefs.init(this)
+        PadBindings.init(this)
         sessionVm.attach(chordsVm, soloVm, vm, transportVm)
         setContent {
             AppTheme {
@@ -114,6 +115,8 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     if (demoOpen) DemoDialog(transportVm, onDismiss = { demoOpen = false }, onStart = startDemo)
+                    var keysOpen by remember { mutableStateOf(false) }
+                    LaunchedEffect(mode) { PadBindings.keysEnabled = mode == Mode.BATERIA || mode == Mode.MIXTO }
                     val shortScreen = cfg.screenHeightDp < 480
                     var fullscreen by rememberSaveable { mutableStateOf(false) }
                     var soloLayer by rememberSaveable { mutableStateOf(false) }
@@ -136,6 +139,7 @@ class MainActivity : ComponentActivity() {
                                         Picker("Pads: ${k.padLayout.label}", PadLayout.entries, { it.label + " — " + it.hint }) { l ->
                                             vm.editKit { it.copy(padLayout = l) }
                                         }
+                                        TextButton(onClick = { keysOpen = true }) { Text("Teclas de los pads…") }
                                     }
                                 }
                                 if (mode == Mode.MIXTO) {
@@ -196,10 +200,27 @@ class MainActivity : ComponentActivity() {
                                 modifier = Modifier.align(Alignment.TopEnd).windowInsetsPadding(playInsets),
                             ) { Text("⤡ Salir") }
                         }
+                        if (keysOpen) PadKeysPanel(sessionVm.midi.status, onClose = { keysOpen = false; PadBindings.startLearn(null) })
                     }
                 }
             }
         }
+    }
+
+    /** Teclado físico: cada tecla asignada toca su pad (y, si se está asignando, queda ligada al pad en espera). */
+    override fun dispatchKeyEvent(e: android.view.KeyEvent): Boolean {
+        val code = e.keyCode
+        if (e.action == android.view.KeyEvent.ACTION_DOWN && e.repeatCount == 0 && e.isPrintingKey && PadBindings.learnKey(code)) return true
+        if (PadBindings.keysEnabled && !e.isCtrlPressed && !e.isAltPressed && !e.isMetaPressed) {
+            val pad = PadBindings.padForKey(code)
+            if (pad != null) {
+                if (e.action == android.view.KeyEvent.ACTION_DOWN && e.repeatCount == 0) {
+                    for (m in Pads.members(pad)) NativeEngine.trigger(m, DrumHit.VELOCITY, e.eventTime)
+                }
+                return true
+            }
+        }
+        return super.dispatchKeyEvent(e)
     }
 
     override fun onResume() {
