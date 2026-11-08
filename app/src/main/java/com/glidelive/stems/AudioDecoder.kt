@@ -22,6 +22,7 @@ object AudioDecoder {
     }
 
     fun decode(file: File, onProgress: (Float) -> Unit = {}): Decoded {
+        com.glidelive.princess.WavIo.read(file)?.let { return it }  // WAV 16 bit: lectura directa
         val ex = MediaExtractor()
         ex.setDataSource(file.absolutePath)
         return run(ex, onProgress)

@@ -83,6 +83,7 @@ class MainActivity : ComponentActivity() {
     private val chordsVm: ChordsViewModel by viewModels()
     private val soloVm: SoloViewModel by viewModels()
     private val stemsVm: StemsViewModel by viewModels()
+    private val princessVm: PrincessViewModel by viewModels()
     private val transportVm: TransportViewModel by viewModels()
     private val sessionVm: SessionViewModel by viewModels()
 
@@ -132,7 +133,7 @@ class MainActivity : ComponentActivity() {
                                 TopBar(mode, { mode = it }, chordsVm, soloVm, vm, sessionVm, transportVm, panel, { panel = !panel },
                                     { fullscreen = true }, { demoOpen = true })
                                 DemoStrip(transportVm) { demoOpen = true }
-                                if (mode != Mode.PISTAS) StemStrip(stemsVm) { mode = Mode.PISTAS }
+                                if (mode != Mode.PISTAS && mode != Mode.PRINCESS) StemStrip(stemsVm) { mode = Mode.PISTAS }
                                 if (mode == Mode.BATERIA || mode == Mode.MIXTO) {
                                     PatternBar(transportVm) {
                                         val k by vm.kit.collectAsState()
@@ -165,6 +166,10 @@ class MainActivity : ComponentActivity() {
                                         }
                                         Mode.SOLISTA -> SoloHost(soloVm, Modifier.weight(1f))
                                         Mode.BATERIA -> DrumsHost(kit.pressure, kit.padLayout, Modifier.weight(1f))
+                                        Mode.PRINCESS -> {
+                                            androidx.compose.runtime.LaunchedEffect(Unit) { princessVm.beforePlay = { stemsVm.close() } }
+                                            PrincessScreen(princessVm, Modifier.weight(1f))
+                                        }
                                         Mode.PISTAS -> {
                                             val soloUi by soloVm.ui.collectAsState()
                                             StemsScreen(stemsVm, Modifier.weight(1f), soloUi.instrument) { i -> soloVm.edit { it.copy(instrument = i) } }
@@ -251,7 +256,7 @@ val playInsets: WindowInsets
     @Composable get() = WindowInsets.safeDrawing.union(WindowInsets.systemGestures.only(WindowInsetsSides.Horizontal))
 
 enum class Mode(val label: String) {
-    ACORDES("Acordes"), VOCES("Voces"), DUO("Voces + Solista"), SOLISTA("Solista"), BATERIA("Batería"), MIXTO("Mixto"), PISTAS("Pistas")
+    ACORDES("Acordes"), VOCES("Voces"), DUO("Voces + Solista"), SOLISTA("Solista"), BATERIA("Batería"), MIXTO("Mixto"), PISTAS("Pistas"), PRINCESS("Princess")
 }
 
 @Composable
@@ -303,7 +308,7 @@ private fun TopBar(
                 }
             }
         }
-        if (mode != Mode.BATERIA && mode != Mode.PISTAS) KeyControls(chords)
+        if (mode != Mode.BATERIA && mode != Mode.PISTAS && mode != Mode.PRINCESS) KeyControls(chords)
         EqBars(level = { engine.level.value })
     }
 }
