@@ -64,7 +64,7 @@ class Hpss(private val nFft: Int = 2048, private val hop: Int = 512, private val
         val n = src.size
         val out = FloatArray(n)
         val half = k / 2
-        val win = FloatArray(k)
+        val win = FloatArray(k + 1)
         var size = 0
         // Ventana ordenada con inserción / borrado binario.
         fun insert(v: Float) {
@@ -81,10 +81,10 @@ class Hpss(private val nFft: Int = 2048, private val hop: Int = 512, private val
         }
         for (i in 0 until minOf(n, half)) insert(src[i])
         for (i in 0 until n) {
-            val add = i + half
-            if (add < n) insert(src[add])
             val drop = i - half - 1
             if (drop >= 0) remove(src[drop])
+            val add = i + half
+            if (add < n) insert(src[add])
             out[i] = win[size / 2]
         }
         return out
