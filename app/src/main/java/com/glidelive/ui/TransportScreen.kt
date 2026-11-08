@@ -6,6 +6,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -56,31 +57,28 @@ import com.glidelive.theory.NoteNames
 import com.glidelive.ui.components.GradientButton
 import com.glidelive.ui.components.TonalButton
 
-/** Reloj maestro: Play/Stop, BPM, tap tempo, compás, metrónomo y grabación de bucles. */
+/** Lo esencial del reloj, para la barra superior: tocar/parar y tempo. */
 @Composable
-fun TransportBar(vm: TransportViewModel, onDemo: () -> Unit = {}) {
+fun QuickTransport(vm: TransportViewModel) {
     val u by vm.ui.collectAsState()
-    Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        GradientButton(if (u.playing) "Parar" else "Tocar", vm::togglePlay, glyph = if (u.playing) "■" else "▶")
-        TonalButton("−", { vm.setBpm(u.bpm - 1) })
-        BpmBadge(vm)
-        TonalButton("+", { vm.setBpm(u.bpm + 1) })
+    GradientButton(if (u.playing) "Parar" else "Tocar", vm::togglePlay, glyph = if (u.playing) "■" else "▶")
+    TonalButton("−", { vm.setBpm(u.bpm - 1) })
+    BpmBadge(vm)
+    TonalButton("+", { vm.setBpm(u.bpm + 1) })
+}
+
+/** El resto del reloj (menú "Más"): tap, compás, metrónomo, grabación de bucles y la demo. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun TransportMore(vm: TransportViewModel, onDemo: () -> Unit) {
+    val u by vm.ui.collectAsState()
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         TonalButton("Tap", vm::tap)
         Picker("Compás ${u.meter.label}", Meter.all, { it.label }) { m -> vm.edit { it.copy(meter = m) } }
         FilterChip(selected = u.metro, onClick = { vm.edit { it.copy(metro = !it.metro) } }, label = { Text("Metrónomo") })
         if (u.playing) BarBeatText(vm)
-        FilterChip(
-            selected = u.recDrum, onClick = vm::toggleRecDrum,
-            label = { RecLabel(vm, drum = true, recording = u.recDrum) },
-        )
-        FilterChip(
-            selected = u.recChord, onClick = vm::toggleRecChord,
-            label = { RecLabel(vm, drum = false, recording = u.recChord) },
-        )
+        FilterChip(selected = u.recDrum, onClick = vm::toggleRecDrum, label = { RecLabel(vm, drum = true, recording = u.recDrum) })
+        FilterChip(selected = u.recChord, onClick = vm::toggleRecChord, label = { RecLabel(vm, drum = false, recording = u.recChord) })
         TextButton(onClick = onDemo) { Text("♪ Demo: Última tocata") }
     }
 }
@@ -147,27 +145,28 @@ private fun RecLabel(vm: TransportViewModel, drum: Boolean, recording: Boolean) 
     Text(if (drum) "● Grabando batería (${pos.drumEvents})" else "● Grabando acordes (${pos.chordEvents})")
 }
 
-/** Bases de batería: elegir base, variación (A–D), relleno, final, silenciar por instrumento. */
+/**
+ * Bases de batería en una fila corta (base, variaciones A–D, relleno, breaks y final). "Base y bajo" despliega el resto:
+ * elegir base y pads, silenciar, editar y el bajo.
+ */
 @Composable
 fun PatternBar(vm: TransportViewModel, padPicker: @Composable () -> Unit = {}) {
     val u by vm.ui.collectAsState()
     val p = u.pattern
+    var more by rememberSaveable { mutableStateOf(false) }
     var muteMenu by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        padPicker()
-        Picker("Base: " + (p?.name ?: "—"), u.patterns, { (if (it.factory) "" else "★ ") + it.name + "  (${it.meter})" }) {
-            vm.selectPattern(it)
-        }
+        GradientButton("Base", vm::togglePattern, glyph = if (u.patternOn) "■" else "▶")
         p?.variations?.forEachIndexed { i, v ->
             val waiting = u.pendingVariation == i
             FilterChip(
                 selected = u.variation == i && !u.fillOn && !waiting,
                 onClick = { vm.selectVariation(i) },
-                label = { Text(if (waiting) "Variación ${v.name} …" else "Variación ${v.name}") },
+                label = { Text(if (waiting) "${v.name}…" else v.name, fontWeight = FontWeight.Bold) },
                 colors = if (waiting) FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer) else FilterChipDefaults.filterChipColors(),
             )
         }
@@ -176,26 +175,41 @@ fun PatternBar(vm: TransportViewModel, padPicker: @Composable () -> Unit = {}) {
             FilterChip(selected = u.fillOn && u.activeBreak == i, onClick = { vm.breakNow(i) }, label = { Text(b.name) })
         }
         FilterChip(selected = u.endPending, onClick = vm::finish, label = { Text("Final") })
-        GradientButton(if (u.patternOn) "Base" else "Base", vm::togglePattern, glyph = if (u.patternOn) "■" else "▶")
-        TextButton(onClick = { muteMenu = true }) {
-            Text(if (u.muted.isNotEmpty() || u.solo != null) "Silenciar ●" else "Silenciar…")
-        }
-        DropdownMenu(expanded = muteMenu, onDismissRequest = { muteMenu = false }) {
-            Column(Modifier.padding(horizontal = 12.dp)) {
-                DrumKeys.labels.forEachIndexed { i, name ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(name, Modifier.width(120.dp))
-                        FilterChip(selected = i in u.muted, onClick = { vm.toggleMute(i) }, label = { Text("Mudo") })
-                        Box(Modifier.width(4.dp))
-                        FilterChip(selected = u.solo == i, onClick = { vm.toggleSolo(i) }, label = { Text("Solo") })
+        TextButton(onClick = { more = !more }) { Text(if (more) "Base y bajo ▴" else "Base y bajo ▾") }
+        Text((p?.name ?: "") + (u.bassLine?.takeIf { u.bassOn }?.let { " · bajo: ${it.name}" } ?: ""),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    if (more) {
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            padPicker()
+            Picker("Base: " + (p?.name ?: "—"), u.patterns, { (if (it.factory) "" else "★ ") + it.name + "  (${it.meter})" }) {
+                vm.selectPattern(it)
+            }
+            TextButton(onClick = { muteMenu = true }) {
+                Text(if (u.muted.isNotEmpty() || u.solo != null) "Silenciar ●" else "Silenciar…")
+            }
+            DropdownMenu(expanded = muteMenu, onDismissRequest = { muteMenu = false }) {
+                Column(Modifier.padding(horizontal = 12.dp)) {
+                    DrumKeys.labels.forEachIndexed { i, name ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(name, Modifier.width(120.dp))
+                            FilterChip(selected = i in u.muted, onClick = { vm.toggleMute(i) }, label = { Text("Mudo") })
+                            Box(Modifier.width(4.dp))
+                            FilterChip(selected = u.solo == i, onClick = { vm.toggleSolo(i) }, label = { Text("Solo") })
+                        }
                     }
                 }
             }
+            TextButton(onClick = { p?.let(vm::openEditor) }) { Text(if (p?.factory == false) "Editar base" else "Duplicar y editar") }
+            if (p != null && !p.factory) TextButton(onClick = { vm.deleteUserPattern(p.id) }) { Text("Borrar base") }
+            if (p != null) Text("${p.meter} · ${p.bpmMin}–${p.bpmMax} BPM" + if (p.bass == null) " · inspirada en el estilo de Gavin Harrison" else "",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        TextButton(onClick = { p?.let(vm::openEditor) }) { Text(if (p?.factory == false) "Editar base" else "Duplicar y editar") }
-        if (p != null && !p.factory) TextButton(onClick = { vm.deleteUserPattern(p.id) }) { Text("Borrar base") }
-        if (p != null) Text("${p.meter} · ${p.bpmMin}–${p.bpmMax} BPM" + if (p.bass == null) " · inspirada en el estilo de Gavin Harrison" else "",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        BassBar(vm)
     }
     if (u.editor != null) SequencerDialog(vm)
 }

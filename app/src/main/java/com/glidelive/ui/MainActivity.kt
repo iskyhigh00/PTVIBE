@@ -125,8 +125,8 @@ class MainActivity : ComponentActivity() {
                     Box(Modifier.fillMaxSize()) {
                         Column(Modifier.fillMaxSize().windowInsetsPadding(playInsets)) {
                             if (!fullscreen) {
-                                TopBar(mode, { mode = it }, chordsVm, soloVm, vm, sessionVm, panel, { panel = !panel }, { fullscreen = true })
-                                TransportBar(transportVm) { demoOpen = true }
+                                TopBar(mode, { mode = it }, chordsVm, soloVm, vm, sessionVm, transportVm, panel, { panel = !panel },
+                                    { fullscreen = true }, { demoOpen = true })
                                 DemoStrip(transportVm) { demoOpen = true }
                                 if (mode == Mode.BATERIA || mode == Mode.MIXTO) {
                                     PatternBar(transportVm) {
@@ -135,7 +135,6 @@ class MainActivity : ComponentActivity() {
                                             vm.editKit { it.copy(padLayout = l) }
                                         }
                                     }
-                                    BassBar(transportVm)
                                 }
                                 if (mode == Mode.MIXTO) {
                                     Row(Modifier.padding(horizontal = 16.dp)) {
@@ -245,22 +244,40 @@ private fun TopBar(
     solo: SoloViewModel,
     engine: EngineViewModel,
     session: SessionViewModel,
+    transport: TransportViewModel,
     panel: Boolean,
     onPanel: () -> Unit,
     onFullscreen: () -> Unit,
+    onDemo: () -> Unit,
 ) {
+    var more by remember { mutableStateOf(false) }
     Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 6.dp),
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         CapsuleBar(Mode.entries, mode, { it.label }, onMode)
+        QuickTransport(transport)
+        Box {
+            TextButton(onClick = { more = true }) { Text("☰ Más") }
+            DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
+                Column(Modifier.width(340.dp).padding(horizontal = 12.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Reloj y grabación", style = MaterialTheme.typography.titleSmall)
+                    TransportMore(transport) { more = false; onDemo() }
+                    Text("Sonido y escenas", style = MaterialTheme.typography.titleSmall)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        MixerMenu(engine, chords, solo)
+                        ScenesMenu(session)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = { more = false; onPanel() }) { Text(if (panel) "Ocultar ajustes" else "Ajustes") }
+                        TextButton(onClick = { more = false; onFullscreen() }) { Text("⤢ Pantalla completa") }
+                    }
+                }
+            }
+        }
         if (mode != Mode.BATERIA) KeyControls(chords)
-        MixerMenu(engine, chords, solo)
-        ScenesMenu(session)
         EqBars(level = { engine.level.value })
-        TextButton(onClick = onPanel) { Text(if (panel) "Ocultar ajustes" else "Ajustes") }
-        TextButton(onClick = onFullscreen) { Text("⤢ Pantalla completa") }
     }
 }
 
