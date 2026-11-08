@@ -37,6 +37,13 @@ data class StemsUi(
     val loopB: Double = -1.0,
     /** Separación en curso: texto de la etapa y avance 0..1 (null = ninguna). */
     val separating: Pair<String, Float>? = null,
+    /** Réplica con los instrumentos de la app. */
+    val replicaNotes: Int = 0,
+    val replicaMelody: StemKind = StemKind.VOCALS,
+    val replicaAnalyzing: Pair<String, Float>? = null,
+    /** Bits: 1 batería, 2 bajo, 4 melodía. */
+    val replicaMask: Int = 0,
+    val replicaGain: List<Float> = listOf(0.9f, 0.9f, 0.9f),
 )
 
 /** Posición del reproductor: cambia ~10 veces por segundo, por eso vive aparte del resto del estado. */
@@ -83,6 +90,7 @@ class StemsViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun open(song: StemSong) {
         stop()
+        NativeEngine.replicaMask(0)
         viewModelScope.launch {
             NativeEngine.stemClear()
             _ui.update { it.copy(current = song, error = null, loading = 0f, loopA = -1.0, loopB = -1.0, speed = 1f) }
@@ -107,12 +115,84 @@ class StemsViewModel(private val app: Application) : AndroidViewModel(app) {
             NativeEngine.stemMaster(_ui.value.master, 1f)
             NativeEngine.stemLoop(-1.0, -1.0)
             NativeEngine.stemSeek(0.0)
+            loadReplica(song)
             _ui.update { it.copy(loading = null, loadingName = "", error = failed) }
         }
     }
 
+    // ---- réplica con los instrumentos de la app ----
+    private var replicaJob: kotlinx.coroutines.Job? = null
+
+    private fun pushReplica(notes: List<com.glidelive.stems.sep.Note>) {
+        NativeEngine.replicaSet(
+            DoubleArray(notes.size) { notes[it].t }, FloatArray(notes.size) { notes[it].dur },
+            FloatArray(notes.size) { notes[it].vel }, IntArray(notes.size) { notes[it].note }, IntArray(notes.size) { notes[it].kind },
+        )
+        val u = _ui.value
+        NativeEngine.replicaMask(u.replicaMask)
+        NativeEngine.replicaGain(u.replicaGain[0], u.replicaGain[1], u.replicaGain[2])
+    }
+
+    private suspend fun loadReplica(song: StemSong) {
+        NativeEngine.replicaMask(0)
+        val notes = withContext(Dispatchers.IO) {
+            if (com.glidelive.stems.sep.ReplicaBuilder.has(app, song)) com.glidelive.stems.sep.ReplicaBuilder.load(app, song) else emptyList()
+        }
+        val melody = withContext(Dispatchers.IO) { com.glidelive.stems.sep.ReplicaBuilder.melodySource(app, song) } ?: StemKind.VOCALS
+        _ui.update { it.copy(replicaNotes = notes.size, replicaMask = 0, replicaMelody = melody) }
+        pushReplica(notes)
+        NativeEngine.replicaMask(0)
+    }
+
+    fun setReplicaMelody(k: StemKind) { _ui.update { it.copy(replicaMelody = k) } }
+
+    /** Analiza las pistas y genera la réplica (tarda según el largo de la canción). */
+    fun analyzeReplica() {
+        val song = _ui.value.current ?: return
+        if (replicaJob?.isActive == true) return
+        stop()
+        val melody = _ui.value.replicaMelody
+        replicaJob = viewModelScope.launch {
+            _ui.update { it.copy(error = null, replicaAnalyzing = "Preparando…" to 0f) }
+            val r = withContext(Dispatchers.Default) {
+                runCatching {
+                    com.glidelive.stems.sep.ReplicaBuilder.build(app, song, melody,
+                        { s, p -> _ui.update { u -> u.copy(replicaAnalyzing = s to p) } }, { !isActive })
+                }
+            }
+            r.onSuccess { notes ->
+                _ui.update { it.copy(replicaNotes = notes.size, replicaAnalyzing = null, replicaMask = 0) }
+                pushReplica(notes)
+                NativeEngine.replicaMask(0)
+            }
+            r.onFailure { e ->
+                val msg = if (e is java.util.concurrent.CancellationException) null else "No se pudo analizar: ${e.message ?: e.javaClass.simpleName}"
+                _ui.update { it.copy(replicaAnalyzing = null, error = msg) }
+            }
+        }
+    }
+
+    fun cancelReplica() { replicaJob?.cancel() }
+
+    /** Enciende o apaga una parte de la réplica; al encenderla, silencia la pista original (y al apagarla la devuelve). */
+    fun setReplica(bit: Int, on: Boolean) {
+        val song = _ui.value.current ?: return
+        val mask = if (on) _ui.value.replicaMask or bit else _ui.value.replicaMask and bit.inv()
+        _ui.update { it.copy(replicaMask = mask) }
+        NativeEngine.replicaMask(mask)
+        val kind = when (bit) { 1 -> StemKind.DRUMS; 2 -> StemKind.BASS; else -> _ui.value.replicaMelody }
+        song.tracks.indexOfFirst { it.kind == kind }.takeIf { it >= 0 }?.let { i -> editTrack(i) { it.copy(mute = on) } }
+    }
+
+    fun setReplicaGain(index: Int, v: Float) {
+        val g = _ui.value.replicaGain.toMutableList().also { it[index] = v }
+        _ui.update { it.copy(replicaGain = g) }
+        NativeEngine.replicaGain(g[0], g[1], g[2])
+    }
+
     fun close() {
         stop()
+        NativeEngine.replicaMask(0)
         NativeEngine.stemClear()
         _ui.update { it.copy(current = null, loading = null) }
         _clock.value = StemClock()

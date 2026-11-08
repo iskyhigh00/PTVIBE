@@ -88,6 +88,10 @@ public:
     void setLoop(double a, double b) { loopA_.store(a, std::memory_order_relaxed); loopB_.store(b, std::memory_order_relaxed); }
 
     bool playing() const { return playing_.load(std::memory_order_acquire); }
+    // Solo hilo de audio: posición exacta al empezar el bloque, velocidad y si hubo un salto (búsqueda, bucle o fin).
+    double audioPos() const { return pos_d_; }
+    float speed() const { return speed_.load(std::memory_order_relaxed); }
+    bool takeJump() { const bool j = jumped_; jumped_ = false; return j; }
     double position() const { return pos_.load(std::memory_order_relaxed); }
     double duration() const { return duration_.load(std::memory_order_relaxed); }
     bool hasTracks() const { return duration() > 0; }
@@ -97,6 +101,7 @@ public:
         double seek = seekTo_.load(std::memory_order_acquire);
         if (seek >= 0) {
             pos_d_ = std::min(seek, duration());
+            jumped_ = true;
             seekTo_.store(-1.0, std::memory_order_release);
         }
         if (!playing_.load(std::memory_order_acquire)) { for (int i = 0; i < kMax; ++i) cur_[i][0] = cur_[i][1] = 0; pos_.store(pos_d_, std::memory_order_relaxed); return; }
@@ -126,8 +131,8 @@ public:
             dr[k] = (tr[k] - gr[k]) / static_cast<float>(n);
         }
         for (int i = 0; i < n; ++i) {
-            if (loop && pos_d_ >= lb) pos_d_ = la + (pos_d_ - lb);
-            if (pos_d_ >= dur) { playing_.store(false, std::memory_order_release); pos_d_ = 0; break; }
+            if (loop && pos_d_ >= lb) { pos_d_ = la + (pos_d_ - lb); jumped_ = true; }
+            if (pos_d_ >= dur) { playing_.store(false, std::memory_order_release); pos_d_ = 0; jumped_ = true; break; }
             for (int k = 0; k < kMax; ++k) {
                 gl[k] += dl[k]; gr[k] += dr[k];
                 const Buf* s = b[k];
@@ -170,6 +175,7 @@ private:
     std::atomic<bool> playing_{false};
     std::atomic<double> seekTo_{-1.0}, pos_{0.0}, duration_{0.0}, loopA_{-1.0}, loopB_{-1.0};
     double pos_d_ = 0;            // solo hilo de audio
+    bool jumped_ = false;         // solo hilo de audio
     float cur_[kMax][2] = {};     // ganancias del bloque anterior (hilo de audio)
     std::mutex mutex_;
     std::vector<std::unique_ptr<Buf>> live_;

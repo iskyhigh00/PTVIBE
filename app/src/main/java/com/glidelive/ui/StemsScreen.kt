@@ -54,7 +54,7 @@ private fun fmt(sec: Double): String {
 /** Pistas: importar canciones (o sus stems), mezclar cada instrumento, repetir pasajes y tocar encima. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun StemsScreen(vm: StemsViewModel, modifier: Modifier = Modifier) {
+fun StemsScreen(vm: StemsViewModel, modifier: Modifier = Modifier, soloInstrument: Int = 5, onSoloInstrument: (Int) -> Unit = {}) {
     val u by vm.ui.collectAsState()
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var pending by remember { mutableStateOf<List<Uri>>(emptyList()) }
@@ -189,6 +189,51 @@ fun StemsScreen(vm: StemsViewModel, modifier: Modifier = Modifier) {
 
         // Pistas
         song.tracks.forEachIndexed { i, t -> StemLane(t, onEdit = { f -> vm.editTrack(i, f) }) }
+
+        // Réplica con los instrumentos de la app
+        if (com.glidelive.stems.sep.ReplicaBuilder.canReplicate(song)) {
+            Text("Réplica con los instrumentos de la app", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+            u.replicaAnalyzing?.let { (stage, p) ->
+                Text("$stage  ·  ${(p * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
+                LinearProgressIndicator(progress = { p.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                TextButton(onClick = vm::cancelReplica) { Text("Cancelar") }
+            }
+            if (u.replicaAnalyzing == null) {
+                val choices = com.glidelive.stems.sep.ReplicaBuilder.melodyChoices(song)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    if (choices.isNotEmpty()) {
+                        Text("Melodía desde:", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelMedium)
+                        for (k in choices) FilterChip(selected = u.replicaMelody == k, onClick = { vm.setReplicaMelody(k) }, label = { Text(k.label) })
+                    }
+                    GradientButton(if (u.replicaNotes > 0) "Volver a analizar" else "Analizar pistas", vm::analyzeReplica, glyph = "♪")
+                }
+                if (u.replicaNotes == 0) {
+                    Text(
+                        "La app transcribe la batería (bombo, caja, hi-hat), el bajo y la melodía a notas y las toca con sus propios " +
+                            "instrumentos, sincronizadas con las pistas. La pista original queda como guía: puedes bajarle el volumen o silenciarla.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    val has = song.tracks.map { it.kind }.toSet()
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        if (StemKind.DRUMS in has) FilterChip(selected = u.replicaMask and 1 != 0, onClick = { vm.setReplica(1, u.replicaMask and 1 == 0) }, label = { Text("Batería de la app") })
+                        if (StemKind.BASS in has) FilterChip(selected = u.replicaMask and 2 != 0, onClick = { vm.setReplica(2, u.replicaMask and 2 == 0) }, label = { Text("Bajo de la app") })
+                        if (u.replicaMelody in has) FilterChip(selected = u.replicaMask and 4 != 0, onClick = { vm.setReplica(4, u.replicaMask and 4 == 0) }, label = { Text("Melodía de la app") })
+                    }
+                    Text("Al encender una parte, su pista original se silencia; apágala para volver a oírla.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Sonido de la melodía:", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelMedium)
+                        SOLO_INSTRUMENTS.forEachIndexed { i, n -> FilterChip(selected = soloInstrument == i, onClick = { onSoloInstrument(i) }, label = { Text(n) }) }
+                    }
+                    LabeledSlider("Volumen de la batería de la app", u.replicaGain[0], 0f..1f) { vm.setReplicaGain(0, it) }
+                    LabeledSlider("Volumen del bajo de la app", u.replicaGain[1], 0f..1f) { vm.setReplicaGain(1, it) }
+                    LabeledSlider("Volumen de la melodía de la app", u.replicaGain[2], 0f..1f) { vm.setReplicaGain(2, it) }
+                    Text("${u.replicaNotes} notas y golpes transcritos.", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
         LabeledSlider("Volumen general de las pistas", u.master, 0f..1.2f) { vm.setMaster(it) }
     }
 }

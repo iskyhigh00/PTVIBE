@@ -162,6 +162,12 @@ object NativeEngine {
     fun stemLoad(idx: Int, pcm: ShortArray, channels: Int, rate: Int) = nativeStemLoad(idx, pcm, channels, rate)
     fun stemClear(idx: Int = -1) = nativeStemClear(idx)
     fun stemFree() = nativeStemFree()
+
+    /** Réplica: notas transcritas (tipo 0 batería, 1 bajo, 2 melodía) que se tocan sincronizadas con las pistas. */
+    fun replicaSet(times: DoubleArray, durs: FloatArray, vels: FloatArray, notes: IntArray, kinds: IntArray) =
+        nativeReplicaSet(times, durs, vels, notes, kinds)
+    fun replicaMask(bits: Int) = nativeReplicaMask(bits)
+    fun replicaGain(drum: Float, bass: Float, melody: Float) = nativeReplicaGain(drum, bass, melody)
     fun stemTrack(idx: Int, vol: Float, pan: Float, mute: Boolean, solo: Boolean) = nativeStemTrack(idx, vol, pan, mute, solo)
     fun stemMaster(master: Float, speed: Float) = nativeStemMaster(master, speed)
     fun stemPlay(on: Boolean) = nativeStemPlay(on)
@@ -220,6 +226,9 @@ object NativeEngine {
     private external fun nativeStemLoad(idx: Int, pcm: ShortArray, channels: Int, rate: Int)
     private external fun nativeStemClear(idx: Int)
     private external fun nativeStemFree()
+    private external fun nativeReplicaSet(times: DoubleArray, durs: FloatArray, vels: FloatArray, notes: IntArray, kinds: IntArray)
+    private external fun nativeReplicaMask(bits: Int)
+    private external fun nativeReplicaGain(drum: Float, bass: Float, melody: Float)
     private external fun nativeStemTrack(idx: Int, vol: Float, pan: Float, mute: Boolean, solo: Boolean)
     private external fun nativeStemMaster(master: Float, speed: Float)
     private external fun nativeStemPlay(on: Boolean)

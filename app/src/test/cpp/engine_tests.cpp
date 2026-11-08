@@ -5,6 +5,7 @@
 #include <thread>
 #include <vector>
 #include "bass_synth.h"
+#include "replica.h"
 #include "stem_player.h"
 #include "chord_synth.h"
 #include "sequencer.h"
@@ -514,6 +515,45 @@ void testStemPlayer() {
     CHECK(sp.duration() == 0.0, "pistas: vacio");
 }
 
+// Réplica: cada evento suena una vez, con el desplazamiento correcto, respeta la máscara y los saltos.
+struct ReplicaLog : ReplicaSink {
+    struct R { int kind, a, off, dur; };
+    std::vector<R> log;
+    void drum(int pad, float, int off) override { log.push_back({0, pad, off, 0}); }
+    void bass(int midi, float, int off, int dur) override { log.push_back({1, midi, off, dur}); }
+    void melody(int midi, float, int dur) override { log.push_back({2, midi, 0, dur}); }
+};
+
+void testReplica() {
+    static Replica rep;
+    ReplicaLog lg;
+    rep.set({{0.50, 1.0f, 0.2f, 0, 0}, {0.75, 0.8f, 0.5f, 30, 1}, {1.25, 0.9f, 1.0f, 66, 2}, {2.00, 1.0f, 0.1f, 1, 0}});
+    const int sr = 48000, n = 480;  // bloques de 10 ms
+    rep.process(0.0, 0.0, true, sr, 1.0f, n, lg);  // coloca el cursor
+    double pos = 0.0;
+    for (int b = 0; b < 150; ++b) { rep.process(pos, pos + 0.01, false, sr, 1.0f, n, lg); pos += 0.01; }
+    CHECK(lg.log.size() == 3, "replica: tres eventos hasta 1.5 s");
+    CHECK(lg.log.size() >= 3 && lg.log[0].kind == 0 && lg.log[1].kind == 1 && lg.log[1].a == 30 && lg.log[2].kind == 2, "replica: orden y tipos");
+    CHECK(lg.log.size() >= 2 && lg.log[1].dur == static_cast<int>(0.5 * sr), "replica: duracion del bajo en muestras");
+    // máscara: sin batería
+    lg.log.clear();
+    rep.setMask(6);
+    rep.process(1.9, 1.9, true, sr, 1.0f, n, lg);
+    for (int b = 0; b < 20; ++b) { rep.process(1.9 + b * 0.01, 1.9 + (b + 1) * 0.01, false, sr, 1.0f, n, lg); }
+    CHECK(lg.log.empty(), "replica: la mascara apaga la bateria");
+    rep.setMask(7);
+    // salto atrás: vuelve a tocar desde ahí, sin repetir lo anterior al salto
+    lg.log.clear();
+    rep.process(0.3, 0.3, true, sr, 1.0f, n, lg);
+    for (int b = 0; b < 30; ++b) rep.process(0.3 + b * 0.01, 0.3 + (b + 1) * 0.01, false, sr, 1.0f, n, lg);
+    CHECK(lg.log.size() == 1 && lg.log[0].kind == 0, "replica: tras saltar a 0.3 s suena el golpe de 0.5 s");
+    // velocidad doble: la duración en muestras se acorta a la mitad
+    lg.log.clear();
+    rep.process(0.7, 0.7, true, sr, 2.0f, n, lg);
+    for (int b = 0; b < 10; ++b) rep.process(0.7 + b * 0.02, 0.7 + (b + 1) * 0.02, false, sr, 2.0f, n, lg);
+    CHECK(lg.log.size() == 1 && lg.log[0].dur == static_cast<int>(0.5 * sr / 2), "replica: a doble velocidad dura la mitad");
+}
+
 int main() {
     testPatternSampleAccurate();
     testPolyrhythm();
@@ -535,6 +575,7 @@ int main() {
     testBassNote();
     testSoloGuitars();
     testStemPlayer();
+    testReplica();
     if (fails) { std::printf("FALLOS: %d\n", fails); return 1; }
     std::printf("OK: todas las pruebas de host pasan\n");
     return 0;

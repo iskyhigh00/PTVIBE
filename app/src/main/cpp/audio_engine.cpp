@@ -421,6 +421,20 @@ void AudioEngine::execSynth(const LoopEvent& e) {
     pushViz(e.type, e.a, e.b, e.f);
 }
 
+struct ReplicaEngineSink : ReplicaSink {
+    AudioEngine& e;
+    explicit ReplicaEngineSink(AudioEngine& eng) : e(eng) {}
+    void drum(int pad, float vel, int off) override { e.triggerDrum(pad, vel, off); }
+    void bass(int midi, float vel, int off, int dur) override { e.bass_.trigger(static_cast<float>(midi), vel, off, dur); }
+    void melody(int midi, float vel, int dur) override {
+        const SynthParams p = e.synthParams();
+        constexpr int idx = SynthEngine::kSoloVoices - 1;
+        e.synth_.setSolo(idx, static_cast<float>(midi), 0.75f, 0.0f, 0.5f + 0.5f * vel);
+        e.synth_.soloOn(idx, static_cast<float>(midi), p);
+        e.patSynthLeft_[8] = dur;
+    }
+};
+
 struct EngineSink : SeqSink {
     AudioEngine& e;
     explicit EngineSink(AudioEngine& eng) : e(eng) {}
@@ -730,7 +744,13 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*, void* aud
     }
     bassWasPlaying_ = seqPlaying;
     bass_.render(out, numFrames, param(kBassTone), param(kBassVol));
+    const bool stemsWerePlaying = stems_.playing();
+    const double stemP0 = stems_.audioPos();
     stems_.render(out, numFrames, sr_);
+    if (stemsWerePlaying) {
+        ReplicaEngineSink rs(*this);
+        replica_.process(stemP0, stems_.audioPos(), stems_.takeJump(), sr_, stems_.speed(), numFrames, rs);
+    }
 
     // Bus de acordes/solista y mezcla final.
     const SynthParams sp = synthParams();

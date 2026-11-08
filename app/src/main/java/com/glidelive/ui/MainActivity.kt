@@ -161,7 +161,10 @@ class MainActivity : ComponentActivity() {
                                         }
                                         Mode.SOLISTA -> SoloHost(soloVm, Modifier.weight(1f))
                                         Mode.BATERIA -> DrumsHost(kit.pressure, kit.padLayout, Modifier.weight(1f))
-                                        Mode.PISTAS -> StemsScreen(stemsVm, Modifier.weight(1f))
+                                        Mode.PISTAS -> {
+                                            val soloUi by soloVm.ui.collectAsState()
+                                            StemsScreen(stemsVm, Modifier.weight(1f), soloUi.instrument) { i -> soloVm.edit { it.copy(instrument = i) } }
+                                        }
                                         Mode.DUO -> PerformScreen(
                                             chordsVm, soloVm, kit.pressure,
                                             viz = true, chords = true, solo = true, drums = false,

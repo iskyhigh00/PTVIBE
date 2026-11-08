@@ -11,6 +11,7 @@
 #include "dsp.h"
 #include "sequencer.h"
 #include "spsc_queue.h"
+#include "replica.h"
 #include "stem_player.h"
 #include "synth_kit.h"
 
@@ -112,6 +113,7 @@ public:
     }
 
     StemPlayer& stems() { return stems_; }
+    Replica& replica() { return replica_; }
 
     void setBursts(int bursts);
     void autoTune();
@@ -159,6 +161,7 @@ private:
     void execSynth(const LoopEvent& e);
     void pushViz(int type, int a, int b, float f, float glideMs = -1.0f);
     friend struct EngineSink;
+    friend struct ReplicaEngineSink;
     SynthParams synthParams() const;
     void chokeVoices(int pad, int group, float frames);
     float param(int id) const { return params_[id].load(std::memory_order_relaxed); }
@@ -195,6 +198,7 @@ private:
     SynthEngine synth_;
     BassSynth bass_;
     StemPlayer stems_;
+    Replica replica_;
     bool bassWasPlaying_ = false;
     int patSynthLeft_[9] = {};  // muestras hasta soltar las voces 0..7 de acordes y el solista (8) tocadas por un patrón
     float compEnv_ = 0;

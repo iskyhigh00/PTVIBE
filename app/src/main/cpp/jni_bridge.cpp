@@ -60,6 +60,34 @@ Java_com_glidelive_audio_NativeEngine_nativeStemLoad(JNIEnv* env, jobject, jint 
 }
 
 JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeReplicaSet(JNIEnv* env, jobject, jdoubleArray times, jfloatArray durs,
+                                                       jfloatArray vels, jintArray notes, jintArray kinds) {
+    const jsize n = env->GetArrayLength(times);
+    jdouble* t = env->GetDoubleArrayElements(times, nullptr);
+    jfloat* d = env->GetFloatArrayElements(durs, nullptr);
+    jfloat* v = env->GetFloatArrayElements(vels, nullptr);
+    jint* a = env->GetIntArrayElements(notes, nullptr);
+    jint* k = env->GetIntArrayElements(kinds, nullptr);
+    std::vector<Replica::Ev> ev(static_cast<size_t>(n));
+    for (jsize i = 0; i < n; ++i)
+        ev[i] = {t[i], v[i], d[i], static_cast<int16_t>(a[i]), static_cast<int8_t>(k[i])};
+    g_engine.replica().set(std::move(ev));
+    env->ReleaseDoubleArrayElements(times, t, JNI_ABORT);
+    env->ReleaseFloatArrayElements(durs, d, JNI_ABORT);
+    env->ReleaseFloatArrayElements(vels, v, JNI_ABORT);
+    env->ReleaseIntArrayElements(notes, a, JNI_ABORT);
+    env->ReleaseIntArrayElements(kinds, k, JNI_ABORT);
+}
+
+JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeReplicaMask(JNIEnv*, jobject, jint bits) { g_engine.replica().setMask(bits); }
+
+JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeReplicaGain(JNIEnv*, jobject, jfloat d, jfloat b, jfloat m) {
+    g_engine.replica().setGain(d, b, m);
+}
+
+JNIEXPORT void JNICALL
 Java_com_glidelive_audio_NativeEngine_nativeStemClear(JNIEnv*, jobject, jint idx) {
     if (idx < 0) g_engine.stems().clearAll(); else g_engine.stems().clear(idx);
     g_engine.stems().freeRetired();
