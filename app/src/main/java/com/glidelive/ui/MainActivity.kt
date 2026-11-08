@@ -129,7 +129,12 @@ class MainActivity : ComponentActivity() {
                                 TransportBar(transportVm) { demoOpen = true }
                                 DemoStrip(transportVm) { demoOpen = true }
                                 if (mode == Mode.BATERIA || mode == Mode.MIXTO) {
-                                    PatternBar(transportVm)
+                                    PatternBar(transportVm) {
+                                        val k by vm.kit.collectAsState()
+                                        Picker("Pads: ${k.padLayout.label}", PadLayout.entries, { it.label + " — " + it.hint }) { l ->
+                                            vm.editKit { it.copy(padLayout = l) }
+                                        }
+                                    }
                                     BassBar(transportVm)
                                 }
                                 if (mode == Mode.MIXTO) {

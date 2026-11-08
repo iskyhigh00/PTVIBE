@@ -7,12 +7,12 @@ import org.junit.Test
 class DrumHitTest {
     @Test fun everyLayoutTilesTheWholeSurfaceWithoutOverlaps() {
         for (layout in PadLayout.entries) {
-            val counts = IntArray(Pads.COUNT)
+            val counts = IntArray(Pads.TOTAL)
             for (cell in layout.owner) {
-                assertTrue("${layout.name}: celda sin pad", cell in 0 until Pads.COUNT)
+                assertTrue("${layout.name}: celda sin pad", cell in 0 until Pads.TOTAL)
                 counts[cell]++
             }
-            for (p in 0 until Pads.COUNT) {
+            for (p in 0 until Pads.TOTAL) {
                 val c = layout.cells[p]
                 if (c == null) assertEquals("${layout.name}: pad oculto $p", 0, counts[p])
                 else assertEquals("${layout.name}: pad $p", c[2] * c[3], counts[p])
@@ -45,10 +45,10 @@ class DrumHitTest {
     @Test fun centerOfEveryVisiblePadHitsThatPad() {
         val w = 1600; val h = 800
         for (layout in PadLayout.entries) {
-            val l = FloatArray(Pads.COUNT); val t = FloatArray(Pads.COUNT)
-            val r = FloatArray(Pads.COUNT); val b = FloatArray(Pads.COUNT)
+            val l = FloatArray(Pads.TOTAL); val t = FloatArray(Pads.TOTAL)
+            val r = FloatArray(Pads.TOTAL); val b = FloatArray(Pads.TOTAL)
             DrumHit.geometry(layout, w, h, 12f, l, t, r, b)
-            for (i in 0 until Pads.COUNT) {
+            for (i in 0 until Pads.TOTAL) {
                 if (!layout.visible(i)) continue
                 assertEquals("${layout.name} pad $i", i, DrumHit.hitTest(layout, (l[i] + r[i]) / 2, (t[i] + b[i]) / 2, w, h))
             }
@@ -59,10 +59,10 @@ class DrumHitTest {
         // Vista de 1000 x 420 dp: ningún pad visible baja de ~80 dp de ancho ni ~90 dp de alto.
         val w = 1000; val h = 420
         for (layout in PadLayout.entries) {
-            val l = FloatArray(Pads.COUNT); val t = FloatArray(Pads.COUNT)
-            val r = FloatArray(Pads.COUNT); val b = FloatArray(Pads.COUNT)
+            val l = FloatArray(Pads.TOTAL); val t = FloatArray(Pads.TOTAL)
+            val r = FloatArray(Pads.TOTAL); val b = FloatArray(Pads.TOTAL)
             DrumHit.geometry(layout, w, h, 8f, l, t, r, b)
-            for (i in 0 until Pads.COUNT) {
+            for (i in 0 until Pads.TOTAL) {
                 if (!layout.visible(i)) continue
                 assertTrue("${layout.name} pad $i ancho ${r[i] - l[i]}", r[i] - l[i] >= 80f)
                 assertTrue("${layout.name} pad $i alto ${b[i] - t[i]}", b[i] - t[i] >= 90f)
@@ -79,6 +79,13 @@ class DrumHitTest {
         for (p in Pads.GUIRO_SHORT..Pads.COWBELL) assertTrue("pad $p", PadLayout.CUMBIA.visible(p))
         for (p in Pads.GUIRO_SHORT..Pads.COWBELL) assertTrue("pad $p solo en Cumbia", !PadLayout.KIT.visible(p))
         assertEquals(Pads.COUNT, com.glidelive.drums.DrumKeys.keys.size)
+    }
+
+    @Test fun combosPlayTwoSounds() {
+        assertTrue(PadLayout.COMBOS.visible(Pads.COMBO_KICK_RIDE))
+        assertEquals(listOf(Pads.KICK, Pads.RIDE), Pads.members(Pads.COMBO_KICK_RIDE).toList())
+        assertEquals(listOf(Pads.SNARE), Pads.members(Pads.SNARE).toList())
+        assertEquals(Pads.TOTAL, Pads.names.size)
     }
 
     @Test fun edgesStayInTheirPad() {

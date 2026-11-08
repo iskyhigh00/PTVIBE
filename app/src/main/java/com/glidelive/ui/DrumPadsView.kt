@@ -39,14 +39,37 @@ object Pads {
     const val COWBELL = 20
     const val COUNT = 21
 
+    /** Combos: un pad que toca varios sonidos a la vez (índices COUNT.. en las distribuciones). */
+    val combos: List<IntArray> = listOf(
+        intArrayOf(KICK, CRASH), intArrayOf(KICK, RIDE), intArrayOf(KICK, HH_CLOSED), intArrayOf(SNARE, CRASH),
+        intArrayOf(KICK, SNARE), intArrayOf(KICK, HH_OPEN), intArrayOf(KICK, BELL), intArrayOf(KICK, 20),
+    )
+    const val COMBO_KICK_CRASH = COUNT
+    const val COMBO_KICK_RIDE = COUNT + 1
+    const val COMBO_KICK_HH = COUNT + 2
+    const val COMBO_SNARE_CRASH = COUNT + 3
+    const val COMBO_KICK_SNARE = COUNT + 4
+    const val COMBO_KICK_HH_OPEN = COUNT + 5
+    const val COMBO_KICK_BELL = COUNT + 6
+    const val COMBO_KICK_COWBELL = COUNT + 7
+
+    /** Pads sonoros + combos. */
+    val TOTAL = COUNT + combos.size
+
+    /** Sonidos que dispara el pad [i]. */
+    fun members(i: Int): IntArray = if (i < COUNT) intArrayOf(i) else combos[i - COUNT]
+    fun isCombo(i: Int) = i >= COUNT
+
     val names = arrayOf(
         "BOMBO", "CAJA", "AROS\n(rim)", "HI-HAT\nCERRADO", "HI-HAT\nABIERTO", "PEDAL\nHI-HAT",
         "TOM 1", "TOM 2", "TOM DE\nPISO", "CRASH", "RIDE", "CAMPANA\nRIDE", "SPLASH\n/ CHINA",
         "GÜIRO\ncorto", "GÜIRO\nlargo", "MARACAS", "CONGA", "QUINTO\n(alegre)", "TUMBA", "BONGÓ", "CAMPANA\n(cencerro)",
+        "BOMBO\n+ CRASH", "BOMBO\n+ RIDE", "BOMBO\n+ HI-HAT", "CAJA\n+ CRASH",
+        "BOMBO\n+ CAJA", "BOMBO\n+ HH ABIERTO", "BOMBO\n+ CAMPANA", "BOMBO\n+ CENCERRO",
     )
 
     /** Líneas de cada nombre, calculadas una sola vez (onDraw no debe asignar memoria). */
-    val lines: Array<Array<String>> = Array(COUNT) { names[it].split("\n").toTypedArray() }
+    val lines: Array<Array<String>> = Array(names.size) { names[it].split("\n").toTypedArray() }
 
     fun isCymbal(pad: Int) = pad in CRASH..SPLASH
     fun isHat(pad: Int) = pad in HH_CLOSED..HH_PEDAL
@@ -71,7 +94,7 @@ class DrumPadsView(context: Context) : View(context) {
             invalidate()
         }
 
-    private val n = Pads.COUNT
+    private val n = Pads.TOTAL
     private val left = FloatArray(n)
     private val top = FloatArray(n)
     private val right = FloatArray(n)
@@ -100,6 +123,7 @@ class DrumPadsView(context: Context) : View(context) {
     private var corner = 18f
 
     private fun accent(i: Int) = when {
+        Pads.isCombo(i) -> COMBO
         Pads.isPercussion(i) -> ORANGE
         Pads.isCymbal(i) -> GOLD
         Pads.isHat(i) -> MINT
@@ -184,14 +208,16 @@ class DrumPadsView(context: Context) : View(context) {
         val ny = DrumHit.norm(y, top[i], bottom[i])
         var vel = DrumHit.velocity(i, nx, ny)
         if (pressureSensitivity) vel *= 0.4f + 0.6f * e.getPressure(idx).coerceIn(0f, 1f)
-        NativeEngine.trigger(i, vel.coerceIn(0.05f, 1f), e.eventTime)
+        val members = Pads.members(i)
+        for (m in members) NativeEngine.trigger(m, vel.coerceIn(0.05f, 1f), e.eventTime)
         val id = e.getPointerId(idx)
         pressed.put(id, i)
         flash[i] = 1f
-        if (Pads.isCymbal(i)) {  // toque largo = choke
+        val cymbal = members.firstOrNull { Pads.isCymbal(it) }
+        if (cymbal != null) {  // toque largo = choke
             val run = Runnable {
                 if (pressed.get(id, -1) == i) {
-                    NativeEngine.choke(i, SystemClock.uptimeMillis())
+                    NativeEngine.choke(cymbal, SystemClock.uptimeMillis())
                     flash[i] = 0.3f
                     invalidate()
                 }
@@ -259,5 +285,6 @@ class DrumPadsView(context: Context) : View(context) {
         const val MINT = 0xFF00E5A0.toInt()
         const val GOLD = 0xFFFFC857.toInt()
         const val ORANGE = 0xFFFF8A3D.toInt()
+        const val COMBO = 0xFFFF5FD2.toInt()
     }
 }

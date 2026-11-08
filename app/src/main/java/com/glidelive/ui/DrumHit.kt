@@ -13,7 +13,7 @@ object DrumHit {
     fun geometry(layout: PadLayout, w: Int, h: Int, gap: Float, l: FloatArray, t: FloatArray, r: FloatArray, b: FloatArray) {
         val cw = w.toFloat() / layout.cols
         val ch = h.toFloat() / layout.rows
-        for (i in 0 until Pads.COUNT) {
+        for (i in 0 until Pads.TOTAL) {
             val c = layout.cells[i]
             if (c == null) { l[i] = 0f; t[i] = 0f; r[i] = 0f; b[i] = 0f; continue }
             l[i] = c[0] * cw + gap / 2

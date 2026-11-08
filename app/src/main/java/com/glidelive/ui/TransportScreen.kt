@@ -149,7 +149,7 @@ private fun RecLabel(vm: TransportViewModel, drum: Boolean, recording: Boolean) 
 
 /** Bases de batería: elegir base, variación (A–D), relleno, final, silenciar por instrumento. */
 @Composable
-fun PatternBar(vm: TransportViewModel) {
+fun PatternBar(vm: TransportViewModel, padPicker: @Composable () -> Unit = {}) {
     val u by vm.ui.collectAsState()
     val p = u.pattern
     var muteMenu by remember { mutableStateOf(false) }
@@ -158,6 +158,7 @@ fun PatternBar(vm: TransportViewModel) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        padPicker()
         Picker("Base: " + (p?.name ?: "—"), u.patterns, { (if (it.factory) "" else "★ ") + it.name + "  (${it.meter})" }) {
             vm.selectPattern(it)
         }
@@ -211,7 +212,7 @@ fun BassBar(vm: TransportViewModel) {
     ) {
         Picker("Bajo: " + (u.bassLine?.name ?: "—"), u.bassLines, { it.name }) { vm.selectBass(it.id) }
         FilterChip(selected = u.bassOn, onClick = vm::toggleBass, label = { Text(if (u.bassOn) "Bajo suena" else "Bajo mudo") })
-        Picker("Tono: ${NoteNames.name(u.bassKey)}", (0..11).toList(), { NoteNames.name(it) }) { vm.setBassKey(it) }
+        Picker("Tono: ${NoteNames.name(u.bassKey, true)}", (0..11).toList(), { NoteNames.name(it, true) }) { vm.setBassKey(it) }
         TextButton(onClick = { soundMenu = true }) { Text("Sonido del bajo…") }
         DropdownMenu(expanded = soundMenu, onDismissRequest = { soundMenu = false }) {
             Column(Modifier.padding(horizontal = 16.dp).width(260.dp)) {

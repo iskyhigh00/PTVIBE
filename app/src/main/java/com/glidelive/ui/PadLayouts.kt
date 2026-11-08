@@ -81,12 +81,30 @@ enum class PadLayout(val label: String, val hint: String, val cols: Int, val row
             intArrayOf(0, 0, 2, 2),   // splash / china
         ),
     ),
+    COMBOS(
+        "Kit + combos", "Botones que tocan dos sonidos juntos (bombo + ride, bombo + crash…)", 12, 6,
+        arrayOfNulls<IntArray>(Pads.TOTAL).also { a ->
+            a[Pads.KICK] = intArrayOf(0, 4, 6, 2)
+            a[Pads.SNARE] = intArrayOf(6, 4, 4, 2)
+            a[Pads.FLOOR] = intArrayOf(10, 4, 2, 2)
+            a[Pads.CRASH] = intArrayOf(0, 2, 2, 2)
+            a[Pads.RIDE] = intArrayOf(2, 2, 2, 2)
+            a[Pads.HH_CLOSED] = intArrayOf(4, 2, 2, 2)
+            a[Pads.HH_OPEN] = intArrayOf(6, 2, 2, 2)
+            a[Pads.COMBO_KICK_SNARE] = intArrayOf(8, 2, 2, 2)
+            a[Pads.COMBO_KICK_BELL] = intArrayOf(10, 2, 2, 2)
+            a[Pads.COMBO_KICK_CRASH] = intArrayOf(0, 0, 3, 2)
+            a[Pads.COMBO_KICK_RIDE] = intArrayOf(3, 0, 3, 2)
+            a[Pads.COMBO_KICK_HH] = intArrayOf(6, 0, 3, 2)
+            a[Pads.COMBO_SNARE_CRASH] = intArrayOf(9, 0, 3, 2)
+        },
+    ),
     CUMBIA(
         "Cumbia", "Percusión de cumbia + bombo, caja y hi-hat", 12, 6,
         arrayOf(
             intArrayOf(0, 4, 4, 2),   // bombo
             intArrayOf(4, 4, 3, 2),   // caja
-            intArrayOf(10, 4, 2, 2),  // aros
+            null,                     // aros
             intArrayOf(7, 4, 3, 2),   // hi-hat cerrado
             null, null, null, null, null, null, null, null, null,
             intArrayOf(0, 0, 3, 2),   // güiro corto
@@ -97,11 +115,13 @@ enum class PadLayout(val label: String, val hint: String, val cols: Int, val row
             intArrayOf(9, 2, 3, 2),   // tumba
             intArrayOf(0, 2, 3, 2),   // bongó
             intArrayOf(9, 0, 3, 2),   // campana
+            null, null, null, null, null, null, null,
+            intArrayOf(10, 4, 2, 2),  // combo bombo + cencerro
         ),
     );
 
-    /** Celda de cada pad (null = oculto); siempre de largo [Pads.COUNT]. */
-    val cells: Array<IntArray?> = Array(Pads.COUNT) { base.getOrNull(it) }
+    /** Celda de cada pad o combo (null = oculto); siempre de largo [Pads.TOTAL]. */
+    val cells: Array<IntArray?> = Array(Pads.TOTAL) { base.getOrNull(it) }
 
     /** Dueño de cada celda (fila * cols + columna), o -1; calculado una sola vez. */
     val owner: IntArray = IntArray(cols * rows) { -1 }.also { o ->

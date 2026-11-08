@@ -32,6 +32,7 @@ private val MINT = Color(0xFF00E5A0)
 private val VIOLET = Color(0xFF6B4EFF)
 
 private fun padColor(p: Int) = when {
+    Pads.isCombo(p) -> Color(0xFFFF5FD2)
     Pads.isPercussion(p) -> Color(0xFFFF8A3D)
     Pads.isCymbal(p) -> GOLD
     Pads.isHat(p) -> MINT
@@ -61,7 +62,7 @@ fun PadLayoutPicker(selected: PadLayout, onSelect: (PadLayout) -> Unit) {
                     val cw = size.width / l.cols
                     val ch = size.height / l.rows
                     val g = 1.5.dp.toPx()
-                    for (p in 0 until Pads.COUNT) {
+                    for (p in 0 until Pads.TOTAL) {
                         val c = l.cells[p] ?: continue
                         drawRoundRect(
                             padColor(p).copy(alpha = 0.85f),
