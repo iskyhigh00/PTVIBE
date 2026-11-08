@@ -131,14 +131,16 @@ fun StemsScreen(vm: StemsViewModel, modifier: Modifier = Modifier, soloInstrumen
                 text = {
                     Text(
                         "La app separará la canción en Voz, Batería, Bajo y Otros (guitarras, teclados…) dentro del teléfono.\n\n" +
-                            "• La primera vez baja un modelo de ${com.glidelive.stems.sep.ModelStore.SIZE_MB} MB (usa WiFi si puedes).\n" +
-                            "• Tarda varios minutos según el teléfono y el largo de la canción.\n" +
-                            "• La voz se separa con una red neuronal; batería, bajo y otros son una aproximación, " +
-                            "menos limpia que en StemKit.",
+                            "• Alta calidad (Demucs): redes neuronales para las 4 pistas; la más limpia, sin batería colada en las demás. " +
+                            "La primera vez baja un modelo de ${com.glidelive.stems.sep.SepModel.DEMUCS.sizeMb} MB y tarda bastante " +
+                            "(puede ser cerca de media hora por canción en un teléfono normal).\n" +
+                            "• Rápida: la voz con red neuronal (modelo de ${com.glidelive.stems.sep.SepModel.VOICE.sizeMb} MB) y el resto por " +
+                            "filtros; unos minutos, pero la batería se cuela más.\n\n" +
+                            "Usa WiFi para bajar el modelo y deja la app abierta con la pantalla encendida.",
                     )
                 },
-                confirmButton = { TextButton(onClick = { confirmSeparate = false; vm.separate() }) { Text("Separar") } },
-                dismissButton = { TextButton(onClick = { confirmSeparate = false }) { Text("Cancelar") } },
+                confirmButton = { TextButton(onClick = { confirmSeparate = false; vm.separate(true) }) { Text("Alta calidad") } },
+                dismissButton = { TextButton(onClick = { confirmSeparate = false; vm.separate(false) }) { Text("Rápida") } },
             )
         }
         if (song == null) {

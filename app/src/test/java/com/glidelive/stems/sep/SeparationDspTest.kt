@@ -117,3 +117,32 @@ class SeparationDspTest {
         assertEquals(8000f / 32768f, peak, 0.01f)
     }
 }
+
+class DemucsDspTest {
+    @Test fun reflectPadMatchesTheReference() {
+        val x = floatArrayOf(1f, 2f, 3f, 4f, 5f)
+        val p = DemucsDsp.reflectPad(x, 2, 3)
+        assertEquals(listOf(3f, 2f, 1f, 2f, 3f, 4f, 5f, 4f, 3f, 2f), p.toList())
+    }
+
+    @Test fun spectrogramThroughTheInverseRebuildsTheSegment() {
+        val n = DemucsDsp.N
+        val l = FloatArray(n) { (0.4 * sin(0.0123 * it) + 0.2 * sin(0.31 * it)).toFloat() }
+        val r = FloatArray(n) { (0.3 * sin(0.021 * it + 1.0) + 0.1 * sin(0.9 * it)).toFloat() }
+        val dsp = DemucsDsp()
+        val wave = FloatArray(2 * n)
+        val spec = FloatArray(4 * DemucsDsp.BINS * DemucsDsp.FRAMES)
+        dsp.prepare(l, r, wave, spec)
+        assertEquals(l[1234], wave[1234], 0f)
+        assertEquals(r[1234], wave[n + 1234], 0f)
+        // Se usa el espectrograma de entrada como si fuera la salida de frecuencia de la pista 0.
+        val freq = FloatArray(4 * 4 * DemucsDsp.BINS * DemucsDsp.FRAMES)
+        System.arraycopy(spec, 0, freq, 0, spec.size)
+        val ol = FloatArray(n); val orr = FloatArray(n)
+        val tl = FloatArray(DemucsDsp.ISTFT_LEN + DemucsDsp.FFT); val tr = FloatArray(DemucsDsp.ISTFT_LEN + DemucsDsp.FFT)
+        dsp.ispec(freq, 0, ol, orr, tl, tr)
+        var worst = 0f
+        for (i in 8000 until n - 8000 step 31) worst = maxOf(worst, abs(l[i] - ol[i]), abs(r[i] - orr[i]))
+        assertTrue("reconstrucción en el centro del tramo: error máximo $worst", worst < 2e-3f)
+    }
+}

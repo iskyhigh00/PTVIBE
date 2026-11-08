@@ -275,7 +275,7 @@ class StemsViewModel(private val app: Application) : AndroidViewModel(app) {
     private var sepJob: kotlinx.coroutines.Job? = null
 
     /** Separa la mezcla de la canción abierta en voz, batería, bajo y otros (en el teléfono, sin internet salvo la 1.ª vez). */
-    fun separate() {
+    fun separate(high: Boolean = true) {
         val song = _ui.value.current ?: return
         if (sepJob?.isActive == true) return
         stop()
@@ -284,7 +284,7 @@ class StemsViewModel(private val app: Application) : AndroidViewModel(app) {
             val result = withContext(Dispatchers.Default) {
                 runCatching {
                     com.glidelive.stems.sep.Separator.run(
-                        app, song,
+                        app, song, high,
                         { s, p -> _ui.update { u -> u.copy(separating = s to p) } },
                         { !isActive },
                     )

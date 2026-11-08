@@ -43,6 +43,24 @@ class Stft(val nFft: Int, val hop: Int) {
         }
     }
 
+    /** STFT sin relleno propio: [l]/[r] ya vienen rellenados; cuadro t empieza en t*hop; la salida se multiplica por [scale]. */
+    fun forwardRaw(l: FloatArray, r: FloatArray, numFrames: Int, keep: Int, scale: Float, out: (frame: Int, kBin: Int, lr: Float, li: Float, rr: Float, ri: Float) -> Unit) {
+        for (t in 0 until numFrames) {
+            val start = t * hop
+            for (j in 0 until nFft) {
+                val w = window[j]
+                re[j] = l[start + j] * w
+                im[j] = r[start + j] * w
+            }
+            fft.forward(re, im)
+            for (k in 0 until keep) {
+                val k2 = if (k == 0) 0 else nFft - k
+                val ar = re[k]; val ai = im[k]; val br = re[k2]; val bi = im[k2]
+                out(t, k, 0.5f * (ar + br) * scale, 0.5f * (ai - bi) * scale, 0.5f * (ai + bi) * scale, -0.5f * (ar - br) * scale)
+            }
+        }
+    }
+
     /**
      * iSTFT estéreo. [spec] entrega para cada cuadro y bin (lr, li, rr, ri); los bins sin entregar quedan en cero.
      * Suma con solapamiento y normaliza por la suma de ventanas^2; devuelve [len] muestras por canal.

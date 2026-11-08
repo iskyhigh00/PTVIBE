@@ -36,21 +36,56 @@ object Separator {
         return l to r
     }
 
-    /** [stage] recibe (texto, 0..1 del total). */
-    fun run(ctx: Context, song: StemSong, stage: (String, Float) -> Unit, cancelled: () -> Boolean): List<StemTrack> {
-        val dir = StemLibrary.dir(ctx, song)
-        val src = song.tracks.first()
+    /**
+     * [high] = true: HTDemucs (4 pistas con red neuronal, lento). false: voz con MDX-Net y el resto por filtros (rápido).
+     * [stage] recibe (texto, 0..1 del total).
+     */
+    fun run(ctx: Context, song: StemSong, high: Boolean, stage: (String, Float) -> Unit, cancelled: () -> Boolean): List<StemTrack> =
+        if (high) runDemucs(ctx, song, stage, cancelled) else runFast(ctx, song, stage, cancelled)
 
-        if (!ModelStore.isReady(ctx)) {
-            stage("Descargando el modelo (${ModelStore.SIZE_MB} MB)", 0f)
-            ModelStore.download(ctx, { stage("Descargando el modelo (${ModelStore.SIZE_MB} MB)", it * 0.10f) }, cancelled)
-        }
+    private fun download(ctx: Context, m: SepModel, stage: (String, Float) -> Unit, cancelled: () -> Boolean) {
+        if (ModelStore.isReady(ctx, m)) return
+        val label = "Descargando el modelo (${m.sizeMb} MB)"
+        stage(label, 0f)
+        ModelStore.download(ctx, m, { stage(label, it * 0.10f) }, cancelled)
+    }
+
+    private fun load(ctx: Context, song: StemSong, stage: (String, Float) -> Unit, cancelled: () -> Boolean): Pair<FloatArray, FloatArray> {
         stage("Leyendo la canción", 0.10f)
-        val dec = AudioDecoder.decode(File(dir, src.file))
-        val (l, r) = resample(dec.pcm, dec.channels, dec.rate)
+        val dec = AudioDecoder.decode(File(StemLibrary.dir(ctx, song), song.tracks.first().file))
+        val lr = resample(dec.pcm, dec.channels, dec.rate)
         if (cancelled()) throw java.util.concurrent.CancellationException("cancelado")
+        return lr
+    }
 
-        val (vl, vr) = MdxSeparator(ModelStore.file(ctx).path).use { mdx ->
+    private fun runDemucs(ctx: Context, song: StemSong, stage: (String, Float) -> Unit, cancelled: () -> Boolean): List<StemTrack> {
+        val dir = StemLibrary.dir(ctx, song)
+        download(ctx, SepModel.DEMUCS, stage, cancelled)
+        val (l, r) = load(ctx, song, stage, cancelled)
+        val names = listOf("bateria.wav", "bajo.wav", "otros.wav", "voz.wav")  // orden de HTDemucs
+        val writers = names.map { WavWriter(File(dir, it), RATE) }
+        try {
+            DemucsSeparator(ModelStore.file(ctx, SepModel.DEMUCS).path).use { dm ->
+                dm.separate(l, r, { tk, ol, or, from, cnt -> writers[tk].write(ol, or, from, cnt) },
+                    { stage("Separando con Demucs", 0.12f + 0.88f * it) }, cancelled)
+            }
+        } finally { writers.forEach { it.close() } }
+        return tracksOf(names)
+    }
+
+    private fun tracksOf(names: List<String>): List<StemTrack> = listOf(
+        StemTrack("v", "Voz", StemKind.VOCALS, names[3]),
+        StemTrack("d", "Batería", StemKind.DRUMS, names[0]),
+        StemTrack("b", "Bajo", StemKind.BASS, names[1]),
+        StemTrack("o", "Otros (guitarras…)", StemKind.OTHER, names[2]),
+    )
+
+    private fun runFast(ctx: Context, song: StemSong, stage: (String, Float) -> Unit, cancelled: () -> Boolean): List<StemTrack> {
+        val dir = StemLibrary.dir(ctx, song)
+        download(ctx, SepModel.VOICE, stage, cancelled)
+        val (l, r) = load(ctx, song, stage, cancelled)
+
+        val (vl, vr) = MdxSeparator(ModelStore.file(ctx, SepModel.VOICE).path).use { mdx ->
             mdx.vocals(l, r, { stage("Separando la voz", 0.12f + it * 0.68f) }, cancelled)
         }
         val n = l.size
@@ -85,11 +120,6 @@ object Separator {
         } finally {
             writers.forEach { it.close() }
         }
-        return listOf(
-            StemTrack("v", "Voz", StemKind.VOCALS, files[0].name),
-            StemTrack("d", "Batería", StemKind.DRUMS, files[1].name),
-            StemTrack("b", "Bajo", StemKind.BASS, files[2].name),
-            StemTrack("o", "Otros (guitarras…)", StemKind.OTHER, files[3].name),
-        )
+        return tracksOf(listOf(files[1].name, files[2].name, files[3].name, files[0].name))
     }
 }
