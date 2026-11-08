@@ -91,7 +91,7 @@ object StemLibrary {
         val base = names.map { it.substringBeforeLast('.') }
         val first = base.firstOrNull() ?: return "Canción"
         var t = first
-        for (k in StemKind.entries) for (w in k.keys) t = t.replace(Regex("(?i)[\\s_\\-.()\\[\\]]*\\b$w\\b[\\s_\\-.()\\[\\]]*"), " ")
+        for (k in StemKind.entries) for (w in k.keys) t = t.replace(Regex("(?i)[\\s_\\-.()\\[\\]]*\\b$w(?:s|es)?\\b[\\s_\\-.()\\[\\]]*"), " ")
         t = t.replace(Regex("[_]+"), " ").replace(Regex("\\s+"), " ").trim(' ', '-', '_')
         return t.ifEmpty { first }
     }
