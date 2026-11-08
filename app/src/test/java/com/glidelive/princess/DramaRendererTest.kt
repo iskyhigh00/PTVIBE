@@ -48,7 +48,7 @@ class DramaRendererTest {
 
     @Test fun renderPlacesEachClipAtItsTime() {
         val p = project(cue("v1", CueType.VOICE, 1f, gap = 1f))
-        val out = DramaRenderer.render(p) { constant(16384, 1f) }
+        val out = DramaRenderer.render(p, { constant(16384, 1f) })
         fun at(sec: Double) = out[((sec * DramaRenderer.RATE).toInt()) * 2].toInt()
         assertTrue("antes de entrar hay silencio", at(0.5) == 0)
         assertEquals(16383.0, at(1.5).toDouble(), 80.0)
@@ -62,7 +62,7 @@ class DramaRendererTest {
             cue("v1", CueType.VOICE, 1f, gap = 2f),
             duck = true,
         )
-        val out = DramaRenderer.render(p) { c -> if (c.type == CueType.MUSIC) constant(16384, 1f) else constant(0, 1f) }
+        val out = DramaRenderer.render(p, { c -> if (c.type == CueType.MUSIC) constant(16384, 1f) else constant(0, 1f) })
         fun at(sec: Double) = out[((sec * DramaRenderer.RATE).toInt()) * 2].toInt()
         val loud = at(1.0)             // la música se repite sola (el archivo dura 1 s y la obra 3 s)
         assertEquals(8191.0, loud.toDouble(), 100.0)
@@ -75,7 +75,7 @@ class DramaRendererTest {
         val g = DramaRenderer.voiceGain(quiet)
         assertEquals(0.7f * 32768f / 4000f, g, 0.01f)
         val p = project(cue("v", CueType.VOICE, 1f), norm = true)
-        val out = DramaRenderer.render(p) { quiet }
+        val out = DramaRenderer.render(p, { quiet })
         assertTrue(out[22050 * 2] > 15000)
     }
 
