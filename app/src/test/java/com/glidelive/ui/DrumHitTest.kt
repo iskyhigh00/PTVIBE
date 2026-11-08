@@ -94,15 +94,9 @@ class DrumHitTest {
         assertEquals(DrumHit.hitTest(k, 1199f, 599f, 1200, 600), DrumHit.hitTest(k, 1300f, 700f, 1200, 600))
     }
 
-    @Test fun velocityStrongInCenterSoftAtEdge() {
-        assertEquals(1f, DrumHit.velocity(Pads.KICK, 0f, 0f), 0.001f)
-        assertTrue(DrumHit.velocity(Pads.KICK, 0.9f, 0f) < DrumHit.velocity(Pads.KICK, 0.2f, 0f))
-        assertTrue(DrumHit.velocity(Pads.TOM1, 1f, 1f) in 0.3f..0.6f)
-    }
-
-    @Test fun ghostZoneOnlyOnTheSnare() {
-        assertEquals(DrumHit.GHOST_VELOCITY, DrumHit.velocity(Pads.SNARE, 0f, 0.8f), 0.001f)
-        assertTrue(DrumHit.velocity(Pads.TOM1, 0f, 0.8f) > 0.5f)
-        assertTrue(DrumHit.velocity(Pads.SNARE, 0f, 0.3f) > 0.9f)
+    @Test fun everyPointOfAPadSoundsTheSame() {
+        for (pad in 0 until Pads.TOTAL) for (nx in listOf(-1f, -0.6f, 0f, 0.6f, 1f)) for (ny in listOf(-1f, -0.6f, 0f, 0.6f, 1f)) {
+            assertEquals(DrumHit.VELOCITY, DrumHit.velocity(pad, nx, ny), 0f)
+        }
     }
 }

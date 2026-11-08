@@ -258,11 +258,6 @@ class DrumPadsView(context: Context) : View(context) {
             val m = 7f * dp
             rect.set(left[i] + m, top[i] + m, right[i] - m, bottom[i] - m)
             c.drawRoundRect(rect, max(corner - m, 4f), max(corner - m, 4f), inner)
-            if (i == Pads.SNARE) {  // zona de ghost notes (franja inferior)
-                val gy = top[i] + (bottom[i] - top[i]) * (1f + DrumHit.GHOST_FROM) / 2f
-                c.drawLine(left[i] + m * 2, gy, right[i] - m * 2, gy, ghost)
-            }
-
             val lines = Pads.lines[i]
             val size = padText[i]
             text.textSize = size

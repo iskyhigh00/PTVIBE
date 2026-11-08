@@ -82,21 +82,26 @@ enum class PadLayout(val label: String, val hint: String, val cols: Int, val row
         ),
     ),
     COMBOS(
-        "Kit + combos", "Botones que tocan dos sonidos juntos (bombo + ride, bombo + crash…)", 12, 6,
+        "Kit + combos", "Con toms y botones que tocan dos sonidos juntos (bombo + ride, bombo + crash…)", 12, 8,
         arrayOfNulls<IntArray>(Pads.TOTAL).also { a ->
-            a[Pads.KICK] = intArrayOf(0, 4, 6, 2)
-            a[Pads.SNARE] = intArrayOf(6, 4, 4, 2)
-            a[Pads.FLOOR] = intArrayOf(10, 4, 2, 2)
-            a[Pads.CRASH] = intArrayOf(0, 2, 2, 2)
-            a[Pads.RIDE] = intArrayOf(2, 2, 2, 2)
-            a[Pads.HH_CLOSED] = intArrayOf(4, 2, 2, 2)
-            a[Pads.HH_OPEN] = intArrayOf(6, 2, 2, 2)
-            a[Pads.COMBO_KICK_SNARE] = intArrayOf(8, 2, 2, 2)
-            a[Pads.COMBO_KICK_BELL] = intArrayOf(10, 2, 2, 2)
             a[Pads.COMBO_KICK_CRASH] = intArrayOf(0, 0, 3, 2)
             a[Pads.COMBO_KICK_RIDE] = intArrayOf(3, 0, 3, 2)
             a[Pads.COMBO_KICK_HH] = intArrayOf(6, 0, 3, 2)
             a[Pads.COMBO_SNARE_CRASH] = intArrayOf(9, 0, 3, 2)
+            a[Pads.TOM1] = intArrayOf(0, 2, 2, 2)
+            a[Pads.TOM2] = intArrayOf(2, 2, 2, 2)
+            a[Pads.FLOOR] = intArrayOf(4, 2, 2, 2)
+            a[Pads.CRASH] = intArrayOf(6, 2, 2, 2)
+            a[Pads.RIDE] = intArrayOf(8, 2, 2, 2)
+            a[Pads.BELL] = intArrayOf(10, 2, 2, 2)
+            a[Pads.HH_CLOSED] = intArrayOf(0, 4, 2, 2)
+            a[Pads.HH_OPEN] = intArrayOf(2, 4, 2, 2)
+            a[Pads.COMBO_KICK_SNARE] = intArrayOf(4, 4, 2, 2)
+            a[Pads.COMBO_KICK_BELL] = intArrayOf(6, 4, 2, 2)
+            a[Pads.SNARE] = intArrayOf(8, 4, 4, 2)
+            a[Pads.KICK] = intArrayOf(0, 6, 8, 2)
+            a[Pads.COMBO_KICK_HH_OPEN] = intArrayOf(8, 6, 2, 2)
+            a[Pads.HH_PEDAL] = intArrayOf(10, 6, 2, 2)
         },
     ),
     CUMBIA(

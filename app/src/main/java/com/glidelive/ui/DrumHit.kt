@@ -34,14 +34,9 @@ object DrumHit {
     /** Posición del toque dentro del pad, de -1 (izquierda/arriba) a 1 (derecha/abajo). */
     fun norm(v: Float, lo: Float, hi: Float): Float = ((v - lo) / max(hi - lo, 1f) * 2f - 1f).coerceIn(-1f, 1f)
 
-    /** Velocidad según dónde se toca: centro fuerte, borde suave; franja inferior de la caja = ghost note. */
-    fun velocity(pad: Int, nx: Float, ny: Float): Float {
-        if (pad == Pads.SNARE && ny > GHOST_FROM) return GHOST_VELOCITY
-        val d = max(abs(nx), abs(ny))
-        return if (d < 0.5f) 1f - 0.3f * d else 0.85f - 0.9f * (d - 0.5f)
-    }
+    /** Fuerza de un toque: siempre la misma, caiga donde caiga dentro del pad (los bordes no suenan distinto). */
+    const val VELOCITY = 0.9f
 
-    /** Desde esta altura relativa (0 = centro, 1 = borde inferior) la caja toca ghost notes (franja del ~22 %). */
-    const val GHOST_FROM = 0.56f
-    const val GHOST_VELOCITY = 0.28f
+    @Suppress("UNUSED_PARAMETER")
+    fun velocity(pad: Int, nx: Float, ny: Float): Float = VELOCITY
 }
