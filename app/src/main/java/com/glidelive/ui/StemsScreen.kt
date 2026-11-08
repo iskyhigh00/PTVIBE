@@ -104,11 +104,48 @@ fun StemsScreen(vm: StemsViewModel, modifier: Modifier = Modifier) {
             LinearProgressIndicator(progress = { p.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
         }
         val song = u.current
+        val view = androidx.compose.ui.platform.LocalView.current
+        androidx.compose.runtime.DisposableEffect(u.separating != null) {
+            view.keepScreenOn = u.separating != null  // separar tarda varios minutos: no dejar que se apague la pantalla
+            onDispose { view.keepScreenOn = false }
+        }
+        u.separating?.let { (stage, p) ->
+            Column(
+                Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f), RoundedCornerShape(12.dp)).padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text("Separando en pistas…", style = MaterialTheme.typography.titleSmall)
+                Text("$stage  ·  ${(p * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
+                LinearProgressIndicator(progress = { p.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                Text("Puede tardar varios minutos. Deja la app abierta con la pantalla encendida.", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = vm::cancelSeparation) { Text("Cancelar") }
+            }
+            return@Column
+        }
+        var confirmSeparate by remember { mutableStateOf(false) }
+        if (confirmSeparate) {
+            AlertDialog(
+                onDismissRequest = { confirmSeparate = false },
+                title = { Text("Separar en pistas") },
+                text = {
+                    Text(
+                        "La app separará la canción en Voz, Batería, Bajo y Otros (guitarras, teclados…) dentro del teléfono.\n\n" +
+                            "• La primera vez baja un modelo de ${com.glidelive.stems.sep.ModelStore.SIZE_MB} MB (usa WiFi si puedes).\n" +
+                            "• Tarda varios minutos según el teléfono y el largo de la canción.\n" +
+                            "• La voz se separa con una red neuronal; batería, bajo y otros son una aproximación, " +
+                            "menos limpia que en StemKit.",
+                    )
+                },
+                confirmButton = { TextButton(onClick = { confirmSeparate = false; vm.separate() }) { Text("Separar") } },
+                dismissButton = { TextButton(onClick = { confirmSeparate = false }) { Text("Cancelar") } },
+            )
+        }
         if (song == null) {
             if (u.loading == null) Text(
                 "Importa una canción para tocar encima: puedes elegir varios archivos a la vez (uno por instrumento: voz, batería, bajo, " +
                     "guitarra…) o un solo archivo con la mezcla. Cada pista tiene su volumen, mudo, solo y paneo.\n\n" +
-                    "Para separar una canción en instrumentos puedes usar StemKit en el computador y traer aquí las pistas.",
+                    "Si subes un solo archivo, puedes separarlo en pistas dentro de la app (botón \"Separar en pistas\").",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             return@Column
@@ -141,6 +178,13 @@ fun StemsScreen(vm: StemsViewModel, modifier: Modifier = Modifier) {
         // Presets
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             for (p in StemPreset.entries) FilterChip(selected = false, onClick = { vm.preset(p) }, label = { Text(p.label) })
+        }
+
+        if (song.tracks.size == 1 && song.tracks[0].kind == StemKind.MIX) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                GradientButton("Separar en pistas", { confirmSeparate = true }, glyph = "✂")
+                Text("Voz, batería, bajo y otros", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
 
         // Pistas

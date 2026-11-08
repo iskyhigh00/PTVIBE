@@ -35,6 +35,8 @@ data class StemsUi(
     val master: Float = 0.9f,
     val loopA: Double = -1.0,
     val loopB: Double = -1.0,
+    /** Separación en curso: texto de la etapa y avance 0..1 (null = ninguna). */
+    val separating: Pair<String, Float>? = null,
 )
 
 /** Posición del reproductor: cambia ~10 veces por segundo, por eso vive aparte del resto del estado. */
@@ -189,6 +191,41 @@ class StemsViewModel(private val app: Application) : AndroidViewModel(app) {
         val all = _ui.value.songs
         viewModelScope.launch(Dispatchers.IO) { StemLibrary.save(app, all) }
     }
+
+    private var sepJob: kotlinx.coroutines.Job? = null
+
+    /** Separa la mezcla de la canción abierta en voz, batería, bajo y otros (en el teléfono, sin internet salvo la 1.ª vez). */
+    fun separate() {
+        val song = _ui.value.current ?: return
+        if (sepJob?.isActive == true) return
+        stop()
+        sepJob = viewModelScope.launch {
+            _ui.update { it.copy(error = null, separating = "Preparando…" to 0f) }
+            val result = withContext(Dispatchers.Default) {
+                runCatching {
+                    com.glidelive.stems.sep.Separator.run(
+                        app, song,
+                        { s, p -> _ui.update { u -> u.copy(separating = s to p) } },
+                        { !isActive },
+                    )
+                }
+            }
+            result.onSuccess { tracks ->
+                val updated = song.copy(tracks = tracks)
+                val all = _ui.value.songs.map { if (it.id == song.id) updated else it }
+                withContext(Dispatchers.IO) { StemLibrary.save(app, all) }
+                _ui.update { it.copy(songs = all, separating = null) }
+                open(updated)
+            }
+            result.onFailure { e ->
+                val msg = if (e is kotlinx.coroutines.CancellationException || e is java.util.concurrent.CancellationException) null
+                else "No se pudo separar: ${e.message ?: e.javaClass.simpleName}"
+                _ui.update { it.copy(separating = null, error = msg) }
+            }
+        }
+    }
+
+    fun cancelSeparation() { sepJob?.cancel() }
 
     fun dismissError() = _ui.update { it.copy(error = null) }
 
