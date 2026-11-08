@@ -730,6 +730,7 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(oboe::AudioStream*, void* aud
     }
     bassWasPlaying_ = seqPlaying;
     bass_.render(out, numFrames, param(kBassTone), param(kBassVol));
+    stems_.render(out, numFrames, sr_);
 
     // Bus de acordes/solista y mezcla final.
     const SynthParams sp = synthParams();

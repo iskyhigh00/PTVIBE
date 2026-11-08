@@ -82,6 +82,7 @@ class MainActivity : ComponentActivity() {
     private val updateVm: UpdateViewModel by viewModels()
     private val chordsVm: ChordsViewModel by viewModels()
     private val soloVm: SoloViewModel by viewModels()
+    private val stemsVm: StemsViewModel by viewModels()
     private val transportVm: TransportViewModel by viewModels()
     private val sessionVm: SessionViewModel by viewModels()
 
@@ -128,6 +129,7 @@ class MainActivity : ComponentActivity() {
                                 TopBar(mode, { mode = it }, chordsVm, soloVm, vm, sessionVm, transportVm, panel, { panel = !panel },
                                     { fullscreen = true }, { demoOpen = true })
                                 DemoStrip(transportVm) { demoOpen = true }
+                                if (mode != Mode.PISTAS) StemStrip(stemsVm) { mode = Mode.PISTAS }
                                 if (mode == Mode.BATERIA || mode == Mode.MIXTO) {
                                     PatternBar(transportVm) {
                                         val k by vm.kit.collectAsState()
@@ -159,6 +161,7 @@ class MainActivity : ComponentActivity() {
                                         }
                                         Mode.SOLISTA -> SoloHost(soloVm, Modifier.weight(1f))
                                         Mode.BATERIA -> DrumsHost(kit.pressure, kit.padLayout, Modifier.weight(1f))
+                                        Mode.PISTAS -> StemsScreen(stemsVm, Modifier.weight(1f))
                                         Mode.DUO -> PerformScreen(
                                             chordsVm, soloVm, kit.pressure,
                                             viz = true, chords = true, solo = true, drums = false,
@@ -224,7 +227,7 @@ val playInsets: WindowInsets
     @Composable get() = WindowInsets.safeDrawing.union(WindowInsets.systemGestures.only(WindowInsetsSides.Horizontal))
 
 enum class Mode(val label: String) {
-    ACORDES("Acordes"), VOCES("Voces"), DUO("Voces + Solista"), SOLISTA("Solista"), BATERIA("Batería"), MIXTO("Mixto")
+    ACORDES("Acordes"), VOCES("Voces"), DUO("Voces + Solista"), SOLISTA("Solista"), BATERIA("Batería"), MIXTO("Mixto"), PISTAS("Pistas")
 }
 
 @Composable
@@ -276,7 +279,7 @@ private fun TopBar(
                 }
             }
         }
-        if (mode != Mode.BATERIA) KeyControls(chords)
+        if (mode != Mode.BATERIA && mode != Mode.PISTAS) KeyControls(chords)
         EqBars(level = { engine.level.value })
     }
 }

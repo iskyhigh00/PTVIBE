@@ -51,6 +51,52 @@ Java_com_glidelive_audio_NativeEngine_nativeSoloSet(JNIEnv*, jobject, jint idx, 
 }
 
 JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeStemLoad(JNIEnv* env, jobject, jint idx, jshortArray data,
+                                                     jint channels, jint rate) {
+    const jsize n = env->GetArrayLength(data);
+    jshort* p = env->GetShortArrayElements(data, nullptr);
+    g_engine.stems().load(idx, p, n / (channels > 0 ? channels : 1), channels, rate);
+    env->ReleaseShortArrayElements(data, p, JNI_ABORT);
+}
+
+JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeStemClear(JNIEnv*, jobject, jint idx) {
+    if (idx < 0) g_engine.stems().clearAll(); else g_engine.stems().clear(idx);
+    g_engine.stems().freeRetired();
+}
+
+JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeStemFree(JNIEnv*, jobject) { g_engine.stems().freeRetired(); }
+
+JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeStemTrack(JNIEnv*, jobject, jint idx, jfloat vol, jfloat pan,
+                                                      jboolean mute, jboolean solo) {
+    g_engine.stems().setTrack(idx, vol, pan, mute, solo);
+}
+
+JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeStemMaster(JNIEnv*, jobject, jfloat master, jfloat speed) {
+    g_engine.stems().setMaster(master, speed);
+}
+
+JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeStemPlay(JNIEnv*, jobject, jboolean on) { g_engine.stems().play(on); }
+
+JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeStemSeek(JNIEnv*, jobject, jdouble sec) { g_engine.stems().seek(sec); }
+
+JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeStemLoop(JNIEnv*, jobject, jdouble a, jdouble b) {
+    g_engine.stems().setLoop(a, b);
+}
+
+JNIEXPORT void JNICALL
+Java_com_glidelive_audio_NativeEngine_nativeStemStatus(JNIEnv* env, jobject, jdoubleArray out) {
+    double t[3] = {g_engine.stems().position(), g_engine.stems().duration(), g_engine.stems().playing() ? 1.0 : 0.0};
+    env->SetDoubleArrayRegion(out, 0, 3, t);
+}
+
+JNIEXPORT void JNICALL
 Java_com_glidelive_audio_NativeEngine_nativeKitBegin(JNIEnv*, jobject) { g_engine.kitBegin(); }
 
 JNIEXPORT void JNICALL

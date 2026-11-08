@@ -11,6 +11,7 @@
 #include "dsp.h"
 #include "sequencer.h"
 #include "spsc_queue.h"
+#include "stem_player.h"
 #include "synth_kit.h"
 
 // Evento de la UI hacia el hilo de audio.
@@ -110,6 +111,8 @@ public:
         synth_.setSolo(idx, pitch, filter, vib, vol);
     }
 
+    StemPlayer& stems() { return stems_; }
+
     void setBursts(int bursts);
     void autoTune();
     void resetStats();
@@ -191,6 +194,7 @@ private:
     Reverb drumRoom_;
     SynthEngine synth_;
     BassSynth bass_;
+    StemPlayer stems_;
     bool bassWasPlaying_ = false;
     int patSynthLeft_[9] = {};  // muestras hasta soltar las voces 0..7 de acordes y el solista (8) tocadas por un patrón
     float compEnv_ = 0;

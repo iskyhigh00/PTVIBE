@@ -5,6 +5,7 @@
 #include <thread>
 #include <vector>
 #include "bass_synth.h"
+#include "stem_player.h"
 #include "chord_synth.h"
 #include "sequencer.h"
 #include "synth_kit.h"
@@ -448,6 +449,71 @@ void testSoloGuitars() {
     }
 }
 
+// Reproductor de pistas: suma las pistas, respeta mudo/solo/volumen, avanza al ritmo de la velocidad, hace bucle A-B y termina.
+void testStemPlayer() {
+    static StemPlayer sp;
+    const int rate = 48000;
+    std::vector<int16_t> a(rate * 2 * 2), b(rate * 2 * 2);  // 2 s estéreo
+    for (int i = 0; i < rate * 2; ++i) {
+        const int16_t va = static_cast<int16_t>(8000.0 * std::sin(6.2831853 * 220.0 * i / rate));
+        const int16_t vb = static_cast<int16_t>(8000.0 * std::sin(6.2831853 * 440.0 * i / rate));
+        a[2 * i] = a[2 * i + 1] = va;
+        b[2 * i] = b[2 * i + 1] = vb;
+    }
+    sp.load(0, a.data(), rate * 2, 2, rate);
+    sp.load(1, b.data(), rate * 2, 2, rate);
+    CHECK(std::fabs(sp.duration() - 2.0) < 1e-6, "pistas: duracion");
+    auto run = [&](float seconds, std::vector<float>* keep = nullptr) {
+        const int n = static_cast<int>(seconds * rate);
+        std::vector<float> out(2 * 512);
+        double e = 0; long cnt = 0;
+        for (int done = 0; done < n; done += 512) {
+            std::fill(out.begin(), out.end(), 0.0f);
+            sp.render(out.data(), 512, rate);
+            for (int i = 0; i < 512; ++i) { e += out[2 * i] * out[2 * i]; ++cnt; if (keep) keep->push_back(out[2 * i]); }
+        }
+        return std::sqrt(e / std::max<long>(cnt, 1));
+    };
+    sp.setMaster(1.0f, 1.0f);
+    sp.setTrack(0, 1, 0, false, false);
+    sp.setTrack(1, 1, 0, false, false);
+    CHECK(run(0.1f) < 1e-9, "pistas: en pausa no suena");
+    sp.play(true);
+    run(0.05f);  // rampa inicial
+    const double both = run(0.2f);
+    CHECK(both > 0.1, "pistas: suena");
+    sp.setTrack(1, 1, 0, true, false);  // mudo de la pista 1
+    run(0.05f);
+    const double one = run(0.2f);
+    CHECK(one < both * 0.85 && one > 0.05, "pistas: mudo baja el nivel");
+    sp.setTrack(1, 1, 0, false, true);  // solo de la 1 (la 0 deja de oirse)
+    sp.setTrack(0, 1, 0, false, false);
+    run(0.05f);
+    const double soloOnly = run(0.2f);
+    CHECK(std::fabs(soloOnly - one) < 0.2 * one, "pistas: solo deja una pista");
+    sp.setTrack(1, 1, 0, false, false);
+    // posición y velocidad doble
+    sp.seek(0.0);
+    run(0.01f);
+    const double p0 = sp.position();
+    sp.setMaster(1.0f, 2.0f);
+    run(0.5f);
+    CHECK(std::fabs((sp.position() - p0) - 1.0) < 0.05, "pistas: a doble velocidad avanza el doble");
+    sp.setMaster(1.0f, 1.0f);
+    // bucle 0.5-1.0 s
+    sp.setLoop(0.5, 1.0);
+    sp.seek(0.6);
+    run(2.0f);
+    CHECK(sp.playing() && sp.position() >= 0.5 && sp.position() < 1.0, "pistas: bucle A-B");
+    sp.setLoop(-1, -1);
+    sp.seek(1.9);
+    run(0.5f);
+    CHECK(!sp.playing(), "pistas: termina al final");
+    sp.clearAll();
+    sp.freeRetired();
+    CHECK(sp.duration() == 0.0, "pistas: vacio");
+}
+
 int main() {
     testPatternSampleAccurate();
     testPolyrhythm();
@@ -468,6 +534,7 @@ int main() {
     testQueuedSwapCancelAndReplace();
     testBassNote();
     testSoloGuitars();
+    testStemPlayer();
     if (fails) { std::printf("FALLOS: %d\n", fails); return 1; }
     std::printf("OK: todas las pruebas de host pasan\n");
     return 0;

@@ -158,6 +158,18 @@ object NativeEngine {
     fun setRecording(on: Boolean) = nativeSetRecording(on)
     fun readRecording(dst: FloatArray): Int = nativeReadRecording(dst)
 
+    // ---- pistas (stems)
+    fun stemLoad(idx: Int, pcm: ShortArray, channels: Int, rate: Int) = nativeStemLoad(idx, pcm, channels, rate)
+    fun stemClear(idx: Int = -1) = nativeStemClear(idx)
+    fun stemFree() = nativeStemFree()
+    fun stemTrack(idx: Int, vol: Float, pan: Float, mute: Boolean, solo: Boolean) = nativeStemTrack(idx, vol, pan, mute, solo)
+    fun stemMaster(master: Float, speed: Float) = nativeStemMaster(master, speed)
+    fun stemPlay(on: Boolean) = nativeStemPlay(on)
+    fun stemSeek(sec: Double) = nativeStemSeek(sec)
+    fun stemLoop(a: Double, b: Double) = nativeStemLoop(a, b)
+    /** Posición (s), duración (s) y si suena. */
+    fun stemStatus(): DoubleArray = DoubleArray(3).also { nativeStemStatus(it) }
+
     fun kitBegin() = nativeKitBegin()
     fun kitSet(pad: Int, layer: Int, variant: Int, data: FloatArray, channels: Int, rate: Int) =
         nativeKitSet(pad, layer, variant, data, channels, rate)
@@ -205,6 +217,15 @@ object NativeEngine {
     private external fun nativePollViz(out: DoubleArray, maxEvents: Int): Int
     private external fun nativeSetRecording(on: Boolean)
     private external fun nativeReadRecording(dst: FloatArray): Int
+    private external fun nativeStemLoad(idx: Int, pcm: ShortArray, channels: Int, rate: Int)
+    private external fun nativeStemClear(idx: Int)
+    private external fun nativeStemFree()
+    private external fun nativeStemTrack(idx: Int, vol: Float, pan: Float, mute: Boolean, solo: Boolean)
+    private external fun nativeStemMaster(master: Float, speed: Float)
+    private external fun nativeStemPlay(on: Boolean)
+    private external fun nativeStemSeek(sec: Double)
+    private external fun nativeStemLoop(a: Double, b: Double)
+    private external fun nativeStemStatus(out: DoubleArray)
     private external fun nativeKitBegin()
     private external fun nativeKitSet(pad: Int, layer: Int, variant: Int, data: FloatArray, channels: Int, rate: Int)
     private external fun nativeKitCommit(slot: Int)
