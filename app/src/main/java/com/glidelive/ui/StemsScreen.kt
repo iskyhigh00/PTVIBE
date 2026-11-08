@@ -86,7 +86,7 @@ fun StemsScreen(vm: StemsViewModel, modifier: Modifier = Modifier) {
 
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            GradientButton("Importar canción o pistas", { picker.launch(arrayOf("audio/*", "video/webm", "application/ogg")) }, glyph = "+")
+            GradientButton("Importar canción o pistas", { picker.launch(arrayOf("*/*")) }, glyph = "+")
             Picker("Canción: " + (u.current?.title ?: "—"), u.songs, { it.title + "  (${it.tracks.size})" }) { vm.open(it) }
             u.current?.let { s ->
                 TextButton(onClick = { vm.delete(s) }) { Text("Borrar") }

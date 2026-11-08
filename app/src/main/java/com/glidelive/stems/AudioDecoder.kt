@@ -35,7 +35,7 @@ object AudioDecoder {
                 val f = ex.getTrackFormat(i)
                 if (f.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) { track = i; format = f; break }
             }
-            require(track >= 0 && format != null) { "El archivo no tiene audio" }
+            require(track >= 0 && format != null) { "el archivo no tiene audio o el formato no es compatible" }
             ex.selectTrack(track)
             val mime = format.getString(MediaFormat.KEY_MIME)!!
             val durUs = if (format.containsKey(MediaFormat.KEY_DURATION)) format.getLong(MediaFormat.KEY_DURATION) else 0L
