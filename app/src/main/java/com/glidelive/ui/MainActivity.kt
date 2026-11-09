@@ -470,7 +470,7 @@ private fun SettingsModal(
 
 @Composable
 internal fun LabeledSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, onChange: (Float) -> Unit) {
-    Text("$label: %.2f".format(value), style = MaterialTheme.typography.labelMedium)
+    Text("$label: " + "%.2f".format(value), style = MaterialTheme.typography.labelMedium)
     Slider(value = value, onValueChange = onChange, valueRange = range)
 }
 
