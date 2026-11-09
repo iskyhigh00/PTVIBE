@@ -119,7 +119,7 @@ fun PrincessScreen(vm: PrincessViewModel, modifier: Modifier = Modifier) {
         Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Picker("Obra: ${p.title}", u.projects, { it.title }) { vm.open(it) }
             TextButton(onClick = { newProject = true }) { Text("+ Nueva obra") }
-            GradientButton(if (clock.playing) "Parar" else "Escuchar todo", { if (clock.playing) vm.stop() else vm.playAll(0) }, glyph = if (clock.playing) "■" else "▶")
+            GradientButton(if (clock.playing) "Parar" else "Escuchar todo", { if (clock.playing) vm.stop() else vm.playFromSeconds(0.0) }, glyph = if (clock.playing) "■" else "▶")
             TextButton(onClick = vm::export) { Text("Exportar WAV") }
             TextButton(onClick = { vm.deleteProject(p) }) { Text("Borrar obra") }
             Text("Duración: ${fmtTime(DramaRenderer.totalSeconds(p))}", style = MaterialTheme.typography.labelMedium)
@@ -136,6 +136,8 @@ fun PrincessScreen(vm: PrincessViewModel, modifier: Modifier = Modifier) {
                 Text(fmtTime(clock.dur))
             }
         }
+
+        PrincessTimeline(p, vm, clock.pos, clock.playing, u.busy != null || u.recordingFor != null)
 
         // Grabando
         u.recordingFor?.let { id ->
@@ -190,7 +192,7 @@ fun PrincessScreen(vm: PrincessViewModel, modifier: Modifier = Modifier) {
         SoundBoard(u, vm)
 
         // Lista de pistas
-        Text("La obra (en orden)", style = MaterialTheme.typography.titleSmall)
+        Text("Lista de clips", style = MaterialTheme.typography.titleSmall)
         if (p.cues.isEmpty()) {
             Text(
                 "Todavía no hay nada. Graba la voz de un personaje, trae una música de fondo o un sonido, y ordénalos aquí. " +
@@ -244,8 +246,8 @@ private fun CueCard(index: Int, c: Cue, characters: List<Character>, playing: Bo
             Column(Modifier.weight(1f)) {
                 Text(
                     when (c.type) { CueType.VOICE -> who?.name ?: "Voz"; CueType.MUSIC -> "Música"; CueType.SFX -> "Sonido"; CueType.SILENCE -> "Silencio" } +
-                        "  ·  " + (if (c.mode == CueMode.BED) "de fondo" else secs(c.seconds)) +
-                        (if (c.mode == CueMode.WITH_PREV) "  ·  junto a la anterior" else ""),
+                        "  ·  " + (if (c.durationSeconds != null) secs(c.durationSeconds) else if (c.mode == CueMode.BED) "de fondo" else secs(c.seconds)) +
+                        (if (c.startSeconds != null) "  ·  inicio ${secs(c.startSeconds)}" else if (c.mode == CueMode.WITH_PREV) "  ·  junto a la anterior" else ""),
                     fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge, color = color,
                 )
                 if (c.text.isNotBlank() && c.type != CueType.SILENCE) Text(c.text, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
@@ -263,14 +265,20 @@ private fun CueCard(index: Int, c: Cue, characters: List<Character>, playing: Bo
             )
             if (c.type == CueType.SILENCE) Stepper("Duración", c.seconds) { v -> vm.updateCue(index) { it.copy(seconds = v.coerceAtLeast(0.5f)) } }
             else {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    for (m in CueMode.entries) {
-                        if (m == CueMode.BED && c.type != CueType.MUSIC) continue
-                        if (m != CueMode.BED && c.type == CueType.MUSIC && false) continue
-                        FilterChip(selected = c.mode == m, onClick = { vm.updateCue(index) { it.copy(mode = m) } }, label = { Text(m.label) })
+                if (c.startSeconds != null) {
+                    Text("Inicio fijo en timeline: ${secs(c.startSeconds)}. Edita su posición y duración en el timeline.", style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { vm.updateCue(index) { it.copy(startSeconds = null, durationSeconds = null, loop = it.loop || it.mode == CueMode.BED) } }) {
+                        Text("Volver al orden de la lista")
                     }
+                } else {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        for (m in CueMode.entries) {
+                            if (m == CueMode.BED && c.type != CueType.MUSIC) continue
+                            FilterChip(selected = c.mode == m, onClick = { vm.updateCue(index) { it.copy(mode = m, startSeconds = null, durationSeconds = null) } }, label = { Text(m.label) })
+                        }
+                    }
+                    Stepper(if (c.mode == CueMode.WITH_PREV) "Entra con un desfase de" else "Espacio antes", c.gap) { v -> vm.updateCue(index) { it.copy(gap = v.coerceAtLeast(0f)) } }
                 }
-                Stepper(if (c.mode == CueMode.WITH_PREV) "Entra con un desfase de" else "Espacio antes", c.gap) { v -> vm.updateCue(index) { it.copy(gap = v.coerceAtLeast(0f)) } }
                 LabeledSlider("Volumen", c.volume, 0f..1.5f) { v -> vm.updateCue(index) { it.copy(volume = v) } }
                 if (c.mode == CueMode.BED) {
                     Row(verticalAlignment = Alignment.CenterVertically) {

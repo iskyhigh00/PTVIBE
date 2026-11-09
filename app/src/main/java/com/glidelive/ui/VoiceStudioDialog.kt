@@ -1,5 +1,7 @@
 package com.glidelive.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -17,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,6 +32,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
+import com.glidelive.princess.AndroidNarrator
 import com.glidelive.princess.NarratedAudio
 import com.glidelive.princess.NarrationFamily
 import com.glidelive.princess.NarrationPack
@@ -48,6 +52,8 @@ import java.io.File
 import java.util.Locale
 import java.util.UUID
 import kotlin.math.roundToInt
+
+private data class DraftKey(val request: NarrationRequest, val external: Boolean, val engine: String?, val voice: String?)
 
 private data class Delivery(val name: String, val pace: Float, val pitch: Int)
 private val deliveries = listOf(
@@ -77,7 +83,8 @@ fun VoiceStudioDialog(
     val directory = remember { File(app.cacheDir, "princess-narration-${UUID.randomUUID()}") }
     var installed by remember { mutableStateOf(NarrationPack.isReady(app)) }
     var characterId by remember(project.id) { mutableStateOf(project.characters.firstOrNull()?.id) }
-    val initialPreset = NarrationPresets.find(project.characters.firstOrNull { it.id == characterId }?.narrationPresetId)
+    val character = project.characters.firstOrNull { it.id == characterId }
+    val initialPreset = NarrationPresets.find(character?.narrationPresetId)
         ?: NarrationPresets.default
     var presetId by remember(project.id, characterId) { mutableStateOf<String?>(initialPreset.id) }
     var family by remember(project.id, characterId) { mutableStateOf(initialPreset.family) }
@@ -86,9 +93,17 @@ fun VoiceStudioDialog(
     var pace by remember(project.id, characterId) { mutableStateOf(initialPreset.pace) }
     var pitch by remember(project.id, characterId) { mutableStateOf(initialPreset.pitch) }
     var texture by remember(project.id, characterId) { mutableStateOf(initialPreset.texture) }
-    var expressive by remember { mutableStateOf(true) }
+    var engines by remember { mutableStateOf(AndroidNarrator.engines(app)) }
+    var external by remember(project.id, characterId) {
+        mutableStateOf(character?.narrationEngine != null || engines.any { it.packageName == AndroidNarrator.POCKET_PACKAGE })
+    }
+    var enginePackage by remember(project.id, characterId) { mutableStateOf(character?.narrationEngine ?: engines.firstOrNull()?.packageName) }
+    var engineVoices by remember(project.id, characterId) { mutableStateOf<List<AndroidNarrator.Voice>>(emptyList()) }
+    var engineVoice by remember(project.id, characterId) { mutableStateOf<String?>(null) }
+    var refreshEngines by remember { mutableStateOf(0) }
+    var expressive by remember { mutableStateOf(false) }
     var advanced by remember { mutableStateOf(false) }
-    var draft by remember { mutableStateOf<Pair<NarrationRequest, NarratedAudio>?>(null) }
+    var draft by remember { mutableStateOf<Pair<DraftKey, NarratedAudio>?>(null) }
     var progress by remember { mutableStateOf<Pair<String, Float?>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
@@ -100,7 +115,9 @@ fun VoiceStudioDialog(
     val selection = document.selection
     val selected = document.text.substring(selection.min, selection.max).trim()
     val request = NarrationRequest(selected, speaker, language.first, pace, pitch, texture, presetId, expressive)
-    val audio = draft?.takeIf { it.first == request }?.second
+    val key = DraftKey(request, external, if (external) enginePackage else null, if (external) engineVoice else null)
+    val audio = draft?.takeIf { it.first == key }?.second
+    val canGenerate = if (external) engineVoice != null && engineVoices.any { it.name == engineVoice } else installed
     val delivery = deliveries.firstOrNull { it.pace == pace && it.pitch == pitch }?.name ?: "Personalizada"
 
     fun action(label: String, block: suspend () -> Unit) {
@@ -120,6 +137,24 @@ fun VoiceStudioDialog(
             } finally {
                 progress = null
                 saving = false
+            }
+        }
+    }
+
+    LaunchedEffect(project.id, characterId, external, enginePackage, refreshEngines) {
+        if (external) {
+            engineVoices = emptyList()
+            engineVoice = null
+            val selectedEngine = enginePackage
+            if (selectedEngine != null) action("Buscando voces españolas sin conexión") {
+                engineVoices = AndroidNarrator.voices(app, selectedEngine)
+                val storedVoice = character?.takeIf { it.narrationEngine == selectedEngine }?.narrationVoice
+                engineVoice = if (storedVoice == null) engineVoices.firstOrNull()?.name else engineVoices.firstOrNull { it.name == storedVoice }?.name
+                val voice = engineVoice
+                val who = characterId
+                if (voice != null && who != null) vm.editCharacter(who) { it.copy(narrationEngine = selectedEngine, narrationVoice = voice) }
+                if (storedVoice != null && engineVoice == null && engineVoices.isNotEmpty()) notice = "La voz guardada para este personaje ya no está disponible. Elige otra voz."
+                if (engineVoices.isEmpty()) notice = "Este motor no ofrece voces españolas sin conexión instaladas. Abre su aplicación para descargar o importar una voz."
             }
         }
     }
@@ -153,9 +188,11 @@ fun VoiceStudioDialog(
     fun generate() = action("Preparando voz") {
         check(directory.isDirectory || directory.mkdirs()) { "No se pudo preparar el almacenamiento de audio." }
         val destination = File(directory, "${UUID.randomUUID()}.wav")
-        val generated = NeuralNarrator.render(app, request, destination) { progress = "Generando narración" to it }
+        val generated = if (external) {
+            AndroidNarrator.render(app, requireNotNull(enginePackage), requireNotNull(engineVoice), selected, destination)
+        } else NeuralNarrator.render(app, request, destination) { progress = "Generando narración" to it }
         val previous = draft?.second
-        draft = request to generated
+        draft = key to generated
         listen(generated)
         previous?.file?.delete()
     }
@@ -176,7 +213,56 @@ fun VoiceStudioDialog(
         title = { Text("Narrar texto") },
         text = {
             Column(Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (!installed) {
+                Text("Motor de voz", style = MaterialTheme.typography.titleSmall)
+                Row {
+                    TextButton(enabled = !busy, onClick = {
+                        external = false
+                        characterId?.let { who -> vm.editCharacter(who) { it.copy(narrationEngine = null, narrationVoice = null) } }
+                    }) { Text(if (!external) "● Supertonic" else "Supertonic") }
+                    TextButton(enabled = !busy, onClick = { external = true }) { Text(if (external) "● Otro motor Android" else "Otro motor Android") }
+                }
+                if (external && !busy) {
+                    Picker("Motor: " + (engines.firstOrNull { it.packageName == enginePackage }?.label ?: "Ninguno instalado"),
+                        engines, { it.label }) {
+                        engineVoices = emptyList()
+                        engineVoice = null
+                        enginePackage = it.packageName
+                    }
+                    TextButton(onClick = {
+                        engines = AndroidNarrator.engines(app)
+                        if (engines.none { it.packageName == enginePackage }) enginePackage = engines.firstOrNull()?.packageName
+                        refreshEngines++
+                    }) { Text("Actualizar motores y voces") }
+                    if (engineVoices.isNotEmpty()) Picker("Voz: " + (engineVoices.firstOrNull { it.name == engineVoice }?.label ?: "Elegir"),
+                        engineVoices, { it.label }) { chosen ->
+                        engineVoice = chosen.name
+                        val engine = enginePackage
+                        if (engine != null) characterId?.let { who ->
+                            vm.editCharacter(who) { it.copy(narrationEngine = engine, narrationVoice = chosen.name) }
+                        }
+                    }
+                    Text("Se usa la voz original del motor, sin cambios de tono, estiramientos ni presets de GlideLive.", style = MaterialTheme.typography.bodySmall)
+                    if (character != null && character.pitch != 0f) {
+                        Text("Este personaje tiene un ajuste de tono en la obra. La escucha previa será original; al mezclar se aplicará ese ajuste a todas sus pistas.",
+                            style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = { vm.editCharacter(character.id) { it.copy(pitch = 0f) } }) { Text("Restablecer tono del personaje") }
+                    }
+                    Text("Pocket TTS es una aplicación de motor separada y gratuita. Instálala, descarga su paquete español y crea allí perfiles con audios de referencia; después vuelve y actualiza esta lista. La interpretación depende del motor y de la referencia.", style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(AndroidNarrator.POCKET_RELEASES))) }
+                            .onFailure { error = "No se pudo abrir el enlace de Pocket TTS." }
+                    }) { Text("Abrir descarga de Pocket TTS") }
+                    enginePackage?.let { pkg ->
+                        TextButton(onClick = {
+                            val launch = app.packageManager.getLaunchIntentForPackage(pkg)
+                            if (launch == null) error = "Abre la aplicación del motor desde Android para configurar sus voces."
+                            else runCatching { context.startActivity(launch) }.onFailure {
+                                error = "No se pudo abrir la aplicación del motor. Ábrela desde Android."
+                            }
+                        }) { Text("Configurar voces en el motor") }
+                    }
+                }
+                if (!external && !installed) {
                     Text("Descarga el paquete de 10 voces neuronales (129 MB). Una vez instalado, puedes narrar sin conexión.",
                         style = MaterialTheme.typography.bodySmall)
                     TextButton(enabled = !busy, onClick = {
@@ -212,9 +298,9 @@ fun VoiceStudioDialog(
                     selected.length > NarrationText.MAX_SELECTION -> "Selecciona hasta ${NarrationText.MAX_SELECTION} caracteres por audio."
                     else -> "${selected.length} caracteres seleccionados."
                 }, style = MaterialTheme.typography.bodySmall)
-                if (!busy && installed) {
-                    Picker("Personaje: " + (project.characters.firstOrNull { it.id == characterId }?.name ?: "Elegir"),
+                if (!busy) Picker("Personaje: " + (project.characters.firstOrNull { it.id == characterId }?.name ?: "Elegir"),
                         project.characters, { it.name }) { characterId = it.id }
+                if (!busy && !external && installed) {
                     Picker("Familia: ${family.label}", NarrationFamily.entries.toList(), { it.label }) { family = it }
                     val preset = NarrationPresets.find(presetId)
                     Picker("Preset: ${preset?.name ?: "Personalizado"}", NarrationPresets.all.filter { it.family == family }, { it.name }) { chosen ->
@@ -228,12 +314,12 @@ fun VoiceStudioDialog(
                         if (id != null) vm.editCharacter(id) { character -> character.copy(narrationPresetId = chosen.id) }
                     }
                     preset?.let { Text(it.description, style = MaterialTheme.typography.bodySmall) }
-                    Text("El preset elige voz y efectos y se recuerda para este personaje. Las aves y animales son voces de cuento que hablan.",
+                    Text("Estos son los presets anteriores de tono y efectos. Para probar voces originales distintas, cambia a otro motor Android.",
                         style = MaterialTheme.typography.bodySmall)
                     Text("Español: puedes escribir con modismos chilenos. El paquete no tiene un acento chileno específico.",
                         style = MaterialTheme.typography.bodySmall)
                     TextButton(onClick = { expressive = !expressive }) {
-                        Text(if (expressive) "Interpretación de cuento: activada" else "Interpretación de cuento: desactivada")
+                        Text(if (expressive) "Procesamiento experimental: activado" else "Procesamiento experimental: desactivado")
                     }
                     TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Ocultar ajustes" else "Ajustes opcionales") }
                     if (advanced) {
@@ -258,12 +344,12 @@ fun VoiceStudioDialog(
                 }
                 notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                Text(NarrationPack.ATTRIBUTION, style = MaterialTheme.typography.labelSmall)
+                if (!external) Text(NarrationPack.ATTRIBUTION, style = MaterialTheme.typography.labelSmall)
             }
         },
         confirmButton = {
             if (audio == null) {
-                TextButton(enabled = !busy && installed && selected.isNotEmpty() && selected.length <= NarrationText.MAX_SELECTION,
+                TextButton(enabled = !busy && canGenerate && selected.isNotEmpty() && selected.length <= NarrationText.MAX_SELECTION,
                     onClick = { generate() }) { Text("Generar y escuchar") }
             } else {
                 TextButton(enabled = !busy && characterId != null, onClick = {

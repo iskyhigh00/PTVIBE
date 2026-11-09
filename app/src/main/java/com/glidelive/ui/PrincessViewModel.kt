@@ -241,6 +241,11 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     private fun updateProject(p: Project) {
+        if (_ui.value.current?.id == p.id && _ui.value.current != p) {
+            stop()
+            places = emptyList()
+            _ui.update { it.copy(loaded = false, playingCue = -1) }
+        }
         _ui.update { u -> u.copy(current = if (u.current?.id == p.id) p else u.current,
             projects = u.projects.map { if (it.id == p.id) p else it }) }
     }
@@ -283,6 +288,28 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     private fun add(cue: Cue) = edit { p -> p.copy(cues = p.cues + cue) }
 
     fun updateCue(index: Int, f: (Cue) -> Cue) = edit { p -> if (index in p.cues.indices) p.copy(cues = p.cues.toMutableList().also { it[index] = f(it[index]) }) else p }
+
+    fun editTimelineCue(id: String, change: (Cue) -> Cue) = edit { project ->
+        val anchored = DramaRenderer.anchorTimeline(project)
+        anchored.copy(cues = anchored.cues.map { if (it.id == id) change(it) else it })
+    }
+
+    fun muteTimelineLane(ids: Set<String>, muted: Boolean) = edit { project ->
+        project.copy(cues = project.cues.map { if (it.id in ids) it.copy(muted = muted) else it })
+    }
+
+    fun playFromSeconds(seconds: Double) {
+        val p = _ui.value.current ?: return
+        if (p.cues.isEmpty() || _ui.value.busy != null) return
+        viewModelScope.launch {
+            stop()
+            val pcm = renderProject(p, "Mezclando la obra…")
+            if (_ui.value.current != p) { _ui.update { it.copy(busy = null) }; return@launch }
+            places = DramaRenderer.layout(p)
+            load(pcm, seconds.coerceIn(0.0, DramaRenderer.totalSeconds(p)))
+            _ui.update { it.copy(busy = null) }
+        }
+    }
 
     fun moveCue(index: Int, delta: Int) = edit { p ->
         val to = index + delta
@@ -385,17 +412,10 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     /** Escucha la obra completa (o desde la pista [fromCue]). */
-    fun playAll(fromCue: Int = 0) {
+    fun playAll(fromCue: Int = -1) {
         val p = _ui.value.current ?: return
-        if (p.cues.isEmpty()) return
-        viewModelScope.launch {
-            stop()
-            val pcm = renderProject(p, "Mezclando la obra…")
-            places = DramaRenderer.layout(p)
-            val from = places.firstOrNull { it.index == fromCue }?.start ?: 0.0
-            load(pcm, from)
-            _ui.update { it.copy(busy = null) }
-        }
+        val from = DramaRenderer.layout(p).firstOrNull { it.index == fromCue }?.start ?: 0.0
+        playFromSeconds(from)
     }
 
     /** Escucha solo una pista, con el tono y volumen de su personaje. */
@@ -405,7 +425,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             stop()
             // La pista sola, desde el segundo 0 y de una vez (la música de fondo suena entera una sola vez).
-            val solo = p.copy(cues = listOf(c.copy(mode = CueMode.SEQ, gap = 0f, span = 0)), duckMusic = false)
+            val solo = p.copy(cues = listOf(c.copy(mode = CueMode.SEQ, gap = 0f, span = 0, startSeconds = null, loop = c.loop || c.mode == CueMode.BED, muted = false)), duckMusic = false)
             val pcm = renderProject(solo, "Preparando…")
             places = DramaRenderer.layout(solo).map { it.copy(index = index) }
             load(pcm, 0.0)

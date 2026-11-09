@@ -24,6 +24,7 @@ enum class CueMode(val label: String) {
 data class Character(
     val id: String, val name: String, val color: Long, val pitch: Float = 0f,
     val volume: Float = 1f, val pan: Float = 0f, val narrationPresetId: String? = null,
+    val narrationEngine: String? = null, val narrationVoice: String? = null,
 )
 
 data class Cue(
@@ -43,6 +44,13 @@ data class Cue(
     val span: Int = 0,
     val fadeIn: Float = 0f,
     val fadeOut: Float = 0f,
+    /** Absolute timeline position; null keeps the original sequential layout. */
+    val startSeconds: Float? = null,
+    /** Length on the timeline after pitch; null uses the remaining source audio. */
+    val durationSeconds: Float? = null,
+    val trimStart: Float = 0f,
+    val muted: Boolean = false,
+    val loop: Boolean = false,
 )
 
 data class Project(
@@ -90,11 +98,15 @@ object PrincessLibrary {
         put("id", p.id); put("title", p.title); put("normalizeVoices", p.normalizeVoices); put("duckMusic", p.duckMusic)
         put("characters", JSONArray().also { a -> for (c in p.characters) a.put(JSONObject().put("id", c.id).put("name", c.name).put("color", c.color)
             .put("pitch", c.pitch.toDouble()).put("volume", c.volume.toDouble()).put("pan", c.pan.toDouble())
-            .put("narrationPreset", c.narrationPresetId ?: "")) })
+            .put("narrationPreset", c.narrationPresetId ?: "")
+            .put("narrationEngine", c.narrationEngine ?: "").put("narrationVoice", c.narrationVoice ?: "")) })
         put("cues", JSONArray().also { a -> for (c in p.cues) a.put(JSONObject().apply {
             put("id", c.id); put("type", c.type.name); put("character", c.characterId ?: ""); put("text", c.text); put("file", c.file ?: "")
             put("seconds", c.seconds.toDouble()); put("gap", c.gap.toDouble()); put("mode", c.mode.name); put("volume", c.volume.toDouble())
             put("span", c.span); put("fadeIn", c.fadeIn.toDouble()); put("fadeOut", c.fadeOut.toDouble())
+            c.startSeconds?.let { put("startSeconds", it.toDouble()) }
+            c.durationSeconds?.let { put("durationSeconds", it.toDouble()) }
+            put("trimStart", c.trimStart.toDouble()); put("muted", c.muted); put("loop", c.loop)
         }) })
     }
 
@@ -106,12 +118,17 @@ object PrincessLibrary {
             o.getString("id"), o.getString("title"),
             (0 until cs.length()).map { i -> cs.getJSONObject(i).let { Character(it.getString("id"), it.getString("name"), it.getLong("color"),
                 it.optDouble("pitch", 0.0).toFloat(), it.optDouble("volume", 1.0).toFloat(), it.optDouble("pan", 0.0).toFloat(),
-                it.optString("narrationPreset").ifEmpty { null }) } },
+                it.optString("narrationPreset").ifEmpty { null },
+                it.optString("narrationEngine").ifEmpty { null }, it.optString("narrationVoice").ifEmpty { null }) } },
             (0 until qs.length()).map { i -> qs.getJSONObject(i).let { Cue(
                 it.getString("id"), CueType.valueOf(it.getString("type")), it.optString("character").ifEmpty { null }, it.optString("text"),
                 it.optString("file").ifEmpty { null }, it.optDouble("seconds", 0.0).toFloat(), it.optDouble("gap", 0.5).toFloat(),
                 CueMode.valueOf(it.optString("mode", "SEQ")), it.optDouble("volume", 1.0).toFloat(), it.optInt("span", 0),
-                it.optDouble("fadeIn", 0.0).toFloat(), it.optDouble("fadeOut", 0.0).toFloat()) } },
+                it.optDouble("fadeIn", 0.0).toFloat(), it.optDouble("fadeOut", 0.0).toFloat(),
+                it.optDouble("startSeconds").takeIf { value -> value.isFinite() && value >= 0 }?.toFloat(),
+                it.optDouble("durationSeconds").takeIf { value -> value.isFinite() && value >= 0 }?.toFloat(),
+                it.optDouble("trimStart", 0.0).takeIf { value -> value.isFinite() && value >= 0 }?.toFloat() ?: 0f,
+                it.optBoolean("muted", false), it.optBoolean("loop", false)) } },
             o.optBoolean("normalizeVoices", true), o.optBoolean("duckMusic", true),
         )
     }
