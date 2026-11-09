@@ -76,6 +76,7 @@
 #include <string>
 #include <thread>
 #include <exception>
+#include "pocket_stream_allocation.h"
 #include <unordered_map>
 #include <vector>
 
@@ -2711,9 +2712,8 @@ void* ptt_stream_start(void* handle, const char* text, const char* voice) {
     ctx->thread = std::thread([tts, t = std::string(text), v = std::string(voice), ctx]() {
         try {
             tts->stream(t, v, [ctx](const float* samples, size_t n) -> bool {
-                float* copy = static_cast<float*>(malloc(n * sizeof(float)));
-                if (!copy) return false;
-                std::memcpy(copy, samples, n * sizeof(float));
+                if (n == 0) return true;
+                float* copy = glidelive_pocket::copy_audio_chunk(samples, n);
                 {
                     std::lock_guard<std::mutex> lock(ctx->mtx);
                     if (ctx->aborted) { free(copy); return false; }

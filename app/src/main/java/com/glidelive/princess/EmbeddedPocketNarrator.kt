@@ -36,18 +36,35 @@ object EmbeddedPocketNarrator {
                 NativePocketTts(File(dir, "models").absolutePath, voices.absolutePath).use { native ->
                     for ((index, segment) in segments.withIndex()) {
                         coroutine.ensureActive()
-                        val before = frames
-                        val ok = native.synthesize(segment.text, voice.absolutePath, object : NativePocketTts.AudioSink {
-                            override fun onAudio(samples: FloatArray): Boolean {
-                                if (!coroutine.isActive || frames.toLong() + samples.size > RATE * 300L) return false
-                                check(samples.all { it.isFinite() }) { "Pocket devolvió una señal de audio inválida." }
-                                blocks += ShortArray(samples.size) { i -> (samples[i].coerceIn(-1f, 1f) * 32767).roundToInt().toShort() }
-                                frames += samples.size
-                                return true
+                        var accepted = false
+                        for (attempt in 1..PocketCompletion.MAX_ATTEMPTS) {
+                            coroutine.ensureActive()
+                            val attemptBlocks = ArrayList<ShortArray>()
+                            var attemptFrames = 0
+                            var hasSignal = false
+                            val ok = native.synthesize(segment.text, voice.absolutePath, object : NativePocketTts.AudioSink {
+                                override fun onAudio(samples: FloatArray): Boolean {
+                                    if (!coroutine.isActive || frames.toLong() + attemptFrames + samples.size > RATE * 300L) return false
+                                    check(samples.all { it.isFinite() }) { "Pocket devolvió una señal de audio inválida." }
+                                    hasSignal = hasSignal || samples.any { kotlin.math.abs(it) >= .001f }
+                                    attemptBlocks += ShortArray(samples.size) { i -> (samples[i].coerceIn(-1f, 1f) * 32767).roundToInt().toShort() }
+                                    attemptFrames += samples.size
+                                    return true
+                                }
+                            })
+                            coroutine.ensureActive()
+                            check(ok) { "Pocket no pudo completar el fragmento ${index + 1}. No se guardó el audio parcial." }
+                            if (!PocketCompletion.isObviouslyIncomplete(segment.text, attemptFrames, RATE, hasSignal)) {
+                                blocks.addAll(attemptBlocks)
+                                frames += attemptFrames
+                                accepted = true
+                                break
                             }
-                        })
-                        coroutine.ensureActive()
-                        check(ok && frames > before) { "Pocket no pudo completar el fragmento ${index + 1}. Prueba una selección más corta." }
+                            android.util.Log.w("PocketNarration", "Early ending rejected: segment=${index + 1}, attempt=$attempt, frames=$attemptFrames")
+                            // Never append a rejected attempt. A new call advances
+                            // the model's sampling state without changing the voice.
+                        }
+                        check(accepted) { "Pocket cortó antes de tiempo el fragmento ${index + 1} tras ${PocketCompletion.MAX_ATTEMPTS} intentos. No se guardó la toma. Prueba otra voz o Supertonic." }
                         progress((index + 1f) / segments.size)
                     }
                 }
