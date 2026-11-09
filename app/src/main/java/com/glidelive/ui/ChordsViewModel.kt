@@ -41,6 +41,8 @@ data class PadEdit(
 }
 
 data class ChordsUi(
+    /** Voces: los botones de la fila suben en escalera para intuir lo que viene. */
+    val stairs: Boolean = true,
     val key: Int = 0,
     val scale: Scale = Scale.MAJOR,
     val transpose: Int = 0,

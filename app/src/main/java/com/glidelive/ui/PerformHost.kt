@@ -55,7 +55,7 @@ class PerformHost(context: Context) : LinearLayout(context) {
     fun setSolo(layout: SoloLayout, config: SoloConfig) {
         if (layout != soloLayout) {
             soloView?.let { it.releaseAll(); soloFrame.removeView(it) }
-            val v: SoloTouchView = if (layout == SoloLayout.SURFACE) SoloSurfaceView(context) else FingerboardView(context)
+            val v: SoloTouchView = SoloSurfaceView(context)
             soloFrame.addView(v, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
             soloView = v
             soloLayout = layout

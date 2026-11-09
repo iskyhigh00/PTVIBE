@@ -47,17 +47,11 @@ fun SoloScreen(vm: SoloViewModel, modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            SoloLayout.entries.forEach { l ->
-                FilterChip(selected = u.layout == l, onClick = { vm.edit { it.copy(layout = l) } },
-                    label = { Text(l.label) })
-            }
-            if (u.layout == SoloLayout.SURFACE) {
-                Text("Arriba/abajo:", style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Expression.entries.forEach { e ->
-                    FilterChip(selected = u.expression == e, onClick = { vm.edit { it.copy(expression = e) } },
-                        label = { Text(e.label) })
-                }
+            Text("Arriba/abajo:", style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Expression.entries.forEach { e ->
+                FilterChip(selected = u.expression == e, onClick = { vm.edit { it.copy(expression = e) } },
+                    label = { Text(e.label) })
             }
             Text("Imán de escala ${(u.lock * 100).toInt()}%", style = MaterialTheme.typography.labelLarge)
             Slider(
@@ -68,7 +62,7 @@ fun SoloScreen(vm: SoloViewModel, modifier: Modifier = Modifier) {
                 label = { Text("Seguir el acorde") })
         }
         AndroidView(
-            factory = { ctx -> if (u.layout == SoloLayout.SURFACE) SoloSurfaceView(ctx) else FingerboardView(ctx) },
+            factory = { ctx -> SoloSurfaceView(ctx) },
             update = { v -> (v as SoloTouchView).config = cfg },
             modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 4.dp),
         )

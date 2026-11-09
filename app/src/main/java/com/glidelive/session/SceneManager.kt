@@ -77,7 +77,7 @@ class SceneManager(
         return JSONObject().apply {
             put("chords", JSONObject().apply {
                 put("key", c.key); put("scale", c.scale.name); put("transpose", c.transpose); put("bank", c.bank.name)
-                put("quality", c.quality?.name ?: ""); put("instrument", c.instrument); put("glideMs", c.glideMs)
+                put("quality", c.quality?.name ?: ""); put("instrument", c.instrument); put("glideMs", c.glideMs); put("stairs", c.stairs)
                 put("curve", c.curve.name); put("trigger", c.trigger.name); put("exit", c.exit.name); put("tailMs", c.tailMs); put("fadeMs", c.fadeMs); put("rangeLo", c.rangeLo); put("rangeHi", c.rangeHi)
                 put("cutoff", c.cutoff.toDouble()); put("resonance", c.resonance.toDouble()); put("chorus", c.chorus.toDouble())
                 put("room", c.room.toDouble()); put("volume", c.volume.toDouble())
@@ -120,6 +120,7 @@ class SceneManager(
                 pick { Scale.valueOf(j.getString("scale")) }?.let { u = u.copy(scale = it) }
                 if (j.has("transpose")) u = u.copy(transpose = j.getInt("transpose"))
                 pick { Bank.valueOf(j.getString("bank")) }?.let { u = u.copy(bank = it) }
+                if (j.has("stairs")) u = u.copy(stairs = j.getBoolean("stairs"))
                 if (j.has("quality")) u = u.copy(quality = pick { ChordType.valueOf(j.getString("quality")) })
                 if (j.has("instrument")) u = u.copy(instrument = j.getInt("instrument"))
                 if (j.has("glideMs")) u = u.copy(glideMs = j.getInt("glideMs"))
@@ -232,7 +233,7 @@ object Presets {
             """{"bpm":112,"beats":7,"unit":8,"pattern":"o78","variation":0}"""),
         scene("Cuerdas · 6/8 a medio tiempo",
             """{"key":2,"scale":"DORIAN","bank":"DIATONIC","instrument":3,"glideMs":600,"curve":"SMOOTH","trigger":"HOLD","transpose":0}""",
-            """{"layout":"FINGERBOARD","tuning":"VIOLIN","lock":0.7,"instrument":3}""",
+            """{"layout":"SURFACE","lock":0.7,"instrument":3}""",
             """{"bpm":70,"beats":6,"unit":8,"pattern":"seis8","variation":1}"""),
         scene("Órgano · 5/4",
             """{"key":7,"scale":"MIXOLYDIAN","bank":"DIATONIC","instrument":1,"glideMs":120,"curve":"LINEAR","trigger":"GATE","transpose":0}""",
@@ -240,7 +241,7 @@ object Presets {
             """{"bpm":88,"beats":5,"unit":4,"pattern":"cinco4","variation":0}"""),
         scene("Lead libre · lineal 4/4",
             """{"key":0,"scale":"MAJOR","bank":"DIATONIC","instrument":0,"glideMs":250,"curve":"SMOOTH","trigger":"HOLD","transpose":0}""",
-            """{"layout":"FINGERBOARD","tuning":"GUITAR","lock":0.5,"instrument":4,"bend":2.0}""",
+            """{"layout":"SURFACE","lock":0.5,"instrument":4,"bend":2.0}""",
             """{"bpm":95,"beats":4,"unit":4,"pattern":"lineal44","variation":1}"""),
         scene("Balada 12/8",
             """{"key":5,"scale":"MAJOR","bank":"DIATONIC","instrument":3,"glideMs":1200,"curve":"SLOW","trigger":"HOLD","transpose":0}""",

@@ -7,6 +7,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.FilterChip
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalConfiguration
@@ -100,8 +104,9 @@ class MainActivity : ComponentActivity() {
                 AppBackground {
                     var mode by rememberSaveable { mutableStateOf(Mode.ACORDES) }
                     val cfg = LocalConfiguration.current
-                    // En pantallas estrechas el panel de ajustes empieza cerrado para dejar sitio a los pads.
-                    var panel by rememberSaveable { mutableStateOf(cfg.screenWidthDp >= 900) }
+                    // Los ajustes de cada pestaña se abren en una ventana encima (semitransparente, con X para cerrar).
+                    var settingsOpen by rememberSaveable { mutableStateOf(false) }
+                    var settingsGeneral by rememberSaveable { mutableStateOf(false) }
                     var demoOpen by remember { mutableStateOf(false) }
                     val startDemo: (Int) -> Unit = { i ->
                         // Las notas de la canción: Fa# menor en acordes y solista, banco C17 con sus acordes.
@@ -132,7 +137,8 @@ class MainActivity : ComponentActivity() {
                     Box(Modifier.fillMaxSize()) {
                         Column(Modifier.fillMaxSize().windowInsetsPadding(playInsets)) {
                             if (!fullscreen) {
-                                TopBar(mode, { mode = it }, chordsVm, soloVm, vm, sessionVm, transportVm, panel, { panel = !panel },
+                                TopBar(mode, { mode = it }, chordsVm, soloVm, vm, sessionVm, transportVm,
+                                    { settingsGeneral = false; settingsOpen = true }, { settingsGeneral = true; settingsOpen = true },
                                     { fullscreen = true }, { demoOpen = true })
                                 DemoStrip(transportVm) { demoOpen = true }
                                 if (mode != Mode.PISTAS && mode != Mode.PRINCESS) StemStrip(stemsVm) { mode = Mode.PISTAS }
@@ -193,11 +199,6 @@ class MainActivity : ComponentActivity() {
                                         )
                                     }
                                 }
-                                if (panel && !fullscreen) {
-                                    GlassCard(Modifier.width(300.dp).fillMaxHeight().padding(bottom = 8.dp), padding = 0.dp) {
-                                        SidePanel(vm, updateVm, chordsVm, soloVm, transportVm, sessionVm)
-                                    }
-                                }
                             }
                         }
                         if (fullscreen) {
@@ -206,6 +207,9 @@ class MainActivity : ComponentActivity() {
                                 onClick = { fullscreen = false },
                                 modifier = Modifier.align(Alignment.TopEnd).windowInsetsPadding(playInsets),
                             ) { Text("⤡ Salir") }
+                        }
+                        if (settingsOpen && !fullscreen) {
+                            SettingsModal(mode, settingsGeneral, { settingsOpen = false }, vm, updateVm, chordsVm, soloVm, transportVm, sessionVm)
                         }
                         if (keysOpen) PadKeysPanel(sessionVm.midi.status, onClose = { keysOpen = false; PadBindings.startLearn(null) })
                     }
@@ -279,8 +283,8 @@ private fun TopBar(
     engine: EngineViewModel,
     session: SessionViewModel,
     transport: TransportViewModel,
-    panel: Boolean,
-    onPanel: () -> Unit,
+    onSettings: () -> Unit,
+    onGeneral: () -> Unit,
     onFullscreen: () -> Unit,
     onDemo: () -> Unit,
 ) {
@@ -292,6 +296,7 @@ private fun TopBar(
     ) {
         CapsuleBar(Mode.entries, mode, { it.label }, onMode)
         QuickTransport(transport)
+        TextButton(onClick = onSettings) { Text("⚙ Ajustes") }
         Box {
             TextButton(onClick = { more = true }) { Text("☰ Más") }
             DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
@@ -304,7 +309,7 @@ private fun TopBar(
                         ScenesMenu(session)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = { more = false; onPanel() }) { Text(if (panel) "Ocultar ajustes" else "Ajustes") }
+                        TextButton(onClick = { more = false; onGeneral() }) { Text("General (sesión, latencia, actualizar)") }
                         TextButton(onClick = { more = false; onFullscreen() }) { Text("⤢ Pantalla completa") }
                     }
                 }
@@ -388,31 +393,56 @@ private fun CalibrationPanel(vm: EngineViewModel) {
     }
 }
 
+/** Ajustes en una ventana encima de la pantalla: semitransparente, con las opciones de la pestaña actual y una X para cerrar. */
 @Composable
-private fun SidePanel(vm: EngineViewModel, updateVm: UpdateViewModel, chordsVm: ChordsViewModel, soloVm: SoloViewModel, transportVm: TransportViewModel, sessionVm: SessionViewModel) {
+private fun SettingsModal(
+    mode: Mode, general: Boolean, onClose: () -> Unit,
+    vm: EngineViewModel, updateVm: UpdateViewModel, chordsVm: ChordsViewModel, soloVm: SoloViewModel,
+    transportVm: TransportViewModel, sessionVm: SessionViewModel,
+) {
     val up by updateVm.state.collectAsState()
-    var tab by remember { mutableIntStateOf(0) }
-    Column(Modifier.fillMaxSize()) {
-        ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp, containerColor = Color.Transparent) {
-            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Acordes") })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Solista") })
-            Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Batería") })
-            Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("Bucles") })
-            Tab(selected = tab == 4, onClick = { tab = 4 }, text = { Text("Sesión") })
-            Tab(selected = tab == 5, onClick = { tab = 5 }, text = { Text("Latencia") })
-            Tab(
-                selected = tab == 6, onClick = { tab = 6 },
-                text = { Text(if (up is UpdateState.Available) "Actualizar •" else "Actualizar") },
-            )
-        }
-        when (tab) {
-            0 -> SoundPanel(chordsVm)
-            1 -> SoloPanel(soloVm)
-            2 -> KitPanel(vm)
-            3 -> LoopsPanel(transportVm)
-            4 -> SessionPanel(sessionVm, vm, transportVm)
-            5 -> CalibrationPanel(vm)
-            else -> UpdatePanel(updateVm)
+    val tabs: List<String> = if (general) listOf("Sesión", "Latencia", if (up is UpdateState.Available) "Actualizar •" else "Actualizar") else when (mode) {
+        Mode.ACORDES, Mode.VOCES -> listOf("Sonido", "Bucles")
+        Mode.DUO -> listOf("Sonido", "Solista", "Bucles")
+        Mode.SOLISTA -> listOf("Solista")
+        Mode.BATERIA -> listOf("Batería", "Bucles")
+        Mode.MIXTO -> listOf("Batería", "Sonido", "Solista", "Bucles")
+        Mode.PISTAS, Mode.PRINCESS -> listOf("Sesión", "Latencia", if (up is UpdateState.Available) "Actualizar •" else "Actualizar")
+    }
+    var tab by remember(general, mode) { mutableIntStateOf(0) }
+    val scrim = remember { MutableInteractionSource() }
+    Box(
+        Modifier.fillMaxSize().windowInsetsPadding(playInsets).background(Color.Black.copy(alpha = 0.45f))
+            .clickable(interactionSource = scrim, indication = null) { onClose() },
+        contentAlignment = Alignment.Center,
+    ) {
+        val card = remember { MutableInteractionSource() }
+        Column(
+            Modifier.fillMaxWidth(0.78f).fillMaxHeight(0.9f)
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f), RoundedCornerShape(22.dp))
+                .clickable(interactionSource = card, indication = null) {}  // tocar dentro no cierra
+                .padding(top = 6.dp),
+        ) {
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(if (general) "General" else "Ajustes · ${mode.label}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                TextButton(onClick = onClose) { Text("✕", style = MaterialTheme.typography.titleLarge) }
+            }
+            if (tabs.size > 1) {
+                ScrollableTabRow(selectedTabIndex = tab.coerceIn(0, tabs.size - 1), edgePadding = 8.dp, containerColor = Color.Transparent) {
+                    tabs.forEachIndexed { i, t -> Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t) }) }
+                }
+            }
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                when (tabs.getOrElse(tab) { tabs[0] }.removeSuffix(" •")) {
+                    "Sonido" -> SoundPanel(chordsVm)
+                    "Solista" -> SoloPanel(soloVm)
+                    "Batería" -> KitPanel(vm)
+                    "Bucles" -> LoopsPanel(transportVm)
+                    "Sesión" -> SessionPanel(sessionVm, vm, transportVm)
+                    "Latencia" -> CalibrationPanel(vm)
+                    else -> UpdatePanel(updateVm)
+                }
+            }
         }
     }
 }

@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 
-enum class SoloLayout(val label: String) { SURFACE("Superficie"), FINGERBOARD("Diapasón") }
+enum class SoloLayout(val label: String) { SURFACE("Superficie") }
 enum class Expression(val label: String) { FILTER("Filtro"), VIBRATO("Vibrato"), VOLUME("Volumen") }
 
 enum class Tuning(val label: String, val strings: List<Int>) {

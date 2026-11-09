@@ -21,6 +21,10 @@ class ChordPadsView(context: Context) : View(context) {
     /** En modo edición, tocar un pad abre el editor en vez de sonar. */
     var editMode = false
 
+    /** Una sola fila en escalera: cada botón queda más arriba que el anterior, para ver cuánto falta y qué viene. */
+    var stairs = false
+        set(v) { if (field != v) { field = v; layoutPads(); invalidate() } }
+
     private var rows: List<List<PadUi>> = emptyList()
     private var activeId: String? = null
     private var edited: Set<String> = emptySet()
@@ -70,6 +74,26 @@ class ChordPadsView(context: Context) : View(context) {
         fillShaders.clear(); strokeShaders.clear(); activeShaders.clear()
         if (rows.isEmpty() || width == 0) return
         val gap = 8f
+        if (stairs && rows.size == 1) {
+            val row = rows[0]
+            val n = row.size
+            val cw = (width - gap * (n + 1)) / n
+            val padH = (height - gap * 2) * 0.52f
+            val dy = if (n > 1) ((height - gap * 2) - padH) / (n - 1) else 0f
+            row.forEachIndexed { c, pad ->
+                val l = gap + c * (cw + gap)
+                val b = height - gap - c * dy
+                val t = b - padH
+                rects.add(pad to RectF(l, t, l + cw, b))
+                fillShaders.add(LinearGradient(0f, t, 0f, b, 0xFF1E1E2A.toInt(), 0xFF12121A.toInt(), Shader.TileMode.CLAMP))
+                strokeShaders.add(LinearGradient(l, t, l + cw, b, 0xB36B4EFF.toInt(), 0x24FFFFFF, Shader.TileMode.CLAMP))
+                activeShaders.add(LinearGradient(l, t, l + cw, t, 0xFF6B4EFF.toInt(), 0xFFFF6B9D.toInt(), Shader.TileMode.CLAMP))
+            }
+            baseTitle = (minOf(width / 9f, height / 2f) * 0.32f).coerceAtLeast(18f)
+            title.textSize = baseTitle
+            sub.textSize = baseTitle * 0.55f
+            return
+        }
         val rh = (height - gap * (rows.size + 1)) / rows.size
         rows.forEachIndexed { r, row ->
             val cw = (width - gap * (row.size + 1)) / row.size

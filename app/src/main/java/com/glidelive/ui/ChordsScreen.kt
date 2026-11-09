@@ -93,7 +93,7 @@ fun ChordsScreen(vm: ChordsViewModel, compact: Boolean, modifier: Modifier = Mod
         val allRows = u.rows
         // Compacto (Voces / Mixto): con más de dos filas se muestra una sola, más grande, y se elige cuál.
         var rowSel by rememberSaveable { mutableIntStateOf(1) }
-        val oneRow = compact && allRows.size > 2
+        val oneRow = compact && (allRows.size > 2 || (u.stairs && allRows.size > 1))
         val padRows = if (oneRow) listOf(allRows[rowSel.coerceIn(0, allRows.size - 1)]) else allRows
         val rows = remember(padRows, u.edits) {
             padRows.map { row -> row.map { PadUi(it.id, u.chordOf(it).name(), it.roman + " · " + u.chordOf(it).type.plain) } }
@@ -108,6 +108,7 @@ fun ChordsScreen(vm: ChordsViewModel, compact: Boolean, modifier: Modifier = Mod
                 it.onUp = vm::padUp
                 it.onEdit = vm::openEditor
                 it.editMode = u.editMode
+                it.stairs = u.stairs && oneRow
                 it.setData(rows, u.activeId, edited)
             },
             modifier = Modifier.fillMaxSize(),
@@ -130,6 +131,7 @@ fun ChordsScreen(vm: ChordsViewModel, compact: Boolean, modifier: Modifier = Mod
                     FilterChip(selected = rowSel == i, onClick = { rowSel = i }, label = { Text(n) })
                 }
             }
+            if (compact) FilterChip(selected = u.stairs, onClick = { vm.edit { it.copy(stairs = !it.stairs) } }, label = { Text("Escalera") })
             Text("Deslizar ${u.glideMs} ms", style = MaterialTheme.typography.labelMedium)
             Slider(
                 value = u.glideMs.toFloat(),

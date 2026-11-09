@@ -63,14 +63,9 @@ fun PerformScreen(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             if (showSoloControls) {
-                SoloLayout.entries.forEach { l ->
-                    FilterChip(selected = s.layout == l, onClick = { soloVm.edit { it.copy(layout = l) } }, label = { Text(l.label) })
-                }
-                if (s.layout == SoloLayout.SURFACE) {
-                    Text("Arriba/abajo:", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Expression.entries.forEach { e ->
-                        FilterChip(selected = s.expression == e, onClick = { soloVm.edit { it.copy(expression = e) } }, label = { Text(e.label) })
-                    }
+                Text("Arriba/abajo:", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Expression.entries.forEach { e ->
+                    FilterChip(selected = s.expression == e, onClick = { soloVm.edit { it.copy(expression = e) } }, label = { Text(e.label) })
                 }
                 Text("Imán ${(s.lock * 100).toInt()}%", style = MaterialTheme.typography.labelLarge)
                 Slider(value = s.lock, onValueChange = { v -> soloVm.edit { it.copy(lock = v) } }, modifier = Modifier.width(130.dp))
