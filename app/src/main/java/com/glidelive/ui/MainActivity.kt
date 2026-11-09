@@ -139,22 +139,23 @@ class MainActivity : ComponentActivity() {
                             if (!fullscreen) {
                                 TopBar(mode, { mode = it }, chordsVm, soloVm, vm, sessionVm, transportVm,
                                     { settingsGeneral = false; settingsOpen = true }, { settingsGeneral = true; settingsOpen = true },
-                                    { fullscreen = true }, { demoOpen = true })
+                                    { fullscreen = true }, { demoOpen = true }) {
+                                    // Mixto: sin barra de base; solo lo mínimo en la fila de arriba para dejar el espacio a los pads.
+                                    if (mode == Mode.MIXTO) {
+                                        val tu by transportVm.ui.collectAsState()
+                                        FilterChip(selected = tu.patternOn, onClick = transportVm::togglePattern, label = { Text(if (tu.patternOn) "■ Base" else "▶ Base") })
+                                        FilterChip(selected = soloLayer, onClick = { soloLayer = !soloLayer }, label = { Text("Solista") })
+                                    }
+                                }
                                 DemoStrip(transportVm) { demoOpen = true }
                                 if (mode != Mode.PISTAS && mode != Mode.PRINCESS) StemStrip(stemsVm) { mode = Mode.PISTAS }
-                                if (mode == Mode.BATERIA || mode == Mode.MIXTO) {
+                                if (mode == Mode.BATERIA) {
                                     PatternBar(transportVm) {
                                         val k by vm.kit.collectAsState()
                                         Picker("Pads: ${k.padLayout.label}", PadLayout.entries, { it.label + " — " + it.hint }) { l ->
                                             vm.editKit { it.copy(padLayout = l) }
                                         }
                                         TextButton(onClick = { keysOpen = true }) { Text("Teclas de los pads…") }
-                                    }
-                                }
-                                if (mode == Mode.MIXTO) {
-                                    Row(Modifier.padding(horizontal = 16.dp)) {
-                                        FilterChip(selected = soloLayer, onClick = { soloLayer = !soloLayer },
-                                            label = { Text("Capa de solista") })
                                     }
                                 }
                             }
@@ -287,6 +288,7 @@ private fun TopBar(
     onGeneral: () -> Unit,
     onFullscreen: () -> Unit,
     onDemo: () -> Unit,
+    extra: @Composable () -> Unit = {},
 ) {
     var more by remember { mutableStateOf(false) }
     Row(
@@ -296,6 +298,7 @@ private fun TopBar(
     ) {
         CapsuleBar(Mode.entries, mode, { it.label }, onMode)
         QuickTransport(transport)
+        extra()
         TextButton(onClick = onSettings) { Text("⚙ Ajustes") }
         Box {
             TextButton(onClick = { more = true }) { Text("☰ Más") }
