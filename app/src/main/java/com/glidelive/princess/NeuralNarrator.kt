@@ -14,7 +14,10 @@ import java.io.File
 import java.util.Locale
 import kotlin.math.roundToInt
 
-data class NarrationRequest(val text: String, val speaker: Int, val language: String, val pace: Float, val pitch: Int)
+data class NarrationRequest(
+    val text: String, val speaker: Int, val language: String, val pace: Float, val pitch: Int,
+    val texture: NarrationTexture = NarrationTexture.NATURAL,
+)
 data class NarratedAudio(val text: String, val file: File, val seconds: Float)
 
 object NeuralNarrator {
@@ -73,6 +76,7 @@ object NeuralNarrator {
                     (sample.coerceIn(-1.0, 1.0) * 32767).roundToInt().toShort()
                 }
                 check(block.any { it != 0.toShort() }) { "El fragmento ${index + 1} no generó sonido." }
+                NarrationEffects.apply(block, rate, request.texture)
                 blocks += block
                 progress((index + 1f) / parts.size)
             }

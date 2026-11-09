@@ -30,9 +30,12 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import com.glidelive.princess.NarratedAudio
+import com.glidelive.princess.NarrationFamily
 import com.glidelive.princess.NarrationPack
+import com.glidelive.princess.NarrationPresets
 import com.glidelive.princess.NarrationRequest
 import com.glidelive.princess.NarrationText
+import com.glidelive.princess.NarrationTexture
 import com.glidelive.princess.NeuralNarrator
 import com.glidelive.princess.Project
 import kotlinx.coroutines.CancellationException
@@ -73,11 +76,17 @@ fun VoiceStudioDialog(
     val app = context.applicationContext
     val directory = remember { File(app.cacheDir, "princess-narration-${UUID.randomUUID()}") }
     var installed by remember { mutableStateOf(NarrationPack.isReady(app)) }
-    var characterId by remember { mutableStateOf(project.characters.firstOrNull()?.id) }
-    var speaker by remember { mutableStateOf(0) }
-    var language by remember { mutableStateOf(narrationLanguages.first()) }
-    var pace by remember { mutableStateOf(1f) }
-    var pitch by remember { mutableStateOf(0) }
+    var characterId by remember(project.id) { mutableStateOf(project.characters.firstOrNull()?.id) }
+    val initialPreset = NarrationPresets.find(project.characters.firstOrNull { it.id == characterId }?.narrationPresetId)
+        ?: NarrationPresets.default
+    var presetId by remember(project.id, characterId) { mutableStateOf<String?>(initialPreset.id) }
+    var family by remember(project.id, characterId) { mutableStateOf(initialPreset.family) }
+    var speaker by remember(project.id, characterId) { mutableStateOf(initialPreset.speaker) }
+    var language by remember(project.id, characterId) { mutableStateOf(narrationLanguages.first()) }
+    var pace by remember(project.id, characterId) { mutableStateOf(initialPreset.pace) }
+    var pitch by remember(project.id, characterId) { mutableStateOf(initialPreset.pitch) }
+    var texture by remember(project.id, characterId) { mutableStateOf(initialPreset.texture) }
+    var advanced by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf<Pair<NarrationRequest, NarratedAudio>?>(null) }
     var progress by remember { mutableStateOf<Pair<String, Float?>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -89,7 +98,7 @@ fun VoiceStudioDialog(
 
     val selection = document.selection
     val selected = document.text.substring(selection.min, selection.max).trim()
-    val request = NarrationRequest(selected, speaker, language.first, pace, pitch)
+    val request = NarrationRequest(selected, speaker, language.first, pace, pitch, texture)
     val audio = draft?.takeIf { it.first == request }?.second
     val delivery = deliveries.firstOrNull { it.pace == pace && it.pitch == pitch }?.name ?: "Personalizada"
 
@@ -203,15 +212,35 @@ fun VoiceStudioDialog(
                     else -> "${selected.length} caracteres seleccionados."
                 }, style = MaterialTheme.typography.bodySmall)
                 if (!busy && installed) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Picker("Voz ${speaker + 1}", (0 until NeuralNarrator.VOICES).toList(), { "Voz ${it + 1}" }) { speaker = it }
-                        Picker(language.second, narrationLanguages, { it.second }) { language = it }
-                        Picker(delivery, deliveries, { it.name }) { pace = it.pace; pitch = it.pitch }
-                        Picker(project.characters.firstOrNull { it.id == characterId }?.name ?: "Personaje",
-                            project.characters, { it.name }) { characterId = it.id }
+                    Picker("Personaje: " + (project.characters.firstOrNull { it.id == characterId }?.name ?: "Elegir"),
+                        project.characters, { it.name }) { characterId = it.id }
+                    Picker("Familia: ${family.label}", NarrationFamily.entries.toList(), { it.label }) { family = it }
+                    val preset = NarrationPresets.find(presetId)
+                    Picker("Preset: ${preset?.name ?: "Personalizado"}", NarrationPresets.all.filter { it.family == family }, { it.name }) { chosen ->
+                        presetId = chosen.id
+                        speaker = chosen.speaker
+                        pace = chosen.pace
+                        pitch = chosen.pitch
+                        texture = chosen.texture
+                        language = narrationLanguages.first()
+                        val id = characterId
+                        if (id != null) vm.editCharacter(id) { character -> character.copy(narrationPresetId = chosen.id) }
                     }
-                    LabeledSlider("Velocidad ${(pace * 100).roundToInt()} %", pace, 0.75f..1.4f) { pace = it }
-                    LabeledSlider("Tono %+.0f semitonos".format(Locale.ROOT, pitch.toFloat()), pitch.toFloat(), -6f..6f) { pitch = it.roundToInt() }
+                    preset?.let { Text(it.description, style = MaterialTheme.typography.bodySmall) }
+                    Text("El preset elige voz y efectos y se recuerda para este personaje. Las aves y animales son voces de cuento que hablan.",
+                        style = MaterialTheme.typography.bodySmall)
+                    Text("Español: puedes escribir con modismos chilenos. El paquete no tiene un acento chileno específico.",
+                        style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Ocultar ajustes" else "Ajustes opcionales") }
+                    if (advanced) {
+                        Text("Los ajustes manuales son temporales; el personaje conserva su preset.", style = MaterialTheme.typography.bodySmall)
+                        Picker("Voz ${speaker + 1}", (0 until NeuralNarrator.VOICES).toList(), { "Voz ${it + 1}" }) { speaker = it; presetId = null }
+                        Picker(language.second, narrationLanguages, { it.second }) { language = it; presetId = null }
+                        Picker(delivery, deliveries, { it.name }) { pace = it.pace; pitch = it.pitch; presetId = null }
+                        Picker("Textura: ${texture.label}", NarrationTexture.entries.toList(), { it.label }) { texture = it; presetId = null }
+                        LabeledSlider("Velocidad ${(pace * 100).roundToInt()} %", pace, 0.75f..1.4f) { pace = it; presetId = null }
+                        LabeledSlider("Tono %+.0f semitonos".format(Locale.ROOT, pitch.toFloat()), pitch.toFloat(), -6f..6f) { pitch = it.roundToInt(); presetId = null }
+                    }
                 }
                 if (audio != null) Row {
                     TextButton(enabled = !busy, onClick = { listen(audio) }) { Text("Escuchar de nuevo") }
