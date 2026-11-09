@@ -1,7 +1,7 @@
 package com.glidelive.ui
 
 import android.content.Intent
-import android.net.Uri
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -32,6 +32,9 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.glidelive.princess.AndroidNarrator
 import com.glidelive.princess.NarratedAudio
 import com.glidelive.princess.NarrationFamily
@@ -42,6 +45,7 @@ import com.glidelive.princess.NarrationText
 import com.glidelive.princess.NarrationTexture
 import com.glidelive.princess.NeuralNarrator
 import com.glidelive.princess.Project
+import com.glidelive.princess.PocketSetup
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -101,6 +105,13 @@ fun VoiceStudioDialog(
     var engineVoices by remember(project.id, characterId) { mutableStateOf<List<AndroidNarrator.Voice>>(emptyList()) }
     var engineVoice by remember(project.id, characterId) { mutableStateOf<String?>(null) }
     var refreshEngines by remember { mutableStateOf(0) }
+    var needsEngineRefresh by remember { mutableStateOf(false) }
+    var pocketInstalled by remember { mutableStateOf(PocketSetup.isInstalled(app)) }
+    var pendingPocketApk by remember { mutableStateOf<File?>(null) }
+    var awaitingPocketPermission by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val spanishFolder = if (Build.VERSION.SDK_INT >= 29) "Descargas/GlideLive/Pocket"
+        else "Android/data/${app.packageName}/files/Download/Pocket"
     var expressive by remember { mutableStateOf(false) }
     var advanced by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf<Pair<DraftKey, NarratedAudio>?>(null) }
@@ -137,6 +148,60 @@ fun VoiceStudioDialog(
             } finally {
                 progress = null
                 saving = false
+            }
+        }
+    }
+
+    fun refreshInstalledEngines() {
+        val previouslyHadPocket = pocketInstalled
+        pocketInstalled = PocketSetup.isInstalled(app)
+        engines = AndroidNarrator.engines(app)
+        val nowHasPocket = pocketInstalled
+        if (nowHasPocket) {
+            pendingPocketApk = null
+            awaitingPocketPermission = false
+        }
+        if (nowHasPocket && !previouslyHadPocket) {
+            external = true
+            enginePackage = AndroidNarrator.POCKET_PACKAGE
+        } else if (engines.none { it.packageName == enginePackage }) {
+            enginePackage = engines.firstOrNull()?.packageName
+        }
+        refreshEngines++
+    }
+
+    fun launchPocketInstaller(file: File) {
+        when (PocketSetup.requestInstall(context, file)) {
+            PocketSetup.InstallResult.ALREADY_INSTALLED -> {
+                notice = "Pocket TTS ya está instalado."
+                refreshInstalledEngines()
+            }
+            PocketSetup.InstallResult.NEEDS_PERMISSION -> {
+                awaitingPocketPermission = true
+                notice = "Autoriza a GlideLive a instalar esta aplicación y vuelve. Android mostrará la confirmación de instalación."
+            }
+            PocketSetup.InstallResult.INSTALLER_OPENED -> {
+                awaitingPocketPermission = false
+                notice = "Confirma la instalación en Android. Al volver se detectará Pocket TTS."
+            }
+        }
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) needsEngineRefresh = true
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(needsEngineRefresh, busy) {
+        if (needsEngineRefresh && !busy) {
+            needsEngineRefresh = false
+            refreshInstalledEngines()
+            val apk = pendingPocketApk
+            if (awaitingPocketPermission && apk != null && app.packageManager.canRequestPackageInstalls()) {
+                awaitingPocketPermission = false
+                runCatching { launchPocketInstaller(apk) }.onFailure { error = it.localizedMessage ?: "No se pudo continuar la instalación." }
             }
         }
     }
@@ -213,6 +278,33 @@ fun VoiceStudioDialog(
         title = { Text("Narrar texto") },
         text = {
             Column(Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                progress?.let { (label, fraction) ->
+                    Text(label, style = MaterialTheme.typography.labelMedium)
+                    if (fraction == null) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    else LinearProgressIndicator(progress = { fraction.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                }
+                notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                if (!pocketInstalled) {
+                    Text("Preparar Pocket TTS", style = MaterialTheme.typography.titleSmall)
+                    Text("GlideLive puede descargar e iniciar la instalación del motor. Android te pedirá autorizar y confirmar la instalación.",
+                        style = MaterialTheme.typography.bodySmall)
+                    TextButton(enabled = !busy, onClick = {
+                        action("Preparando instalación de Pocket TTS") {
+                            val apk = pendingPocketApk ?: PocketSetup.downloadApk(app) { progress = "Descargando Pocket TTS" to it }
+                            pendingPocketApk = apk
+                            launchPocketInstaller(apk)
+                        }
+                    }) { Text(if (pendingPocketApk == null) "Instalar Pocket TTS" else "Continuar instalación de Pocket TTS") }
+                } else if (!external || enginePackage != AndroidNarrator.POCKET_PACKAGE) {
+                    TextButton(enabled = !busy, onClick = {
+                        external = true
+                        engineVoices = emptyList()
+                        engineVoice = null
+                        enginePackage = AndroidNarrator.POCKET_PACKAGE
+                        refreshEngines++
+                    }) { Text("Usar Pocket TTS") }
+                }
                 Text("Motor de voz", style = MaterialTheme.typography.titleSmall)
                 Row {
                     TextButton(enabled = !busy, onClick = {
@@ -229,9 +321,7 @@ fun VoiceStudioDialog(
                         enginePackage = it.packageName
                     }
                     TextButton(onClick = {
-                        engines = AndroidNarrator.engines(app)
-                        if (engines.none { it.packageName == enginePackage }) enginePackage = engines.firstOrNull()?.packageName
-                        refreshEngines++
+                        refreshInstalledEngines()
                     }) { Text("Actualizar motores y voces") }
                     if (engineVoices.isNotEmpty()) Picker("Voz: " + (engineVoices.firstOrNull { it.name == engineVoice }?.label ?: "Elegir"),
                         engineVoices, { it.label }) { chosen ->
@@ -247,12 +337,25 @@ fun VoiceStudioDialog(
                             style = MaterialTheme.typography.bodySmall)
                         TextButton(onClick = { vm.editCharacter(character.id) { it.copy(pitch = 0f) } }) { Text("Restablecer tono del personaje") }
                     }
-                    Text("Pocket TTS es una aplicación de motor separada y gratuita. Instálala, descarga su paquete español y crea allí perfiles con audios de referencia; después vuelve y actualiza esta lista. La interpretación depende del motor y de la referencia.", style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = {
-                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(AndroidNarrator.POCKET_RELEASES))) }
-                            .onFailure { error = "No se pudo abrir el enlace de Pocket TTS." }
-                    }) { Text("Abrir descarga de Pocket TTS") }
-                    enginePackage?.let { pkg ->
+                    if (pocketInstalled && enginePackage == AndroidNarrator.POCKET_PACKAGE) {
+                        if (engineVoices.isEmpty()) {
+                            Text("Paso 2: descarga el paquete español (207 MB). Luego, en Pocket, pulsa Importar paquete de idioma y elige ${PocketSetup.SPANISH_FILE} en $spanishFolder.",
+                                style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = {
+                                action("Preparando voces españolas") {
+                                    PocketSetup.downloadSpanishPack(app) { progress = "Descargando paquete español" to it }
+                                    notice = "Paquete guardado: ${PocketSetup.SPANISH_FILE}. En Pocket pulsa Importar paquete de idioma y selecciónalo en $spanishFolder."
+                                    PocketSetup.openPocket(context)
+                                }
+                            }) { Text("Descargar español y abrir Pocket") }
+                        }
+                        Text("Para añadir otras voces, abre Pocket, elige el paquete español e importa un audio WAV de referencia. Al volver, GlideLive actualizará las voces automáticamente.",
+                            style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = {
+                            runCatching { PocketSetup.openPocket(context) }.onFailure { error = it.localizedMessage ?: "No se pudo abrir Pocket TTS." }
+                        }) { Text("Abrir Pocket para importar paquete o voces") }
+                    }
+                    enginePackage?.takeIf { it != AndroidNarrator.POCKET_PACKAGE }?.let { pkg ->
                         TextButton(onClick = {
                             val launch = app.packageManager.getLaunchIntentForPackage(pkg)
                             if (launch == null) error = "Abre la aplicación del motor desde Android para configurar sus voces."
@@ -337,13 +440,6 @@ fun VoiceStudioDialog(
                     TextButton(enabled = !busy, onClick = vm::stop) { Text("Parar") }
                     TextButton(enabled = !busy, onClick = { generate() }) { Text("Otra toma") }
                 }
-                progress?.let { (label, fraction) ->
-                    Text(label, style = MaterialTheme.typography.labelMedium)
-                    if (fraction == null) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    else LinearProgressIndicator(progress = { fraction.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-                }
-                notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 if (!external) Text(NarrationPack.ATTRIBUTION, style = MaterialTheme.typography.labelSmall)
             }
         },
