@@ -13,3 +13,6 @@ add_library(glidelive SHARED
 target_compile_features(glidelive PRIVATE cxx_std_17)
 target_compile_options(glidelive PRIVATE -O3 -ffast-math -Wall)
 target_link_libraries(glidelive oboe::oboe android log)
+
+# Separate shared library; reuses the same ONNX Runtime 1.20 AAR as the app.
+add_subdirectory(pocket)

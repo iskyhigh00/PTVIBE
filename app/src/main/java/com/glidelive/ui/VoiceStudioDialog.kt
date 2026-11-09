@@ -1,7 +1,5 @@
 package com.glidelive.ui
 
-import android.content.Intent
-import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -32,10 +30,8 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.glidelive.princess.AndroidNarrator
+import com.glidelive.princess.EmbeddedPocketNarrator
+import com.glidelive.princess.EmbeddedPocketPack
 import com.glidelive.princess.NarratedAudio
 import com.glidelive.princess.NarrationFamily
 import com.glidelive.princess.NarrationPack
@@ -45,7 +41,6 @@ import com.glidelive.princess.NarrationText
 import com.glidelive.princess.NarrationTexture
 import com.glidelive.princess.NeuralNarrator
 import com.glidelive.princess.Project
-import com.glidelive.princess.PocketSetup
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -57,7 +52,9 @@ import java.util.Locale
 import java.util.UUID
 import kotlin.math.roundToInt
 
-private data class DraftKey(val request: NarrationRequest, val external: Boolean, val engine: String?, val voice: String?)
+private const val POCKET_ENGINE = "pocket-embedded"
+private const val SUPERTONIC_ENGINE = "supertonic"
+private data class DraftKey(val request: NarrationRequest, val pocket: Boolean, val voice: String?)
 
 private data class Delivery(val name: String, val pace: Float, val pitch: Int)
 private val deliveries = listOf(
@@ -97,21 +94,13 @@ fun VoiceStudioDialog(
     var pace by remember(project.id, characterId) { mutableStateOf(initialPreset.pace) }
     var pitch by remember(project.id, characterId) { mutableStateOf(initialPreset.pitch) }
     var texture by remember(project.id, characterId) { mutableStateOf(initialPreset.texture) }
-    var engines by remember { mutableStateOf(AndroidNarrator.engines(app)) }
-    var external by remember(project.id, characterId) {
-        mutableStateOf(character?.narrationEngine != null || engines.any { it.packageName == AndroidNarrator.POCKET_PACKAGE })
+    val pocketSupported = remember { EmbeddedPocketPack.supportsDevice() }
+    var pocketReady by remember { mutableStateOf(EmbeddedPocketPack.isReady(app)) }
+    var pocketVoices by remember { mutableStateOf(EmbeddedPocketPack.voices(app)) }
+    var usePocket by remember(project.id, characterId) { mutableStateOf(character?.narrationEngine != SUPERTONIC_ENGINE) }
+    var pocketVoiceId by remember(project.id, characterId) {
+        mutableStateOf(character?.takeIf { it.narrationEngine == POCKET_ENGINE }?.narrationVoice ?: pocketVoices.firstOrNull()?.id)
     }
-    var enginePackage by remember(project.id, characterId) { mutableStateOf(character?.narrationEngine ?: engines.firstOrNull()?.packageName) }
-    var engineVoices by remember(project.id, characterId) { mutableStateOf<List<AndroidNarrator.Voice>>(emptyList()) }
-    var engineVoice by remember(project.id, characterId) { mutableStateOf<String?>(null) }
-    var refreshEngines by remember { mutableStateOf(0) }
-    var needsEngineRefresh by remember { mutableStateOf(false) }
-    var pocketInstalled by remember { mutableStateOf(PocketSetup.isInstalled(app)) }
-    var pendingPocketApk by remember { mutableStateOf<File?>(null) }
-    var awaitingPocketPermission by remember { mutableStateOf(false) }
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val spanishFolder = if (Build.VERSION.SDK_INT >= 29) "Descargas/GlideLive/Pocket"
-        else "Android/data/${app.packageName}/files/Download/Pocket"
     var expressive by remember { mutableStateOf(false) }
     var advanced by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf<Pair<DraftKey, NarratedAudio>?>(null) }
@@ -126,9 +115,9 @@ fun VoiceStudioDialog(
     val selection = document.selection
     val selected = document.text.substring(selection.min, selection.max).trim()
     val request = NarrationRequest(selected, speaker, language.first, pace, pitch, texture, presetId, expressive)
-    val key = DraftKey(request, external, if (external) enginePackage else null, if (external) engineVoice else null)
+    val key = DraftKey(request, usePocket, if (usePocket) pocketVoiceId else null)
     val audio = draft?.takeIf { it.first == key }?.second
-    val canGenerate = if (external) engineVoice != null && engineVoices.any { it.name == engineVoice } else installed
+    val canGenerate = if (usePocket) pocketSupported && pocketReady && pocketVoices.any { it.id == pocketVoiceId } else installed
     val delivery = deliveries.firstOrNull { it.pace == pace && it.pitch == pitch }?.name ?: "Personalizada"
 
     fun action(label: String, block: suspend () -> Unit) {
@@ -152,74 +141,19 @@ fun VoiceStudioDialog(
         }
     }
 
-    fun refreshInstalledEngines() {
-        val previouslyHadPocket = pocketInstalled
-        pocketInstalled = PocketSetup.isInstalled(app)
-        engines = AndroidNarrator.engines(app)
-        val nowHasPocket = pocketInstalled
-        if (nowHasPocket) {
-            pendingPocketApk = null
-            awaitingPocketPermission = false
-        }
-        if (nowHasPocket && !previouslyHadPocket) {
-            external = true
-            enginePackage = AndroidNarrator.POCKET_PACKAGE
-        } else if (engines.none { it.packageName == enginePackage }) {
-            enginePackage = engines.firstOrNull()?.packageName
-        }
-        refreshEngines++
-    }
-
-    fun launchPocketInstaller(file: File) {
-        when (PocketSetup.requestInstall(context, file)) {
-            PocketSetup.InstallResult.ALREADY_INSTALLED -> {
-                notice = "Pocket TTS ya está instalado."
-                refreshInstalledEngines()
+    LaunchedEffect(project.id, characterId, usePocket, pocketReady) {
+        if (usePocket && pocketReady) {
+            val stored = character?.takeIf { it.narrationEngine == POCKET_ENGINE }?.narrationVoice
+            val chosen = pocketVoices.firstOrNull { it.id == stored } ?: pocketVoices.firstOrNull()
+            pocketVoiceId = chosen?.id
+            if (stored != null && chosen?.id != stored) {
+                notice = "La voz guardada no está en este paquete. Se seleccionó ${chosen?.name ?: "ninguna voz"}; puedes elegir otra."
+            } else if (character?.narrationEngine != null && character.narrationEngine != POCKET_ENGINE && character.narrationEngine != SUPERTONIC_ENGINE) {
+                notice = "Se usa ahora Pocket dentro de GlideLive. Elige una de las voces del paquete integrado."
             }
-            PocketSetup.InstallResult.NEEDS_PERMISSION -> {
-                awaitingPocketPermission = true
-                notice = "Autoriza a GlideLive a instalar esta aplicación y vuelve. Android mostrará la confirmación de instalación."
-            }
-            PocketSetup.InstallResult.INSTALLER_OPENED -> {
-                awaitingPocketPermission = false
-                notice = "Confirma la instalación en Android. Al volver se detectará Pocket TTS."
-            }
-        }
-    }
-
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) needsEngineRefresh = true
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-    LaunchedEffect(needsEngineRefresh, busy) {
-        if (needsEngineRefresh && !busy) {
-            needsEngineRefresh = false
-            refreshInstalledEngines()
-            val apk = pendingPocketApk
-            if (awaitingPocketPermission && apk != null && app.packageManager.canRequestPackageInstalls()) {
-                awaitingPocketPermission = false
-                runCatching { launchPocketInstaller(apk) }.onFailure { error = it.localizedMessage ?: "No se pudo continuar la instalación." }
-            }
-        }
-    }
-
-    LaunchedEffect(project.id, characterId, external, enginePackage, refreshEngines) {
-        if (external) {
-            engineVoices = emptyList()
-            engineVoice = null
-            val selectedEngine = enginePackage
-            if (selectedEngine != null) action("Buscando voces españolas sin conexión") {
-                engineVoices = AndroidNarrator.voices(app, selectedEngine)
-                val storedVoice = character?.takeIf { it.narrationEngine == selectedEngine }?.narrationVoice
-                engineVoice = if (storedVoice == null) engineVoices.firstOrNull()?.name else engineVoices.firstOrNull { it.name == storedVoice }?.name
-                val voice = engineVoice
-                val who = characterId
-                if (voice != null && who != null) vm.editCharacter(who) { it.copy(narrationEngine = selectedEngine, narrationVoice = voice) }
-                if (storedVoice != null && engineVoice == null && engineVoices.isNotEmpty()) notice = "La voz guardada para este personaje ya no está disponible. Elige otra voz."
-                if (engineVoices.isEmpty()) notice = "Este motor no ofrece voces españolas sin conexión instaladas. Abre su aplicación para descargar o importar una voz."
+            val who = characterId
+            if (who != null && chosen != null) vm.editCharacter(who) {
+                it.copy(narrationEngine = POCKET_ENGINE, narrationVoice = chosen.id)
             }
         }
     }
@@ -253,8 +187,9 @@ fun VoiceStudioDialog(
     fun generate() = action("Preparando voz") {
         check(directory.isDirectory || directory.mkdirs()) { "No se pudo preparar el almacenamiento de audio." }
         val destination = File(directory, "${UUID.randomUUID()}.wav")
-        val generated = if (external) {
-            AndroidNarrator.render(app, requireNotNull(enginePackage), requireNotNull(engineVoice), selected, destination)
+        val generated = if (usePocket) {
+            val voice = pocketVoices.firstOrNull { it.id == pocketVoiceId } ?: error("Elige una voz del paquete integrado.")
+            EmbeddedPocketNarrator.render(app, selected, voice.filePath, destination) { progress = "Generando con Pocket integrado" to it }
         } else NeuralNarrator.render(app, request, destination) { progress = "Generando narración" to it }
         val previous = draft?.second
         draft = key to generated
@@ -285,87 +220,47 @@ fun VoiceStudioDialog(
                 }
                 notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                if (!pocketInstalled) {
-                    Text("Preparar Pocket TTS", style = MaterialTheme.typography.titleSmall)
-                    Text("GlideLive puede descargar e iniciar la instalación del motor. Android te pedirá autorizar y confirmar la instalación.",
-                        style = MaterialTheme.typography.bodySmall)
-                    TextButton(enabled = !busy, onClick = {
-                        action("Preparando instalación de Pocket TTS") {
-                            val apk = pendingPocketApk ?: PocketSetup.downloadApk(app) { progress = "Descargando Pocket TTS" to it }
-                            pendingPocketApk = apk
-                            launchPocketInstaller(apk)
-                        }
-                    }) { Text(if (pendingPocketApk == null) "Instalar Pocket TTS" else "Continuar instalación de Pocket TTS") }
-                } else if (!external || enginePackage != AndroidNarrator.POCKET_PACKAGE) {
-                    TextButton(enabled = !busy, onClick = {
-                        external = true
-                        engineVoices = emptyList()
-                        engineVoice = null
-                        enginePackage = AndroidNarrator.POCKET_PACKAGE
-                        refreshEngines++
-                    }) { Text("Usar Pocket TTS") }
-                }
                 Text("Motor de voz", style = MaterialTheme.typography.titleSmall)
                 Row {
+                    TextButton(enabled = !busy, onClick = { usePocket = true }) { Text(if (usePocket) "● Pocket integrado" else "Pocket integrado") }
                     TextButton(enabled = !busy, onClick = {
-                        external = false
-                        characterId?.let { who -> vm.editCharacter(who) { it.copy(narrationEngine = null, narrationVoice = null) } }
-                    }) { Text(if (!external) "● Supertonic" else "Supertonic") }
-                    TextButton(enabled = !busy, onClick = { external = true }) { Text(if (external) "● Otro motor Android" else "Otro motor Android") }
+                        usePocket = false
+                        characterId?.let { who -> vm.editCharacter(who) { it.copy(narrationEngine = SUPERTONIC_ENGINE, narrationVoice = null) } }
+                    }) { Text(if (!usePocket) "● Supertonic" else "Supertonic") }
                 }
-                if (external && !busy) {
-                    Picker("Motor: " + (engines.firstOrNull { it.packageName == enginePackage }?.label ?: "Ninguno instalado"),
-                        engines, { it.label }) {
-                        engineVoices = emptyList()
-                        engineVoice = null
-                        enginePackage = it.packageName
-                    }
-                    TextButton(onClick = {
-                        refreshInstalledEngines()
-                    }) { Text("Actualizar motores y voces") }
-                    if (engineVoices.isNotEmpty()) Picker("Voz: " + (engineVoices.firstOrNull { it.name == engineVoice }?.label ?: "Elegir"),
-                        engineVoices, { it.label }) { chosen ->
-                        engineVoice = chosen.name
-                        val engine = enginePackage
-                        if (engine != null) characterId?.let { who ->
-                            vm.editCharacter(who) { it.copy(narrationEngine = engine, narrationVoice = chosen.name) }
+                if (usePocket) {
+                    if (!pocketSupported) {
+                        Text("Pocket integrado requiere un dispositivo Android de 64 bits ARM. Este dispositivo no es compatible; puedes usar Supertonic.",
+                            color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    } else if (!pocketReady) {
+                        Text("Descarga una vez las voces Pocket en español (aprox. 207 MB). El modelo se guarda dentro de GlideLive y después genera sin conexión.",
+                            style = MaterialTheme.typography.bodySmall)
+                        TextButton(enabled = !busy, onClick = {
+                            action("Preparando voces Pocket") {
+                                EmbeddedPocketPack.install(app) { progress = "Descargando y preparando voces Pocket" to it }
+                                pocketVoices = EmbeddedPocketPack.voices(app)
+                                pocketReady = EmbeddedPocketPack.isReady(app)
+                                check(pocketReady && pocketVoices.isNotEmpty()) { "El paquete Pocket no se pudo preparar. Intenta descargarlo de nuevo." }
+                                notice = "Voces Pocket preparadas dentro de GlideLive. Elige una voz y genera una toma nueva."
+                            }
+                        }) { Text("Descargar voces Pocket") }
+                    } else {
+                        Text("Voces Pocket listas · Generación dentro de GlideLive y sin conexión", style = MaterialTheme.typography.bodySmall)
+                        if (!busy) Picker("Voz: " + (pocketVoices.firstOrNull { it.id == pocketVoiceId }?.name ?: "Elegir"),
+                            pocketVoices, { it.name }) { chosen ->
+                            pocketVoiceId = chosen.id
+                            characterId?.let { who -> vm.editCharacter(who) { it.copy(narrationEngine = POCKET_ENGINE, narrationVoice = chosen.id) } }
                         }
                     }
-                    Text("Se usa la voz original del motor, sin cambios de tono, estiramientos ni presets de GlideLive.", style = MaterialTheme.typography.bodySmall)
+                    Text("Esta ruta conserva la voz generada por el modelo, sin cambios de tono ni alargamientos de GlideLive. Se procesa en fragmentos cortos para reducir omisiones; escucha la toma y comprueba el libreto antes de guardarla.",
+                        style = MaterialTheme.typography.bodySmall)
                     if (character != null && character.pitch != 0f) {
                         Text("Este personaje tiene un ajuste de tono en la obra. La escucha previa será original; al mezclar se aplicará ese ajuste a todas sus pistas.",
                             style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = { vm.editCharacter(character.id) { it.copy(pitch = 0f) } }) { Text("Restablecer tono del personaje") }
-                    }
-                    if (pocketInstalled && enginePackage == AndroidNarrator.POCKET_PACKAGE) {
-                        if (engineVoices.isEmpty()) {
-                            Text("Paso 2: descarga el paquete español (207 MB). Luego, en Pocket, pulsa Importar paquete de idioma y elige ${PocketSetup.SPANISH_FILE} en $spanishFolder.",
-                                style = MaterialTheme.typography.bodySmall)
-                            TextButton(onClick = {
-                                action("Preparando voces españolas") {
-                                    PocketSetup.downloadSpanishPack(app) { progress = "Descargando paquete español" to it }
-                                    notice = "Paquete guardado: ${PocketSetup.SPANISH_FILE}. En Pocket pulsa Importar paquete de idioma y selecciónalo en $spanishFolder."
-                                    PocketSetup.openPocket(context)
-                                }
-                            }) { Text("Descargar español y abrir Pocket") }
-                        }
-                        Text("Para añadir otras voces, abre Pocket, elige el paquete español e importa un audio WAV de referencia. Al volver, GlideLive actualizará las voces automáticamente.",
-                            style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = {
-                            runCatching { PocketSetup.openPocket(context) }.onFailure { error = it.localizedMessage ?: "No se pudo abrir Pocket TTS." }
-                        }) { Text("Abrir Pocket para importar paquete o voces") }
-                    }
-                    enginePackage?.takeIf { it != AndroidNarrator.POCKET_PACKAGE }?.let { pkg ->
-                        TextButton(onClick = {
-                            val launch = app.packageManager.getLaunchIntentForPackage(pkg)
-                            if (launch == null) error = "Abre la aplicación del motor desde Android para configurar sus voces."
-                            else runCatching { context.startActivity(launch) }.onFailure {
-                                error = "No se pudo abrir la aplicación del motor. Ábrela desde Android."
-                            }
-                        }) { Text("Configurar voces en el motor") }
+                        TextButton(enabled = !busy, onClick = { vm.editCharacter(character.id) { it.copy(pitch = 0f) } }) { Text("Restablecer tono del personaje") }
                     }
                 }
-                if (!external && !installed) {
+                if (!usePocket && !installed) {
                     Text("Descarga el paquete de 10 voces neuronales (129 MB). Una vez instalado, puedes narrar sin conexión.",
                         style = MaterialTheme.typography.bodySmall)
                     TextButton(enabled = !busy, onClick = {
@@ -403,7 +298,7 @@ fun VoiceStudioDialog(
                 }, style = MaterialTheme.typography.bodySmall)
                 if (!busy) Picker("Personaje: " + (project.characters.firstOrNull { it.id == characterId }?.name ?: "Elegir"),
                         project.characters, { it.name }) { characterId = it.id }
-                if (!busy && !external && installed) {
+                if (!busy && !usePocket && installed) {
                     Picker("Familia: ${family.label}", NarrationFamily.entries.toList(), { it.label }) { family = it }
                     val preset = NarrationPresets.find(presetId)
                     Picker("Preset: ${preset?.name ?: "Personalizado"}", NarrationPresets.all.filter { it.family == family }, { it.name }) { chosen ->
@@ -417,7 +312,7 @@ fun VoiceStudioDialog(
                         if (id != null) vm.editCharacter(id) { character -> character.copy(narrationPresetId = chosen.id) }
                     }
                     preset?.let { Text(it.description, style = MaterialTheme.typography.bodySmall) }
-                    Text("Estos son los presets anteriores de tono y efectos. Para probar voces originales distintas, cambia a otro motor Android.",
+                    Text("Estos son los presets anteriores de tono y efectos. Para probar el otro modelo, elige Pocket integrado.",
                         style = MaterialTheme.typography.bodySmall)
                     Text("Español: puedes escribir con modismos chilenos. El paquete no tiene un acento chileno específico.",
                         style = MaterialTheme.typography.bodySmall)
@@ -440,7 +335,7 @@ fun VoiceStudioDialog(
                     TextButton(enabled = !busy, onClick = vm::stop) { Text("Parar") }
                     TextButton(enabled = !busy, onClick = { generate() }) { Text("Otra toma") }
                 }
-                if (!external) Text(NarrationPack.ATTRIBUTION, style = MaterialTheme.typography.labelSmall)
+                if (!usePocket) Text(NarrationPack.ATTRIBUTION, style = MaterialTheme.typography.labelSmall)
             }
         },
         confirmButton = {

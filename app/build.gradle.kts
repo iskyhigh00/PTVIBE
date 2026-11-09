@@ -85,3 +85,18 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20231013")
 }
+
+// Native Pocket links to the existing ORT 1.20 library. This extraction is a
+// build input only; the implementation dependency above supplies the APK copy.
+val pocketOrt by configurations.creating {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+dependencies { add(pocketOrt.name, "com.microsoft.onnxruntime:onnxruntime-android:1.20.0@aar") }
+val preparePocketOrt by tasks.registering(Sync::class) {
+    from({ zipTree(pocketOrt.singleFile) }) { include("jni/arm64-v8a/libonnxruntime.so") }
+    into(layout.buildDirectory.dir("pocket-ort"))
+}
+tasks.configureEach {
+    if (name.startsWith("configureCMake") || name.startsWith("buildCMake")) dependsOn(preparePocketOrt)
+}
