@@ -582,7 +582,9 @@ void AudioEngine::triggerPatternSynth(int pad, float packed) {
     const int slot = std::min((pad - kChordPadBase) / 128, 7);
     const float midi = static_cast<float>((pad - kChordPadBase) % 128);
     LoopEvent e;
-    e.type = synth_.isHeld(slot) ? 11 : 10;  // si la voz sigue sonando, se desliza a la nota nueva
+    // Si la voz sigue sonando, se desliza a la nota nueva; las guitarras se vuelven a rasguear en cada golpe.
+    const int instr = static_cast<int>(param(kInstrument));
+    e.type = (synth_.isHeld(slot) && instr != 5 && instr != 6) ? 11 : 10;
     e.a = slot;
     e.f = midi;
     execSynth(e);

@@ -4,7 +4,7 @@
 #include "dsp.h"
 
 struct SynthParams {
-    int instrument = 0;     // 0 EP, 1 órgano, 2 pad, 3 cuerdas, 4 lead, 5 guitarra limpia, 6 guitarra wah (solo solista)
+    int instrument = 0;     // acordes: 0 EP, 1 órgano, 2 pad, 3 cuerdas, 4 lead, 5 guitarra limpia, 6 guitarra con distorsión; solista: ... 5 guitarra limpia, 6 guitarra wah
     float glideMs = 250;
     int curve = 1;          // 0 lineal, 1 S suave, 2 lenta al inicio
     float volume = 0.8f;
@@ -59,6 +59,7 @@ private:
         float vel = 0.8f;
         float age = 0;
         float vibPhase = 0;
+        int startDelay = 0;     // muestras de espera antes de sonar (rasgueo de la guitarra)
         float relOverride = 0;  // segundos de apagado propios (salida larga); 0 = release del instrumento
         float ph[9] = {};
         Svf filter;
@@ -75,9 +76,9 @@ private:
         bool pluck = false;
         float wah1 = 0, wah2 = 0;
     };
-    void pluckString(GString& g, float freq, bool dist);
+    void pluckString(GString& g, float freq, float bright);
     float stringSample(GString& g, float freq, float damp, float loop);
-    GString strings_[kSoloVoices];
+    GString strings_[kVoices];
     uint32_t seed_ = 987654321u;
 
     int sr_ = 48000;

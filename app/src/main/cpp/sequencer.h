@@ -36,7 +36,7 @@ struct SeqSink {
  */
 class Sequencer {
 public:
-    static constexpr int kMaxPattern = 1024;
+    static constexpr int kMaxPattern = 2048;
     static constexpr int kMaxLoop = 2048;
     static constexpr int kMaxDeferred = 64;
 

@@ -25,10 +25,10 @@ import kotlinx.coroutines.launch
 enum class TriggerMode(val label: String) { HOLD("Sostener"), LATCH("Alternar"), GATE("Mientras toco") }
 enum class GlideCurve(val label: String) { LINEAR("Recta"), SMOOTH("Suave"), SLOW("Arranque lento") }
 
-val INSTRUMENTS = listOf("Piano eléctrico", "Órgano", "Pad", "Cuerdas", "Lead")
+val INSTRUMENTS = listOf("Piano eléctrico", "Órgano", "Pad", "Cuerdas", "Lead", "Guitarra rítmica limpia", "Guitarra rítmica con distorsión")
 
 /** Instrumentos del solista: los de acordes más las guitarras (cuerda pulsada). */
-val SOLO_INSTRUMENTS = INSTRUMENTS + listOf("Guitarra limpia", "Guitarra wah + distorsión")
+val SOLO_INSTRUMENTS = INSTRUMENTS.take(5) + listOf("Guitarra limpia", "Guitarra wah + distorsión")
 
 /** Edición de un pad: tipo, inversión, octava y notas fijadas (tonePc -> MIDI). */
 data class PadEdit(

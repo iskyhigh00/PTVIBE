@@ -23,6 +23,8 @@ data class Section(
     val solo: List<SoloNote> = emptyList(),
     /** Instrumento del solista durante la sección (5 guitarra limpia, 6 wah + distorsión) o null. */
     val soloInstrument: Int? = null,
+    /** Guitarra rítmica de la sección: 5 limpia (verso, puentes) o 6 con distorsión (riff, coros, solos). */
+    val guitar: Int = 5,
 ) {
     val lengthTicks: Int get() = bars * BAR
 }
@@ -67,15 +69,15 @@ object TocataSong {
         Section("Intro", 4, 2, ch("F#m F#m F#m F#m"), BassStyle.HOLD),
         Section("Verso", 14, 2, CHORUS, BassStyle.PULSE),
         Section("Pre-coro", 4, 1, ch("C#m G#m B D"), BassStyle.PULSE, fill = true),
-        Section("Riff", 12, 0, List(12) { "F#m" }, BassStyle.RIFF, fill = true),
+        Section("Riff", 12, 0, List(12) { "F#m" }, BassStyle.RIFF, fill = true, guitar = 6),
         Section("Puente", 8, 2, ch("C#m G#m B G G G G G"), BassStyle.HOLD, fill = true),
-        Section("Solo 1 · limpio", 10, 0, List(10) { "F#m" }, BassStyle.RIFF, fill = true, solo = SOLO1, soloInstrument = 5),
-        Section("Coro", 14, 1, CHORUS, BassStyle.RIFF, fill = true),
-        Section("Riff", 8, 0, List(8) { "F#m" }, BassStyle.RIFF),
+        Section("Solo 1 · limpio", 10, 0, List(10) { "F#m" }, BassStyle.RIFF, fill = true, solo = SOLO1, soloInstrument = 5, guitar = 6),
+        Section("Coro", 14, 1, CHORUS, BassStyle.RIFF, fill = true, guitar = 6),
+        Section("Riff", 8, 0, List(8) { "F#m" }, BassStyle.RIFF, guitar = 6),
         Section("Puente", 8, 2, ch("C#m G#m B G C#m G#m B G"), BassStyle.HOLD, fill = true),
-        Section("Solo 2 · wah", 10, 3, List(10) { "F#m" }, BassStyle.RIFF, fill = true, solo = SOLO2, soloInstrument = 6),
-        Section("Coro final", 14, 3, CHORUS, BassStyle.RIFF, fill = true),
-        Section("Final", 3, 2, ch("F# F# F#"), BassStyle.HOLD),
+        Section("Solo 2 · wah", 10, 3, List(10) { "F#m" }, BassStyle.RIFF, fill = true, solo = SOLO2, soloInstrument = 6, guitar = 6),
+        Section("Coro final", 14, 3, CHORUS, BassStyle.RIFF, fill = true, guitar = 6),
+        Section("Final", 3, 2, ch("F# F# F#"), BassStyle.HOLD, guitar = 6),
     )
 
     /** Voicing (sin la nota más grave: de eso se encarga el bajo) del acorde en el banco C17. */
@@ -84,6 +86,17 @@ object TocataSong {
         val pad = bank.pads[PAD_OF[symbol] ?: 0]
         return pad.voicing.sorted().drop(1)
     }
+
+    /** Voicing de guitarra: cuerdas al aire graves (fundamental, quinta, octava, tercera, quinta) como un acorde de guitarra. */
+    fun guitarVoicing(symbol: String): List<Int> {
+        val pc = ROOT[symbol] ?: 6
+        val r = 38 + Math.floorMod(pc - 2, 12)
+        val third = if (symbol.endsWith("m")) 15 else 16
+        return listOf(r, r + 7, r + 12, r + third, r + 19)
+    }
+
+    /** Rasgueos de un compás: (paso de semicorchea, largo en pasos, fuerza). */
+    private val STRUM = listOf(0 to 0.95f, 2 to 0.7f, 4 to 0.85f, 6 to 0.7f, 8 to 0.95f, 10 to 0.7f, 12 to 0.85f, 14 to 0.7f)
 
     /** Fundamental del bajo para el acorde: entre Fa#1 y Fa2. */
     fun bassRoot(symbol: String): Int = 30 + Math.floorMod((ROOT[symbol] ?: 6) - 6, 12)
@@ -128,18 +141,14 @@ object TocataSong {
             }
         }
 
-        // Acordes: una nota por voz; al cambiar de acorde cada voz se desliza a su nota nueva.
-        var b = 0
-        while (b < s.bars) {
-            var e = b
-            while (e + 1 < s.bars && s.chords[e + 1] == s.chords[b]) e++
-            val span = (e - b + 1) * BAR
-            val endOfSection = e == s.bars - 1
-            voicing(s.chords[b]).forEachIndexed { slot, midi ->
-                add(b * BAR, com.glidelive.audio.NativeEngine.CHORD_PAD_BASE + slot * 128 + midi,
-                    velPack(span + if (endOfSection) 48 else 24, 0.8f))
+        // Guitarra rítmica: rasgueos de corchea en cada compás (cada rasgueo vuelve a tocar las cuerdas del acorde).
+        for (bar in 0 until s.bars) {
+            val notes = guitarVoicing(s.chords[bar])
+            for ((step, vel) in STRUM) {
+                notes.forEachIndexed { slot, midi ->
+                    add(bar * BAR + step * STEP, com.glidelive.audio.NativeEngine.CHORD_PAD_BASE + slot * 128 + midi, velPack(2 * STEP - 4, vel))
+                }
             }
-            b = e + 1
         }
 
         // Solista.
@@ -154,7 +163,7 @@ object TocataSong {
         t += 0; p += 0; v += 1f
         t += 0; p += 9; v += 1f
         t += 0; p += Bass.PAD_BASE + bassRoot("F#"); v += velPack(BAR - 12, 0.95f)
-        voicing("F#").forEachIndexed { slot, midi ->
+        guitarVoicing("F#").forEachIndexed { slot, midi ->
             t += 0; p += com.glidelive.audio.NativeEngine.CHORD_PAD_BASE + slot * 128 + midi; v += velPack(BAR, 0.8f)
         }
         return Compiled(t.toIntArray(), p.toIntArray(), v.toFloatArray())

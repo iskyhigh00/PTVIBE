@@ -31,10 +31,10 @@ class TocataSongTest {
         for (s in TocataSong.sections) {
             val b = TocataSong.build(s, pattern, line)
             val e = b.events
-            assertTrue("${s.name}: ${e.ticks.size} eventos", e.ticks.size in 1..1000)
+            assertTrue("${s.name}: ${e.ticks.size} eventos", e.ticks.size in 1..2000)
             assertTrue(e.ticks.all { it in 0 until b.length })
             val chordNotes = e.pads.count { it in NativeEngine.CHORD_PAD_BASE until NativeEngine.SOLO_PAD_BASE }
-            assertTrue("${s.name}: acordes", chordNotes >= 4)
+            assertTrue("${s.name}: acordes", chordNotes >= 4 * s.bars)
             assertEquals("${s.name}: solo", s.solo.size, e.pads.count { it >= NativeEngine.SOLO_PAD_BASE })
             assertTrue("${s.name}: bajo", e.pads.any { it in Bass.PAD_BASE until NativeEngine.CHORD_PAD_BASE })
             assertTrue("${s.name}: batería", e.pads.any { it < Bass.PAD_BASE })

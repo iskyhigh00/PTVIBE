@@ -111,8 +111,10 @@ class MainActivity : ComponentActivity() {
                     }
                     val demo by transportVm.demo.collectAsState()
                     LaunchedEffect(demo.active, demo.section) {
-                        if (demo.active) TocataSong.sections[demo.section].soloInstrument?.let { inst ->
-                            soloVm.edit { it.copy(instrument = inst) }
+                        if (demo.active) {
+                            val sec = TocataSong.sections[demo.section]
+                            chordsVm.edit { it.copy(instrument = sec.guitar) }  // guitarra rítmica limpia o con distorsión según la parte
+                            sec.soloInstrument?.let { inst -> soloVm.edit { it.copy(instrument = inst) } }
                         }
                     }
                     if (demoOpen) DemoDialog(transportVm, onDismiss = { demoOpen = false }, onStart = startDemo)
