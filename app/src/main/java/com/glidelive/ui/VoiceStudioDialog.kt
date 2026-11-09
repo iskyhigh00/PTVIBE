@@ -86,6 +86,7 @@ fun VoiceStudioDialog(
     var pace by remember(project.id, characterId) { mutableStateOf(initialPreset.pace) }
     var pitch by remember(project.id, characterId) { mutableStateOf(initialPreset.pitch) }
     var texture by remember(project.id, characterId) { mutableStateOf(initialPreset.texture) }
+    var expressive by remember { mutableStateOf(true) }
     var advanced by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf<Pair<NarrationRequest, NarratedAudio>?>(null) }
     var progress by remember { mutableStateOf<Pair<String, Float?>?>(null) }
@@ -98,7 +99,7 @@ fun VoiceStudioDialog(
 
     val selection = document.selection
     val selected = document.text.substring(selection.min, selection.max).trim()
-    val request = NarrationRequest(selected, speaker, language.first, pace, pitch, texture)
+    val request = NarrationRequest(selected, speaker, language.first, pace, pitch, texture, presetId, expressive)
     val audio = draft?.takeIf { it.first == request }?.second
     val delivery = deliveries.firstOrNull { it.pace == pace && it.pitch == pitch }?.name ?: "Personalizada"
 
@@ -231,6 +232,9 @@ fun VoiceStudioDialog(
                         style = MaterialTheme.typography.bodySmall)
                     Text("Español: puedes escribir con modismos chilenos. El paquete no tiene un acento chileno específico.",
                         style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { expressive = !expressive }) {
+                        Text(if (expressive) "Interpretación de cuento: activada" else "Interpretación de cuento: desactivada")
+                    }
                     TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Ocultar ajustes" else "Ajustes opcionales") }
                     if (advanced) {
                         Text("Los ajustes manuales son temporales; el personaje conserva su preset.", style = MaterialTheme.typography.bodySmall)

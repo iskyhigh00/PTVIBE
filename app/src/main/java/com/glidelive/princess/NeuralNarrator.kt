@@ -17,6 +17,7 @@ import kotlin.math.roundToInt
 data class NarrationRequest(
     val text: String, val speaker: Int, val language: String, val pace: Float, val pitch: Int,
     val texture: NarrationTexture = NarrationTexture.NATURAL,
+    val presetId: String? = null, val expressive: Boolean = true,
 )
 data class NarratedAudio(val text: String, val file: File, val seconds: Float)
 
@@ -49,7 +50,8 @@ object NeuralNarrator {
             check(request.speaker in 0 until tts.numSpeakers()) { "Esta voz no existe en el paquete instalado." }
             val rate = tts.sampleRate()
             check(rate in 8000..48000) { "El motor de voces devolvió una frecuencia inválida." }
-            val parts = NarrationText.chunks(request.text, Locale.forLanguageTag(request.language))
+            val locale = Locale.forLanguageTag(request.language)
+            val parts = if (request.expressive) NarrationPerformance.phrases(request.text, locale) else NarrationText.chunks(request.text, locale)
             val pitch = DramaRenderer.pitchFactor(request.pitch.toFloat())
             val config = GenerationConfig(
                 speed = (request.pace / pitch).toFloat().coerceIn(0.7f, 1.7f),
@@ -58,7 +60,7 @@ object NeuralNarrator {
                 extra = mapOf("lang" to request.language),
             )
             val blocks = ArrayList<ShortArray>(parts.size)
-            val silence = rate / 9
+            val pauses = ArrayList<Int>(parts.size)
             var frames = 0
             for ((index, part) in parts.withIndex()) {
                 currentCoroutineContext().ensureActive()
@@ -66,8 +68,7 @@ object NeuralNarrator {
                 currentCoroutineContext().ensureActive()
                 check(audio.samples.isNotEmpty() && audio.sampleRate == rate) { "No se pudo narrar el fragmento ${index + 1}." }
                 val size = (audio.samples.size / pitch).roundToInt().coerceAtLeast(1)
-                frames += size + if (index == parts.lastIndex) 0 else silence
-                check(frames <= rate * 300) { "El audio supera cinco minutos. Selecciona un fragmento más corto." }
+                check(size <= rate * 300 - frames) { "El audio supera cinco minutos. Selecciona un fragmento más corto." }
                 val block = ShortArray(size) { i ->
                     val at = (i * pitch).coerceAtMost(audio.samples.lastIndex.toDouble())
                     val before = at.toInt()
@@ -77,14 +78,21 @@ object NeuralNarrator {
                 }
                 check(block.any { it != 0.toShort() }) { "El fragmento ${index + 1} no generó sonido." }
                 NarrationEffects.apply(block, rate, request.texture)
-                blocks += block
+                val performed = if (request.expressive) NarrationPerformance.process(block, rate, part, request.presetId) else block
+                currentCoroutineContext().ensureActive()
+                val silence = if (index == parts.lastIndex) 0 else if (request.expressive)
+                    rate * NarrationPerformance.pauseMs(part, request.presetId) / 1000 else rate / 9
+                frames += performed.size + silence
+                check(frames <= rate * 300) { "El audio supera cinco minutos. Selecciona un fragmento más corto." }
+                blocks += performed
+                pauses += silence
                 progress((index + 1f) / parts.size)
             }
             val pcm = ShortArray(frames)
             var offset = 0
-            for (block in blocks) {
+            for ((index, block) in blocks.withIndex()) {
                 block.copyInto(pcm, offset)
-                offset += block.size + silence
+                offset += block.size + pauses[index]
             }
             WavIo.write(destination, pcm, 1, rate)
             NarratedAudio(request.text, destination, frames.toFloat() / rate)
