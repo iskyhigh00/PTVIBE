@@ -178,6 +178,8 @@ fun PrincessScreen(vm: PrincessViewModel, modifier: Modifier = Modifier) {
             for (s in listOf(1f, 2f, 3f, 5f)) FilterChip(selected = false, onClick = { vm.addSilence(s) }, label = { Text("${s.toInt()} s") })
         }
 
+        SoundBoard(u, vm)
+
         // Lista de pistas
         Text("La obra (en orden)", style = MaterialTheme.typography.titleSmall)
         if (p.cues.isEmpty()) {
@@ -284,5 +286,85 @@ private fun Stepper(label: String, value: Float, onChange: (Float) -> Unit) {
         TextButton(onClick = { onChange(value - 0.5f) }) { Text("−") }
         Text(secs(value), fontWeight = FontWeight.Bold, modifier = Modifier.width(56.dp))
         TextButton(onClick = { onChange(value + 0.5f) }) { Text("+") }
+    }
+}
+
+/** Botones con los sonidos del pack (animales, ambiente, música…) y los propios: tocar uno lo agrega al final de la obra. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SoundBoard(u: PrincessUi, vm: PrincessViewModel) {
+    val ctx = LocalContext.current
+    var group by remember { mutableStateOf("Animales") }
+    val groups = com.glidelive.princess.SoundCatalog.groups.map { it.name } + listOf("Música", "Mis sonidos")
+    val counts = remember(u.hasSfx, u.storageMb) {
+        com.glidelive.princess.SoundCatalog.groups.flatMap { it.sounds }.associate { it.id to com.glidelive.princess.SoundStore.clips(ctx, it.id).size }
+    }
+    Text("Sonidos para agregar", style = MaterialTheme.typography.titleSmall)
+    u.download?.let { (label, p) ->
+        Text("$label  ·  ${(p * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
+        LinearProgressIndicator(progress = { p.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+        TextButton(onClick = vm::cancelDownload) { Text("Cancelar") }
+    }
+    if (u.download == null) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (!u.hasSfx) GradientButton("Bajar sonidos (≈180 MB)", { vm.downloadSfx(10) }, glyph = "⬇")
+            else FilterChip(selected = false, onClick = { vm.downloadSfx(50) }, label = { Text("Bajar todas las variantes (≈880 MB)") })
+            if (!u.hasSfx) FilterChip(selected = false, onClick = { vm.downloadSfx(50) }, label = { Text("Todos (≈880 MB)") })
+            if (u.musicCount < com.glidelive.princess.SoundCatalog.music.size) {
+                FilterChip(selected = false, onClick = vm::downloadMusic, label = { Text("Bajar música de fondo (≈50 MB)") })
+            }
+        }
+        Text(
+            "Los sonidos se bajan una sola vez y quedan guardados en el teléfono hasta que borres la app" +
+                (if (u.storageMb > 0) " (ahora ocupan ${u.storageMb} MB)" else "") + ".",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        for (g in groups) FilterChip(selected = group == g, onClick = { group = g }, label = { Text(g) })
+    }
+    when (group) {
+        "Música" -> {
+            val have = remember(u.musicCount) { com.glidelive.princess.SoundStore.musicFiles(ctx) }
+            if (have.isEmpty()) Text("Todavía no hay música: usa «Bajar música de fondo».", style = MaterialTheme.typography.bodyMedium)
+            for ((t, f) in have) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(t.label, Modifier.weight(1f), maxLines = 1)
+                TextButton(onClick = { vm.previewFile(f) }) { Text("▶") }
+                FilterChip(selected = false, onClick = { vm.addSoundFile(f, t.label.substringBefore(" ·"), CueType.MUSIC) }, label = { Text("+ De fondo") })
+            }
+            Text(com.glidelive.princess.SoundCatalog.MUSIC_CREDIT, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        "Mis sonidos" -> {
+            if (u.mine.isEmpty()) Text(
+                "Aquí aparecen los sonidos que guardes desde cualquier pestaña con el botón «● Sonido» de la barra de arriba: " +
+                    "toca lo que quieras y guárdalo para usarlo en la obra.",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            for (m in u.mine) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("${m.name}  ·  ${secs(m.seconds)}", Modifier.weight(1f), maxLines = 1)
+                val f = java.io.File(com.glidelive.princess.SoundStore.mineDir(ctx), m.file)
+                TextButton(onClick = { vm.previewFile(f) }) { Text("▶") }
+                FilterChip(selected = false, onClick = { vm.addSoundFile(f, m.name, CueType.SFX) }, label = { Text("+ Agregar") })
+                TextButton(onClick = { vm.deleteMine(m.id) }) { Text("Borrar") }
+            }
+        }
+        else -> {
+            val sounds = com.glidelive.princess.SoundCatalog.groups.firstOrNull { it.name == group }?.sounds ?: emptyList()
+            if (!u.hasSfx) Text("Bájalos con «Bajar sonidos» para ver los botones disponibles.", style = MaterialTheme.typography.bodyMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                for (s in sounds) {
+                    val n = counts[s.id] ?: 0
+                    if (n == 0) continue
+                    Row(
+                        Modifier.background(Color(0x3322D3EE), RoundedCornerShape(12.dp)),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(onClick = { vm.clipFor(s.id)?.let { vm.previewFile(it) } }) { Text("▶") }
+                        TextButton(onClick = { vm.clipFor(s.id)?.let { vm.addSoundFile(it, s.label, CueType.SFX) } }) { Text("+ ${s.label}", fontWeight = FontWeight.Bold) }
+                    }
+                }
+            }
+            Text(com.glidelive.princess.SoundCatalog.SFX_CREDIT, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }

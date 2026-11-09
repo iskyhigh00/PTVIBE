@@ -124,6 +124,17 @@ class MainActivity : ComponentActivity() {
                     }
                     if (demoOpen) DemoDialog(transportVm, onDismiss = { demoOpen = false }, onStart = startDemo)
                     var keysOpen by remember { mutableStateOf(false) }
+                    val capture by sessionVm.capture.collectAsState()
+                    capture.pending?.let { file ->
+                        var name by remember(file) { mutableStateOf("Mi sonido") }
+                        androidx.compose.material3.AlertDialog(
+                            onDismissRequest = { sessionVm.discardCapture() },
+                            title = { Text("Guardar como sonido de Princess") },
+                            text = { androidx.compose.material3.OutlinedTextField(name, { name = it }, label = { Text("Nombre del sonido") }, singleLine = true) },
+                            confirmButton = { TextButton(onClick = { princessVm.saveCaptured(file, name); sessionVm.captureHandled() }) { Text("Guardar") } },
+                            dismissButton = { TextButton(onClick = { sessionVm.discardCapture() }) { Text("Descartar") } },
+                        )
+                    }
                     LaunchedEffect(mode) { PadBindings.keysEnabled = mode == Mode.BATERIA || mode == Mode.MIXTO }
                     val shortScreen = cfg.screenHeightDp < 480
                     var fullscreen by rememberSaveable { mutableStateOf(false) }
@@ -299,6 +310,13 @@ private fun TopBar(
         CapsuleBar(Mode.entries, mode, { it.label }, onMode)
         QuickTransport(transport)
         extra()
+        val cap by session.capture.collectAsState()
+        val st by engine.stats.collectAsState()
+        val tu by transport.ui.collectAsState()
+        FilterChip(
+            selected = cap.recording, onClick = { session.toggleCapture(tu.bpm, st.sampleRate) },
+            label = { Text(if (cap.recording) "■ ${cap.seconds / 60}:${"%02d".format(cap.seconds % 60)}" else "● Sonido") },
+        )
         TextButton(onClick = onSettings) { Text("⚙ Ajustes") }
         Box {
             TextButton(onClick = { more = true }) { Text("☰ Más") }

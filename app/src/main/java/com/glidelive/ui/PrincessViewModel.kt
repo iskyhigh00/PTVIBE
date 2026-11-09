@@ -43,6 +43,12 @@ data class PrincessUi(
     /** Pista que suena ahora (-1 = ninguna) y si hay una mezcla lista en el reproductor. */
     val playingCue: Int = -1,
     val loaded: Boolean = false,
+    /** Sonidos del pack y los propios. */
+    val hasSfx: Boolean = false,
+    val musicCount: Int = 0,
+    val mine: List<com.glidelive.princess.MySound> = emptyList(),
+    val download: Pair<String, Float>? = null,
+    val storageMb: Long = 0,
 )
 
 /** Pista de audio de una obra dramática: personajes, voces grabadas, silencios, música de fondo y efectos. */
@@ -61,6 +67,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     private val prefs = app.getSharedPreferences("ui", android.content.Context.MODE_PRIVATE)
 
     init {
+        refreshSounds()
         viewModelScope.launch(Dispatchers.IO) {
             val list = PrincessLibrary.list(app)
             val last = prefs.getString("princess_last", null)
@@ -77,6 +84,113 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                 }
                 delay(if (_clock.value.playing) 100L else 300L)
             }
+        }
+    }
+
+    // ---- sonidos del pack ----
+    private var downloadJob: kotlinx.coroutines.Job? = null
+
+    fun refreshSounds() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val sfx = com.glidelive.princess.SoundStore.hasSfx(app)
+            val music = com.glidelive.princess.SoundStore.musicFiles(app).size
+            val mine = com.glidelive.princess.SoundStore.mine(app)
+            val mb = com.glidelive.princess.SoundStore.bytesUsed(app) / 1_000_000
+            _ui.update { it.copy(hasSfx = sfx, musicCount = music, mine = mine, storageMb = mb) }
+        }
+    }
+
+    /** Baja los efectos (perSound clips de cada sonido). Queda guardado en la app hasta que se borre. */
+    fun downloadSfx(perSound: Int) {
+        if (downloadJob?.isActive == true) return
+        downloadJob = viewModelScope.launch {
+            _ui.update { it.copy(download = "Bajando sonidos…" to 0f, error = null) }
+            val r = runCatching {
+                com.glidelive.princess.SoundStore.downloadSfx(app, perSound, { p -> _ui.update { u -> u.copy(download = "Bajando sonidos…" to p) } }, { !isActive })
+            }
+            r.onFailure { e -> if (e !is java.util.concurrent.CancellationException) _ui.update { it.copy(error = "No se pudieron bajar los sonidos: ${e.message}") } }
+            _ui.update { it.copy(download = null) }
+            refreshSounds()
+        }
+    }
+
+    fun downloadMusic() {
+        if (downloadJob?.isActive == true) return
+        downloadJob = viewModelScope.launch {
+            _ui.update { it.copy(download = "Bajando música…" to 0f, error = null) }
+            val r = runCatching {
+                com.glidelive.princess.SoundStore.downloadMusic(app, { p -> _ui.update { u -> u.copy(download = "Bajando música…" to p) } }, { !isActive })
+            }
+            r.onFailure { e -> if (e !is java.util.concurrent.CancellationException) _ui.update { it.copy(error = "No se pudo bajar la música: ${e.message}") } }
+            _ui.update { it.copy(download = null) }
+            refreshSounds()
+        }
+    }
+
+    fun cancelDownload() { downloadJob?.cancel() }
+
+    /** Guarda una captura (de cualquier pestaña) como sonido propio. */
+    fun saveCaptured(wav: File, name: String) {
+        viewModelScope.launch(Dispatchers.IO) { com.glidelive.princess.SoundStore.addMine(app, wav, name); refreshSounds() }
+    }
+
+    fun deleteMine(id: String) { viewModelScope.launch(Dispatchers.IO) { com.glidelive.princess.SoundStore.deleteMine(app, id); refreshSounds() } }
+
+    /** Un clip cualquiera de [category], alternando para que no suene siempre el mismo. */
+    fun clipFor(category: String): File? {
+        val list = com.glidelive.princess.SoundStore.clips(app, category)
+        if (list.isEmpty()) return null
+        val n = (sfxCounter[category] ?: -1) + 1
+        sfxCounter[category] = n
+        return list[n % list.size]
+    }
+    private val sfxCounter = HashMap<String, Int>()
+
+    /** Agrega a la obra un sonido del pack o propio: efectos sin el silencio sobrante, música de fondo entera. */
+    fun addSoundFile(file: File, label: String, type: CueType) {
+        val p = _ui.value.current ?: return
+        viewModelScope.launch {
+            val r = withContext(Dispatchers.IO) {
+                runCatching {
+                    val id = PrincessLibrary.newId()
+                    if (type == CueType.MUSIC) {
+                        val f = File(PrincessLibrary.dir(app, p), "$id.${file.extension}")
+                        file.copyTo(f, overwrite = true)
+                        Pair(f.name, AudioDecoder.decode(f).seconds.toFloat())
+                    } else {
+                        val d = AudioDecoder.decode(file)
+                        val pcm = WavIo.trimSilence(d.pcm, d.rate, threshold = 350, marginSec = 0.06f)
+                        val f = File(PrincessLibrary.dir(app, p), "$id.wav")
+                        WavIo.write(f, pcm, d.channels, d.rate)
+                        Pair(f.name, pcm.size.toFloat() / d.channels / d.rate)
+                    }
+                }
+            }
+            r.onSuccess { (name, sec) ->
+                val bed = type == CueType.MUSIC
+                add(Cue(PrincessLibrary.newId(), type, null, label, name, sec, if (bed) 0f else 0.5f,
+                    if (bed) CueMode.BED else CueMode.SEQ, if (bed) 0.5f else 1f, 0, if (bed) 1.5f else 0f, if (bed) 2f else 0f))
+            }
+            r.onFailure { e -> _ui.update { it.copy(error = "No se pudo agregar: ${e.message}") } }
+        }
+    }
+
+    /** Escucha un archivo del pack sin agregarlo. */
+    fun previewFile(file: File) {
+        viewModelScope.launch {
+            stop()
+            val d = withContext(Dispatchers.IO) { runCatching { AudioDecoder.decode(file) }.getOrNull() } ?: return@launch
+            beforePlay()
+            NativeEngine.replicaMask(0)
+            NativeEngine.stemClear()
+            NativeEngine.stemLoad(0, d.pcm, d.channels, d.rate)
+            NativeEngine.stemTrack(0, 1f, 0f, false, false)
+            NativeEngine.stemMaster(1f, 1f)
+            NativeEngine.stemLoop(-1.0, -1.0)
+            NativeEngine.stemSeek(0.0)
+            NativeEngine.stemPlay(true)
+            places = emptyList()
+            _ui.update { it.copy(loaded = true) }
         }
     }
 
