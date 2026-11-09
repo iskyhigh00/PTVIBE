@@ -37,6 +37,8 @@ data class StemsUi(
     val loopB: Double = -1.0,
     /** Separación en curso: texto de la etapa y avance 0..1 (null = ninguna). */
     val separating: Pair<String, Float>? = null,
+    /** Aviso de una línea (p. ej. "esa canción ya estaba guardada"). */
+    val notice: String? = null,
     /** Réplica con los instrumentos de la app. */
     val replicaNotes: Int = 0,
     val replicaMelody: StemKind = StemKind.VOCALS,
@@ -76,9 +78,17 @@ class StemsViewModel(private val app: Application) : AndroidViewModel(app) {
     // ---- biblioteca ----
     fun import(uris: List<Uri>, title: String) {
         viewModelScope.launch {
-            _ui.update { it.copy(error = null, loading = 0f, loadingName = "Copiando archivos…") }
+            _ui.update { it.copy(error = null, notice = null, loading = 0f, loadingName = "Copiando archivos…") }
+            // Si esos mismos archivos ya se importaron, se abre la canción guardada (con sus pistas separadas).
+            val key = withContext(Dispatchers.IO) { runCatching { StemLibrary.keyOf(app, uris.take(StemPlayerLimit)) }.getOrDefault("") }
+            val existing = _ui.value.songs.firstOrNull { key.isNotEmpty() && it.key == key }
+            if (existing != null) {
+                _ui.update { it.copy(loading = null, notice = "«${existing.title}» ya estaba guardada: se abrió sin volver a subirla.") }
+                open(existing)
+                return@launch
+            }
             val song = withContext(Dispatchers.IO) {
-                runCatching { StemLibrary.import(app, uris.take(StemPlayerLimit), title) }
+                runCatching { StemLibrary.import(app, uris.take(StemPlayerLimit), title, key) }
             }
             song.onFailure { e -> _ui.update { it.copy(loading = null, error = "No se pudo importar: ${e.message}") } }
             song.onSuccess { s ->
@@ -88,7 +98,17 @@ class StemsViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private val prefs = app.getSharedPreferences("ui", android.content.Context.MODE_PRIVATE)
+
+    /** Abre la última canción que se estaba usando (si sigue guardada). */
+    fun openLast() {
+        if (_ui.value.current != null || _ui.value.loading != null) return
+        val id = prefs.getString("stems_last", null) ?: return
+        _ui.value.songs.firstOrNull { it.id == id }?.let { open(it) }
+    }
+
     fun open(song: StemSong) {
+        prefs.edit().putString("stems_last", song.id).apply()
         stop()
         NativeEngine.replicaMask(0)
         viewModelScope.launch {
@@ -307,7 +327,7 @@ class StemsViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun cancelSeparation() { sepJob?.cancel() }
 
-    fun dismissError() = _ui.update { it.copy(error = null) }
+    fun dismissError() = _ui.update { it.copy(error = null, notice = null) }
 
     override fun onCleared() {
         NativeEngine.stemPlay(false)

@@ -37,7 +37,11 @@ data class StemTrack(
     val solo: Boolean = false,
 )
 
-data class StemSong(val id: String, val title: String, val tracks: List<StemTrack>, val bpm: Int = 0)
+/** [key] identifica el archivo de origen (nombre + tamaño) para no guardar dos veces la misma canción. */
+data class StemSong(val id: String, val title: String, val tracks: List<StemTrack>, val bpm: Int = 0, val key: String = "") {
+    /** Ya está separada en instrumentos (o se importó ya en pistas). */
+    val separated: Boolean get() = tracks.size > 1
+}
 
 /** Biblioteca de canciones con sus pistas: copia los archivos a la app y guarda la mezcla de cada una. */
 object StemLibrary {
@@ -60,7 +64,7 @@ object StemLibrary {
                         t.optBoolean("mute"), t.optBoolean("solo"),
                     )
                 },
-                o.optInt("bpm", 0),
+                o.optInt("bpm", 0), o.optString("key", ""),
             )
         }
     }.getOrDefault(emptyList())
@@ -68,7 +72,7 @@ object StemLibrary {
     @Synchronized fun save(ctx: Context, songs: List<StemSong>) {
         val arr = JSONArray()
         for (s in songs) arr.put(JSONObject().apply {
-            put("id", s.id); put("title", s.title); put("bpm", s.bpm)
+            put("id", s.id); put("title", s.title); put("bpm", s.bpm); put("key", s.key)
             put("tracks", JSONArray().also { ts ->
                 for (t in s.tracks) ts.put(JSONObject().apply {
                     put("id", t.id); put("name", t.name); put("kind", t.kind.name); put("file", t.file)
@@ -86,6 +90,19 @@ object StemLibrary {
             }
         }.getOrNull() ?: uri.lastPathSegment ?: "audio"
 
+    /** Clave estable de un conjunto de archivos: mismos nombres y tamaños = misma canción. */
+    fun keyOf(names: List<String>, sizes: List<Long>): String =
+        names.zip(sizes).map { (n, s) -> "${n.lowercase()}|$s" }.sorted().joinToString(";")
+
+    fun sizeOf(ctx: Context, uri: Uri): Long = runCatching {
+        ctx.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { c -> if (c.moveToFirst()) c.getLong(0) else -1L }
+    }.getOrNull() ?: -1L
+
+    fun keyOf(ctx: Context, uris: List<Uri>): String = keyOf(uris.map { displayName(ctx, it) }, uris.map { sizeOf(ctx, it) })
+
+    /** Lo que ocupa la canción en el teléfono (bytes). */
+    fun bytesOf(ctx: Context, song: StemSong): Long = dir(ctx, song).walkTopDown().filter { it.isFile }.sumOf { it.length() }
+
     /** Título sugerido: el nombre común de los archivos sin la palabra de la pista. */
     fun suggestTitle(names: List<String>): String {
         val base = names.map { it.substringBeforeLast('.') }
@@ -97,7 +114,7 @@ object StemLibrary {
     }
 
     /** Copia los archivos elegidos y crea la canción. Un solo archivo = "Mezcla". */
-    fun import(ctx: Context, uris: List<Uri>, title: String): StemSong {
+    fun import(ctx: Context, uris: List<Uri>, title: String, key: String = ""): StemSong {
         val id = UUID.randomUUID().toString().take(8)
         val dir = File(root(ctx), id).also { it.mkdirs() }
         val tracks = uris.mapIndexed { i, uri ->
@@ -108,7 +125,7 @@ object StemLibrary {
             val kind = if (uris.size == 1) StemKind.MIX else StemKind.guess(name)
             StemTrack("t$i", if (kind == StemKind.MIX && uris.size > 1) name.substringBeforeLast('.') else kind.label, kind, f.name)
         }
-        val song = StemSong(id, title.ifBlank { "Canción" }, tracks)
+        val song = StemSong(id, title.ifBlank { "Canción" }, tracks, 0, key)
         save(ctx, listOf(song) + load(ctx))
         return song
     }

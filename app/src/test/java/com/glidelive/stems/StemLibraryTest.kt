@@ -1,6 +1,7 @@
 package com.glidelive.stems
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class StemLibraryTest {
@@ -18,5 +19,18 @@ class StemLibraryTest {
         assertEquals("Ultima tocata", StemLibrary.suggestTitle(listOf("Ultima tocata - vocals.wav", "Ultima tocata - drums.wav")))
         assertEquals("Mi cancion", StemLibrary.suggestTitle(listOf("Mi cancion.mp3")))
         assertEquals("Canción", StemLibrary.suggestTitle(emptyList()))
+    }
+
+    @Test fun sameFilesGiveTheSameKeyInAnyOrder() {
+        val a = StemLibrary.keyOf(listOf("Voz.wav", "Bajo.wav"), listOf(100L, 200L))
+        val b = StemLibrary.keyOf(listOf("bajo.wav", "voz.wav"), listOf(200L, 100L))
+        assertEquals(a, b)
+        assertTrue(a != StemLibrary.keyOf(listOf("Voz.wav", "Bajo.wav"), listOf(100L, 201L)))
+    }
+
+    @Test fun separatedMeansMoreThanOneTrack() {
+        val t = StemTrack("a", "x", StemKind.MIX, "f")
+        assertTrue(!StemSong("1", "c", listOf(t)).separated)
+        assertTrue(StemSong("1", "c", listOf(t, t.copy(id = "b"))).separated)
     }
 }

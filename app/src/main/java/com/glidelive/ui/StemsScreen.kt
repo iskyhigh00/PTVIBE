@@ -84,6 +84,9 @@ fun StemsScreen(vm: StemsViewModel, modifier: Modifier = Modifier, soloInstrumen
         )
     }
 
+    // Al entrar, vuelve a abrir la última canción: ya está guardada con sus pistas, no hay que subirla ni separarla otra vez.
+    androidx.compose.runtime.LaunchedEffect(u.songs.size) { vm.openLast() }
+
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             GradientButton("Importar canción o pistas", { picker.launch(arrayOf("*/*")) }, glyph = "+")
@@ -91,6 +94,12 @@ fun StemsScreen(vm: StemsViewModel, modifier: Modifier = Modifier, soloInstrumen
             u.current?.let { s ->
                 TextButton(onClick = { vm.delete(s) }) { Text("Borrar") }
                 TextButton(onClick = vm::close) { Text("Cerrar") }
+            }
+        }
+        u.notice?.let {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
+                TextButton(onClick = vm::dismissError) { Text("OK") }
             }
         }
         u.error?.let {
@@ -102,6 +111,29 @@ fun StemsScreen(vm: StemsViewModel, modifier: Modifier = Modifier, soloInstrumen
         u.loading?.let { p ->
             Text(u.loadingName, style = MaterialTheme.typography.labelMedium)
             LinearProgressIndicator(progress = { p.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+        }
+        // Biblioteca: todas las canciones guardadas en la app.
+        if (u.songs.isNotEmpty() && u.loading == null) {
+            Text("Mis canciones (guardadas en la app)", style = MaterialTheme.typography.titleSmall)
+            u.songs.forEach { s ->
+                val mb = androidx.compose.runtime.remember(s.id, s.tracks.size) { StemLibrary.bytesOf(ctx, s) / 1_000_000 }
+                Row(
+                    Modifier.fillMaxWidth().background(
+                        if (u.current?.id == s.id) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        RoundedCornerShape(10.dp),
+                    ).padding(horizontal = 10.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(s.title, fontWeight = FontWeight.Bold, maxLines = 1)
+                        Text((if (s.separated) "${s.tracks.size} pistas separadas ✓" else "1 pista (sin separar)") + " · $mb MB",
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (u.current?.id != s.id) TextButton(onClick = { vm.open(s) }) { Text("Abrir") }
+                    else Text("abierta", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    TextButton(onClick = { vm.delete(s) }) { Text("Borrar") }
+                }
+            }
         }
         val song = u.current
         val view = androidx.compose.ui.platform.LocalView.current
