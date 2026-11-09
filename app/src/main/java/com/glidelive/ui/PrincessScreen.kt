@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.glidelive.princess.Character
 import com.glidelive.princess.Cue
@@ -107,6 +108,11 @@ fun PrincessScreen(vm: PrincessViewModel, modifier: Modifier = Modifier) {
     }
 
     val p = u.current
+    var voiceStudio by remember(p?.id) { mutableStateOf(false) }
+    var voiceDocument by remember(p?.id) { mutableStateOf(TextFieldValue()) }
+    if (p != null && voiceStudio) {
+        VoiceStudioDialog(p, vm, voiceDocument, { voiceDocument = it }, onClose = { voiceStudio = false })
+    }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (p == null) return@Column
         // Obra y reproducción
@@ -165,6 +171,9 @@ fun PrincessScreen(vm: PrincessViewModel, modifier: Modifier = Modifier) {
 
         // Agregar
         Text("Agregar a la obra", style = MaterialTheme.typography.titleSmall)
+        TextButton(enabled = u.busy == null && u.recordingFor == null, onClick = { voiceStudio = true }) {
+            Text("Narrar texto")
+        }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             for (c in p.characters) FilterChip(selected = false, onClick = { record(c.id) }, label = { Text("● Grabar a ${c.name}") })
         }

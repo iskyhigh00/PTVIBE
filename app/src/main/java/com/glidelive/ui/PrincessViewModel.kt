@@ -17,18 +17,24 @@ import com.glidelive.princess.MicRecorder
 import com.glidelive.princess.Placement
 import com.glidelive.princess.PrincessLibrary
 import com.glidelive.princess.Project
+import com.glidelive.princess.NarratedAudio
 import com.glidelive.princess.WavIo
 import com.glidelive.stems.AudioDecoder
 import com.glidelive.stems.StemLibrary
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.UUID
 
 data class PrincessUi(
     val projects: List<Project> = emptyList(),
@@ -65,6 +71,9 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     private var places: List<Placement> = emptyList()
     private var recorder: MicRecorder? = null
     private val prefs = app.getSharedPreferences("ui", android.content.Context.MODE_PRIVATE)
+    private val projectEdits = Mutex()
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val projectWrites = Dispatchers.IO.limitedParallelism(1)
 
     init {
         refreshSounds()
@@ -176,27 +185,25 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     /** Escucha un archivo del pack sin agregarlo. */
-    fun previewFile(file: File) {
-        viewModelScope.launch {
-            stop()
-            val d = withContext(Dispatchers.IO) { runCatching { AudioDecoder.decode(file) }.getOrNull() } ?: return@launch
-            beforePlay()
-            NativeEngine.replicaMask(0)
-            NativeEngine.stemClear()
-            NativeEngine.stemLoad(0, d.pcm, d.channels, d.rate)
-            NativeEngine.stemTrack(0, 1f, 0f, false, false)
-            NativeEngine.stemMaster(1f, 1f)
-            NativeEngine.stemLoop(-1.0, -1.0)
-            NativeEngine.stemSeek(0.0)
-            NativeEngine.stemPlay(true)
-            places = emptyList()
-            _ui.update { it.copy(loaded = true) }
-        }
+    fun previewFile(file: File) = viewModelScope.launch {
+        stop()
+        val d = withContext(Dispatchers.IO) { runCatching { AudioDecoder.decode(file) }.getOrNull() } ?: return@launch
+        beforePlay()
+        NativeEngine.replicaMask(0)
+        NativeEngine.stemClear()
+        NativeEngine.stemLoad(0, d.pcm, d.channels, d.rate)
+        NativeEngine.stemTrack(0, 1f, 0f, false, false)
+        NativeEngine.stemMaster(1f, 1f)
+        NativeEngine.stemLoop(-1.0, -1.0)
+        NativeEngine.stemSeek(0.0)
+        NativeEngine.stemPlay(true)
+        places = emptyList()
+        _ui.update { it.copy(loaded = true) }
     }
 
     // ---- obras ----
     fun newProject(title: String) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(projectWrites) {
             val p = PrincessLibrary.create(app, title)
             _ui.update { it.copy(projects = listOf(p) + it.projects) }
             open(p)
@@ -211,7 +218,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun deleteProject(p: Project) {
         if (_ui.value.current?.id == p.id) { stop(); _ui.update { it.copy(current = null, loaded = false) } }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(projectWrites) {
             PrincessLibrary.delete(app, p)
             val rest = _ui.value.projects.filter { it.id != p.id }
             _ui.update { it.copy(projects = rest, current = it.current ?: rest.firstOrNull()) }
@@ -219,10 +226,45 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun edit(f: (Project) -> Project) {
-        val cur = _ui.value.current ?: return
-        val p = f(cur)
-        _ui.update { u -> u.copy(current = p, projects = u.projects.map { if (it.id == p.id) p else it }) }
-        viewModelScope.launch(Dispatchers.IO) { PrincessLibrary.save(app, p) }
+        viewModelScope.launch {
+            projectEdits.withLock {
+                val cur = _ui.value.current ?: return@withLock
+                val p = f(cur)
+                updateProject(p)
+                viewModelScope.launch(projectWrites) {
+                    runCatching { PrincessLibrary.save(app, p) }.onFailure {
+                        _ui.update { u -> u.copy(error = "No se pudo guardar la obra.") }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun updateProject(p: Project) {
+        _ui.update { u -> u.copy(current = if (u.current?.id == p.id) p else u.current,
+            projects = u.projects.map { if (it.id == p.id) p else it }) }
+    }
+
+    /** Agrega el audio de la selección como una pista de voz editable de la obra. */
+    suspend fun addNarration(projectId: String, characterId: String, audio: NarratedAudio) = withContext(NonCancellable) {
+        projectEdits.withLock {
+            val p = _ui.value.current?.takeIf { it.id == projectId } ?: error("Abre la obra en la que preparaste la narración.")
+            require(p.characters.any { it.id == characterId }) { "Elige un personaje de la obra." }
+            val name = "narracion_${UUID.randomUUID()}.wav"
+            val cue = Cue(PrincessLibrary.newId(), CueType.VOICE, characterId, audio.text, name, audio.seconds, 0.6f)
+            val updated = p.copy(cues = p.cues + cue)
+            withContext(projectWrites) {
+                val target = File(PrincessLibrary.dir(app, p), name)
+                try {
+                    audio.file.copyTo(target)
+                    PrincessLibrary.save(app, updated)
+                } catch (e: Exception) {
+                    target.delete()
+                    throw e
+                }
+            }
+            updateProject(updated)
+        }
     }
 
     // ---- personajes ----

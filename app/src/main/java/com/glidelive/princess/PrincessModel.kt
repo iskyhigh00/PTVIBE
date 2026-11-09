@@ -4,6 +4,9 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption.ATOMIC_MOVE
+import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.util.UUID
 
 enum class CueType(val label: String) { VOICE("Voz"), MUSIC("Música"), SFX("Efecto"), SILENCE("Silencio") }
@@ -67,7 +70,16 @@ object PrincessLibrary {
     fun list(ctx: Context): List<Project> = root(ctx).listFiles()?.mapNotNull { d -> runCatching { parse(File(d, "project.json").readText()) }.getOrNull() }
         ?.sortedByDescending { File(dir(ctx, it), "project.json").lastModified() } ?: emptyList()
 
-    @Synchronized fun save(ctx: Context, p: Project) { File(dir(ctx, p), "project.json").writeText(toJson(p).toString()) }
+    @Synchronized fun save(ctx: Context, p: Project) {
+        val folder = dir(ctx, p)
+        val next = File.createTempFile("project-", ".tmp", folder)
+        try {
+            next.writeText(toJson(p).toString())
+            Files.move(next.toPath(), File(folder, "project.json").toPath(), ATOMIC_MOVE, REPLACE_EXISTING)
+        } finally {
+            next.delete()
+        }
+    }
 
     fun delete(ctx: Context, p: Project) { dir(ctx, p).deleteRecursively() }
 
