@@ -70,6 +70,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -95,6 +96,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         enableEdgeToEdge()
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         EventHub.start(lifecycleScope)
         VizPrefs.init(this)
         PadBindings.init(this)
@@ -103,6 +105,9 @@ class MainActivity : ComponentActivity() {
             AppTheme {
                 AppBackground {
                     var mode by rememberSaveable { mutableStateOf(Mode.ACORDES) }
+                    val princessUi by princessVm.ui.collectAsState()
+                    var voiceStudio by remember(princessUi.current?.id) { mutableStateOf(false) }
+                    var voiceDocument by remember(princessUi.current?.id) { mutableStateOf(TextFieldValue()) }
                     val cfg = LocalConfiguration.current
                     // Los ajustes de cada pestaña se abren en una ventana encima (semitransparente, con X para cerrar).
                     var settingsOpen by rememberSaveable { mutableStateOf(false) }
@@ -188,7 +193,10 @@ class MainActivity : ComponentActivity() {
                                         Mode.BATERIA -> DrumsHost(kit.pressure, kit.padLayout, Modifier.weight(1f))
                                         Mode.PRINCESS -> {
                                             androidx.compose.runtime.LaunchedEffect(Unit) { princessVm.beforePlay = { stemsVm.close() } }
-                                            PrincessScreen(princessVm, Modifier.weight(1f))
+                                            PrincessScreen(princessVm, Modifier.weight(1f), onNarrate = {
+                                                princessVm.stop()
+                                                voiceStudio = true
+                                            })
                                         }
                                         Mode.PISTAS -> {
                                             val soloUi by soloVm.ui.collectAsState()
@@ -224,6 +232,13 @@ class MainActivity : ComponentActivity() {
                             SettingsModal(mode, settingsGeneral, { settingsOpen = false }, vm, updateVm, chordsVm, soloVm, transportVm, sessionVm)
                         }
                         if (keysOpen) PadKeysPanel(sessionVm.midi.status, onClose = { keysOpen = false; PadBindings.startLearn(null) })
+                        // Keep the editor in the Activity's measured viewport. A separate
+                        // Android Dialog can have different landscape bounds on some phones.
+                        if (voiceStudio) princessUi.current?.let { project ->
+                            VoiceStudioScreen(project, princessVm, voiceDocument,
+                                { voiceDocument = it }, onClose = { voiceStudio = false },
+                                modifier = Modifier.matchParentSize())
+                        }
                     }
                 }
             }

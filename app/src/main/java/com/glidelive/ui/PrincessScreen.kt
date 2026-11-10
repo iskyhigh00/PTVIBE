@@ -44,7 +44,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.glidelive.princess.Character
 import com.glidelive.princess.Cue
@@ -63,7 +62,7 @@ private fun secs(v: Float) = "%.1f s".format(v)
 /** Princess: la pista de audio de una obra dramática. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun PrincessScreen(vm: PrincessViewModel, modifier: Modifier = Modifier) {
+fun PrincessScreen(vm: PrincessViewModel, modifier: Modifier = Modifier, onNarrate: () -> Unit) {
     val u by vm.ui.collectAsState()
     val clock by vm.clock.collectAsState()
     val ctx = LocalContext.current
@@ -117,11 +116,6 @@ fun PrincessScreen(vm: PrincessViewModel, modifier: Modifier = Modifier) {
     }
 
     val p = u.current
-    var voiceStudio by remember(p?.id) { mutableStateOf(false) }
-    var voiceDocument by remember(p?.id) { mutableStateOf(TextFieldValue()) }
-    if (p != null && voiceStudio) {
-        VoiceStudioDialog(p, vm, voiceDocument, { voiceDocument = it }, onClose = { voiceStudio = false; section = "Timeline" })
-    }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (p == null) return@Column
         val working = u.busy != null || u.recordingFor != null
@@ -152,7 +146,7 @@ fun PrincessScreen(vm: PrincessViewModel, modifier: Modifier = Modifier) {
             }
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Button(enabled = !working, onClick = { voiceStudio = true }) { Text("+ Narrar texto") }
+            Button(enabled = !working, onClick = { section = "Timeline"; onNarrate() }) { Text("+ Narrar texto") }
             TextButton(enabled = !working, onClick = { pendingImport = CueType.MUSIC to null; picker.launch(arrayOf("*/*")) }) { Text("+ Música") }
             TextButton(enabled = !working, onClick = { pendingImport = CueType.SFX to null; picker.launch(arrayOf("*/*")) }) { Text("+ Sonido") }
             TextButton(enabled = !working, onClick = { extraTools = !extraTools }) { Text(if (extraTools) "Menos opciones" else "Más opciones") }

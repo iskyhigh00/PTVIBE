@@ -8,6 +8,8 @@
   por fragmentos. Nunca se recorta automáticamente el texto para hacerlo caber.
 - Los personajes se pueden crear desde el editor. Pocket recuerda su voz para
   cada personaje; Supertonic también recuerda la voz base elegida directamente.
+- El editor se muestra dentro de la Activity principal, con los mismos límites
+  físicos que el resto de la app; ya no utiliza una ventana Dialog independiente.
 - El editor reserva el espacio de las barras del sistema, recortes de pantalla y
   teclado. Los mensajes largos se desplazan con el contenido para no empujar
   el botón de agregar fuera de la pantalla.
@@ -32,3 +34,9 @@ Pendiente en teléfono: tamaño del editor y teclado en horizontal, selección d
 un TXT, creación de dos personajes, generación/escucha/agregado de ambas voces,
 retorno al timeline y reapertura de la obra. No hubo un dispositivo Android
 conectado durante esta revisión de interfaz.
+
+Las pruebas instrumentadas de Android comprueban los límites completos de Volver
+y Generar y escuchar en horizontal, con letra ampliada y con teclado visible,
+incluyendo las zonas reservadas por Android. GitHub ejecuta estas pruebas en un
+emulador antes de publicar y guarda sus capturas como artefacto. El emulador no
+sustituye la comprobación en el Galaxy S26.

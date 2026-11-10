@@ -18,6 +18,30 @@ jobs:
         run: cmake -S app/src/test/cpp -B build-host && cmake --build build-host && ctest --test-dir build-host --output-on-failure
       - run: chmod +x gradlew
       - run: ./gradlew testDebugUnitTest assembleRelease -PbuildNumber=${{ github.run_number }} --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: sudo chmod 666 /dev/kvm
+      - name: Android narration viewport tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: |
+            adb shell settings put system accelerometer_rotation 0
+            adb shell settings put system user_rotation 1
+            adb shell settings put secure show_ime_with_hard_keyboard 1
+            ./gradlew connectedDebugAndroidTest --no-daemon --max-workers=2
+            mkdir -p viewport-screenshots
+            adb pull /sdcard/Android/data/com.glidelive/files/. viewport-screenshots/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: narration-viewport-results
+          path: |
+            app/build/reports/androidTests/
+            viewport-screenshots/
       - run: cp app/build/outputs/apk/release/app-release.apk GlideLive.apk
       - uses: actions/upload-artifact@v4
         with:
