@@ -232,13 +232,17 @@ fun VoiceStudioDialog(
 
     Dialog(
         onDismissRequest = { if (!busy) onClose() },
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+        // Own the full window and apply its insets once below. A floating dialog's
+        // decor frame can offset a screen-sized Compose layout beyond the display.
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-            Column(Modifier.fillMaxSize().imePadding().padding(horizontal = 16.dp)) {
+            Column(Modifier.fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing.union(WindowInsets.ime))
+                .padding(horizontal = 16.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("Crear una voz", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                    TextButton(enabled = !busy, onClick = onClose) { Text("Volver al cuento") }
+                    TextButton(enabled = !busy, onClick = onClose) { Text("Volver") }
                 }
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("1 · Texto", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -371,15 +375,17 @@ fun VoiceStudioDialog(
                     if (audio != null) {
                         Text("Audio listo para ${character?.name.orEmpty()}. Escúchalo antes de agregarlo.")
                     } else Text("Al generar, la voz se reproduce automáticamente. Después podrás agregarla al timeline.", style = MaterialTheme.typography.bodySmall)
+                    // Messages belong in the scrolling content: a long error must not
+                    // push the fixed action buttons outside a short landscape window.
+                    notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 4.dp)) }
+                    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    progress?.let { (label, fraction) ->
+                        Text(label, style = MaterialTheme.typography.labelMedium)
+                        if (fraction == null) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        else LinearProgressIndicator(progress = { fraction.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                    }
                 }
-                // Keep the current operation and main action visible on short landscape screens.
-                notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 4.dp)) }
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.heightIn(max = 80.dp).verticalScroll(rememberScrollState())) }
-                progress?.let { (label, fraction) ->
-                    Text(label, style = MaterialTheme.typography.labelMedium)
-                    if (fraction == null) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    else LinearProgressIndicator(progress = { fraction.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-                }
+                // Keep playback and the main action within the inset-safe viewport.
                 if (audio != null && !busy) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = { listen(audio) }) { Text("▶ Escuchar") }
                     TextButton(onClick = vm::stop) { Text("■ Detener") }
@@ -404,7 +410,7 @@ fun VoiceStudioDialog(
                                     notice = "Audio agregado al timeline. Puedes narrar otro fragmento o volver al cuento."
                                 }
                             }
-                        }) { Text(if (audio == null) "Generar y escuchar" else "Agregar al timeline") }
+                        }) { Text(if (busy) "Procesando…" else if (audio == null) "Generar y escuchar" else "Agregar al timeline") }
                 }
             }
         }
