@@ -18,7 +18,6 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.DpRect
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
@@ -62,15 +61,21 @@ class VoiceStudioViewportTest {
     }
 
     private fun assertInsideWindow(label: String) {
-        val root = rule.onRoot().getUnclippedBoundsInRoot()
-        assertTrue("The viewport test must run in landscape", root.right - root.left > root.bottom - root.top)
-        val insets = checkNotNull(ViewCompat.getRootWindowInsets(rule.activity.window.decorView))
-            .getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime())
-        val screen = with(rule.density) {
-            DpRect(root.left + insets.left.toDp(), root.top + insets.top.toDp(),
-                root.right - insets.right.toDp(), root.bottom - insets.bottom.toDp())
+        assertTrue("The test must run in landscape", rule.activity.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE)
+        val decor = rule.activity.window.decorView
+        val screen = android.graphics.Rect()
+        val origin = IntArray(2)
+        rule.runOnUiThread {
+            decor.getWindowVisibleDisplayFrame(screen)
+            decor.getLocationOnScreen(origin)
         }
-        val button = rule.onNodeWithText(label).getUnclippedBoundsInRoot()
+        // Use physical window coordinates. A Compose root can start inside system
+        // insets, and keyboard cursor handles can introduce additional roots.
+        val node = rule.onNodeWithText(label).fetchSemanticsNode()
+        val position = node.positionInWindow
+        val button = androidx.compose.ui.geometry.Rect(
+            position.x + origin[0], position.y + origin[1],
+            position.x + origin[0] + node.size.width, position.y + origin[1] + node.size.height)
         assertTrue("$label extends past the left edge: $button / $screen", button.left >= screen.left)
         assertTrue("$label extends past the right edge: $button / $screen", button.right <= screen.right)
         assertTrue("$label extends above the window: $button / $screen", button.top >= screen.top)
@@ -81,12 +86,13 @@ class VoiceStudioViewportTest {
     private fun capture(name: String) {
         val file = File(rule.activity.getExternalFilesDir(null), "$name.png")
         file.outputStream().use {
-            rule.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
+            rule.onNodeWithTag("voice-studio-viewport").captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
         }
     }
 
     @Test fun landscapeButtonsStayInsideActivityAtLargeFontSize() {
         open(fontScale = 1.3f)
+        capture("narration-landscape-large-font")
         assertInsideWindow("Volver")
         assertInsideWindow("Generar y escuchar")
         rule.onNodeWithText("Opciones de voz").performScrollTo().performClick()
@@ -102,8 +108,9 @@ class VoiceStudioViewportTest {
             ViewCompat.getRootWindowInsets(rule.activity.window.decorView)
                 ?.isVisible(WindowInsetsCompat.Type.ime()) == true
         }
+        rule.waitForIdle()
+        capture("narration-landscape-keyboard")
         assertInsideWindow("Volver")
         assertInsideWindow("Generar y escuchar")
-        capture("narration-landscape-keyboard")
     }
 }

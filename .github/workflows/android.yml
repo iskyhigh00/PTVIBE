@@ -32,9 +32,7 @@ jobs:
             adb shell settings put system accelerometer_rotation 0
             adb shell settings put system user_rotation 1
             adb shell settings put secure show_ime_with_hard_keyboard 1
-            ./gradlew connectedDebugAndroidTest --no-daemon --max-workers=2
-            mkdir -p viewport-screenshots
-            adb pull /sdcard/Android/data/com.glidelive/files/. viewport-screenshots/
+            bash scripts/test-narration-viewport.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
