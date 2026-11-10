@@ -118,6 +118,7 @@ fun VoiceStudioScreen(
     var job by remember { mutableStateOf<Job?>(null) }
     var previewJob by remember { mutableStateOf<Job?>(null) }
     val busy = progress != null
+    val keyboardVisible = WindowInsets.isImeVisible
 
     val selection = document.selection
     val selected = NarrationText.forNarration(document.text, selection.start, selection.end)
@@ -258,7 +259,7 @@ fun VoiceStudioScreen(
                     },
                     label = { Text("Escribe o pega tu libreto") },
                     placeholder = { Text("Había una vez…") },
-                    readOnly = busy, minLines = 3, maxLines = 6,
+                    readOnly = busy, minLines = if (keyboardVisible) 1 else 3, maxLines = if (keyboardVisible) 1 else 6,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(when {

@@ -1,6 +1,5 @@
 package com.glidelive.ui
 
-import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
@@ -12,7 +11,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -35,7 +33,6 @@ class VoiceStudioViewportTest {
 
     @Before fun landscape() {
         rule.activityRule.scenario.onActivity {
-            it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
             it.enableEdgeToEdge()
             it.window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         }
@@ -84,10 +81,14 @@ class VoiceStudioViewportTest {
     }
 
     private fun capture(name: String) {
-        val file = File(rule.activity.getExternalFilesDir(null), "$name.png")
-        file.outputStream().use {
-            rule.onNodeWithTag("voice-studio-viewport").captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
-        }
+        val args = androidx.test.platform.app.InstrumentationRegistry.getArguments()
+        val directory = File(checkNotNull(args.getString("additionalTestOutputDir")) {
+            "AGP must provide additionalTestOutputDir for viewport screenshots"
+        }).apply { mkdirs() }
+        val file = File(directory, "$name.png")
+        val bitmap = checkNotNull(androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
+        file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        bitmap.recycle()
     }
 
     @Test fun landscapeButtonsStayInsideActivityAtLargeFontSize() {
