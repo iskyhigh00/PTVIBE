@@ -55,6 +55,11 @@ android {
         prefab = true
     }
 
+    packaging {
+        // Sherpa y ONNX Runtime incluyen una copia x86 de libonnxruntime.so. La app no distribuye esa ABI.
+        jniLibs.excludes += "lib/x86/**"
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -72,9 +77,27 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
     implementation("com.google.oboe:oboe:1.9.0")
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
+    implementation("com.k2fsa.sherpa:sherpa-onnx-static-link-onnxruntime:2.0.1@aar")
+    implementation("org.apache.commons:commons-compress:1.27.1")
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20231013")
+}
+
+// Native Pocket links to the existing ORT 1.20 library. This extraction is a
+// build input only; the implementation dependency above supplies the APK copy.
+val pocketOrt by configurations.creating {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+dependencies { add(pocketOrt.name, "com.microsoft.onnxruntime:onnxruntime-android:1.20.0@aar") }
+val preparePocketOrt by tasks.registering(Sync::class) {
+    from({ zipTree(pocketOrt.singleFile) }) { include("jni/arm64-v8a/libonnxruntime.so") }
+    into(layout.buildDirectory.dir("pocket-ort"))
+}
+tasks.configureEach {
+    if (name.startsWith("configureCMake") || name.startsWith("buildCMake")) dependsOn(preparePocketOrt)
 }

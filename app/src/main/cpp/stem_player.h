@@ -139,15 +139,16 @@ public:
                 if (!s || (gl[k] == 0 && gr[k] == 0 && tl[k] == 0 && tr[k] == 0)) continue;
                 const double fp = pos_d_ * s->rate;
                 const int64_t i0 = static_cast<int64_t>(fp);
-                if (i0 + 1 >= s->frames) continue;
+                if (i0 >= s->frames) continue;
+                const int64_t i1 = std::min(i0 + 1, s->frames - 1);
                 const float fr = static_cast<float>(fp - i0);
                 const int16_t* p = s->d.data();
                 float l, r;
                 if (s->ch == 2) {
-                    l = (p[2 * i0] + (p[2 * i0 + 2] - p[2 * i0]) * fr) * (1.0f / 32768.0f);
-                    r = (p[2 * i0 + 1] + (p[2 * i0 + 3] - p[2 * i0 + 1]) * fr) * (1.0f / 32768.0f);
+                    l = (p[2 * i0] + (p[2 * i1] - p[2 * i0]) * fr) * (1.0f / 32768.0f);
+                    r = (p[2 * i0 + 1] + (p[2 * i1 + 1] - p[2 * i0 + 1]) * fr) * (1.0f / 32768.0f);
                 } else {
-                    l = r = (p[i0] + (p[i0 + 1] - p[i0]) * fr) * (1.0f / 32768.0f);
+                    l = r = (p[i0] + (p[i1] - p[i0]) * fr) * (1.0f / 32768.0f);
                 }
                 out[2 * i] += l * gl[k];
                 out[2 * i + 1] += r * gr[k];

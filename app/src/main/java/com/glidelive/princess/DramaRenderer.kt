@@ -25,7 +25,8 @@ object DramaRenderer {
 
     /** Largo (s) de una pista una vez cambiado su tono (cambiar el tono por remuestreo cambia también la duración). */
     fun playedSeconds(cue: Cue, pitch: Float): Double =
-        if (cue.type == CueType.SILENCE) cue.seconds.toDouble() else cue.seconds / pitchFactor(pitch)
+        cue.durationSeconds?.toDouble()?.coerceAtLeast(0.0) ?: if (cue.type == CueType.SILENCE) cue.seconds.toDouble()
+        else (cue.seconds - cue.trimStart).coerceAtLeast(0f) / pitchFactor(pitch)
 
     fun pitchOf(p: Project, cue: Cue): Float = if (cue.type == CueType.VOICE) p.characters.firstOrNull { it.id == cue.characterId }?.pitch ?: 0f else 0f
 
@@ -34,16 +35,17 @@ object DramaRenderer {
         var cursor = 0.0        // fin de lo último que avanza la obra
         var lastStart = 0.0
         val bedStarts = HashMap<Int, Double>()
-        var atEnd = 0.0
         for ((i, c) in p.cues.withIndex()) {
             val dur = playedSeconds(c, pitchOf(p, c))
+            if ((c.startSeconds != null && c.mode != CueMode.BED) || c.durationSeconds != null && c.mode == CueMode.BED) {
+                val start = (c.startSeconds?.toDouble() ?: (cursor + max(0f, c.gap))).coerceAtLeast(0.0)
+                out.add(Placement(i, c, start, start + dur))
+                lastStart = start
+                cursor = max(cursor, start + dur)
+                continue
+            }
             when (c.mode) {
-                CueMode.BED -> { bedStarts[i] = cursor + max(0f, c.gap); out.add(null) }
-                CueMode.AT -> {
-                    val s = max(0f, c.gap).toDouble()
-                    out.add(Placement(i, c, s, s + dur))
-                    atEnd = max(atEnd, s + dur)
-                }
+                CueMode.BED -> { bedStarts[i] = c.startSeconds?.toDouble() ?: (cursor + max(0f, c.gap)); out.add(null) }
                 CueMode.WITH_PREV -> {
                     val s = lastStart + max(0f, c.gap)
                     out.add(Placement(i, c, s, s + dur))
@@ -57,18 +59,32 @@ object DramaRenderer {
                 }
             }
         }
-        val total = max(cursor, atEnd)
+        val total = cursor
         // Música de fondo: termina al acabar la última pista que acompaña (o al final de la obra).
         val result = ArrayList<Placement>()
         for ((i, pl) in out.withIndex()) {
             if (pl != null) { result.add(pl); continue }
             val c = p.cues[i]
             val start = bedStarts[i] ?: 0.0
-            val followers = (i + 1 until p.cues.size).filter { p.cues[it].mode != CueMode.BED && p.cues[it].mode != CueMode.AT && out[it] != null }
-            val end = if (c.span <= 0 || followers.isEmpty()) total else out[followers[min(c.span, followers.size) - 1]]!!.end
+            val followers = (i + 1 until p.cues.size).filter { p.cues[it].mode != CueMode.BED && out[it] != null }
+            val end = when {
+                followers.isEmpty() && total <= start -> start + playedSeconds(c, pitchOf(p, c))
+                c.span <= 0 || followers.isEmpty() -> total
+                else -> out[followers[min(c.span, followers.size) - 1]]!!.end
+            }
             result.add(Placement(i, c, start, max(start, end)))
         }
         return result.sortedBy { it.start }
+    }
+
+    /** Freeze the existing audible arrangement before moving one clip independently. */
+    fun anchorTimeline(p: Project): Project {
+        val positions = layout(p).associateBy { it.index }
+        return p.copy(cues = p.cues.mapIndexed { i, cue ->
+            val place = positions.getValue(i)
+            cue.copy(startSeconds = place.start.toFloat(), durationSeconds = if (cue.mode == CueMode.BED)
+                (place.end - place.start).toFloat().takeIf { it > 0f } ?: cue.seconds else cue.durationSeconds)
+        })
     }
 
     fun totalSeconds(p: Project): Double = layout(p).maxOfOrNull { it.end } ?: 0.0
@@ -77,7 +93,7 @@ object DramaRenderer {
     fun duckEnvelope(places: List<Placement>, total: Double, depth: Float = 0.35f): FloatArray {
         val n = (total * 100).toInt() + 2
         val voice = BooleanArray(n)
-        for (pl in places) if (pl.cue.type == CueType.VOICE) {
+        for (pl in places) if (pl.cue.type == CueType.VOICE && !pl.cue.muted) {
             val a = (pl.start * 100).toInt().coerceIn(0, n - 1); val b = (pl.end * 100).toInt().coerceIn(0, n - 1)
             for (i in a..b) voice[i] = true
         }
@@ -105,7 +121,7 @@ object DramaRenderer {
 
         for ((n, pl) in places.withIndex()) {
             val c = pl.cue
-            if (c.type == CueType.SILENCE) continue
+            if (c.type == CueType.SILENCE || c.muted) continue
             val clip = clipOf(c) ?: continue
             if (clip.frames < 2) continue
             val ch = if (c.type == CueType.VOICE) p.characters.firstOrNull { it.id == c.characterId } else null
@@ -113,18 +129,21 @@ object DramaRenderer {
             val step = clip.rate * pitchFactor(pitch) / RATE          // muestras de origen por muestra de salida
             val startF = (pl.start * RATE).toInt()
             val endF = min(frames, (pl.end * RATE).toInt())
-            val loop = c.mode == CueMode.BED
+            val loop = c.mode == CueMode.BED || c.loop
             val gain = c.volume * (ch?.volume ?: 1f) * (if (c.type == CueType.VOICE && p.normalizeVoices) voiceGain(clip) else 1f)
             val pan = ch?.pan ?: 0f
             val gl = gain * min(1f, 1f - pan); val gr = gain * min(1f, 1f + pan)
             val fadeInF = (c.fadeIn * RATE).toInt(); val fadeOutF = (c.fadeOut * RATE).toInt()
             val len = endF - startF
+            val sourceStart = min((c.trimStart * clip.rate).toInt().coerceAtLeast(0), clip.frames - 1)
+            val sourceFrames = clip.frames - sourceStart
             var pos = 0.0
             for (i in 0 until len) {
                 var sp = pos
-                if (loop) sp %= clip.frames.toDouble() else if (sp >= clip.frames - 1) break
+                if (loop) sp %= sourceFrames.toDouble() else if (sp >= sourceFrames - 1) break
+                sp += sourceStart
                 val i0 = sp.toInt()
-                val i1 = if (i0 + 1 < clip.frames) i0 + 1 else if (loop) 0 else i0
+                val i1 = if (i0 + 1 < clip.frames) i0 + 1 else if (loop) sourceStart else i0
                 val f = (sp - i0).toFloat()
                 val l: Float; val r: Float
                 if (clip.channels >= 2) {
@@ -136,7 +155,7 @@ object DramaRenderer {
                 var e = 1f
                 if (fadeInF > 0 && i < fadeInF) e = i.toFloat() / fadeInF
                 if (fadeOutF > 0 && len - i < fadeOutF) e = min(e, (len - i).toFloat() / fadeOutF)
-                if (loop && duck != null) e *= duck[min(duck.size - 1, (startF + i) / (RATE / 100))]
+                if (c.type == CueType.MUSIC && duck != null) e *= duck[min(duck.size - 1, (startF + i) / (RATE / 100))]
                 val o = startF + i
                 mixL[o] += l * (1f / 32768f) * gl * e
                 mixR[o] += r * (1f / 32768f) * gr * e

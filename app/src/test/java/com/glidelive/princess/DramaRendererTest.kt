@@ -94,7 +94,7 @@ class DramaRendererTest {
     @Test fun aSoundCanLandOnTopOfOthersAtAnExactSecond() {
         val p = project(
             cue("v1", CueType.VOICE, 4f),
-            cue("dog", CueType.SFX, 1f, gap = 1.5f, mode = CueMode.AT, ch = null),
+            cue("dog", CueType.SFX, 1f, ch = null).copy(startSeconds = 1.5f),
             cue("v2", CueType.VOICE, 2f, gap = 1f),
         )
         val l = DramaRenderer.layout(p).sortedBy { it.index }
@@ -104,7 +104,7 @@ class DramaRendererTest {
         fun at(sec: Double) = out[((sec * DramaRenderer.RATE).toInt()) * 2].toInt()
         assertEquals(8191.0, at(0.5).toDouble(), 80.0)             // solo la voz
         assertEquals(8191.0 + 16383.0, at(2.0).toDouble(), 400.0)  // voz + sonido a la vez
-        val longSfx = project(cue("v1", CueType.VOICE, 1f), cue("rain", CueType.SFX, 3f, gap = 2f, mode = CueMode.AT, ch = null))
+        val longSfx = project(cue("v1", CueType.VOICE, 1f), cue("rain", CueType.SFX, 3f, ch = null).copy(startSeconds = 2f))
         assertEquals(5.0, DramaRenderer.totalSeconds(longSfx), 1e-6)   // un sonido encima puede alargar la obra
     }
 }

@@ -17,18 +17,24 @@ import com.glidelive.princess.MicRecorder
 import com.glidelive.princess.Placement
 import com.glidelive.princess.PrincessLibrary
 import com.glidelive.princess.Project
+import com.glidelive.princess.NarratedAudio
 import com.glidelive.princess.WavIo
 import com.glidelive.stems.AudioDecoder
 import com.glidelive.stems.StemLibrary
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.UUID
 
 data class PrincessUi(
     val projects: List<Project> = emptyList(),
@@ -65,6 +71,9 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     private var places: List<Placement> = emptyList()
     private var recorder: MicRecorder? = null
     private val prefs = app.getSharedPreferences("ui", android.content.Context.MODE_PRIVATE)
+    private val projectEdits = Mutex()
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val projectWrites = Dispatchers.IO.limitedParallelism(1)
 
     init {
         refreshSounds()
@@ -177,35 +186,35 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
             r.onSuccess { (name, sec) ->
                 val bed = type == CueType.MUSIC
                 val over = atSeconds != null && !bed
-                add(Cue(PrincessLibrary.newId(), type, null, label, name, sec, if (over) atSeconds!!.toFloat() else if (bed) 0f else 0.5f,
-                    if (over) CueMode.AT else if (bed) CueMode.BED else CueMode.SEQ, if (bed) 0.5f else 1f, 0, if (bed) 1.5f else 0f, if (bed) 2f else 0f))
+                // "Encima": posición absoluta en el timeline; el resto de las pistas no se mueve.
+                add(Cue(PrincessLibrary.newId(), type, null, label, name, sec, if (bed) 0f else 0.5f,
+                    if (bed) CueMode.BED else CueMode.SEQ, if (bed) 0.5f else 1f, 0, if (bed) 1.5f else 0f, if (bed) 2f else 0f,
+                    startSeconds = if (over) atSeconds!!.toFloat() else null))
             }
             r.onFailure { e -> _ui.update { it.copy(error = "No se pudo agregar: ${e.message}") } }
         }
     }
 
     /** Escucha un archivo del pack sin agregarlo. */
-    fun previewFile(file: File) {
-        viewModelScope.launch {
-            stop()
-            val d = withContext(Dispatchers.IO) { runCatching { AudioDecoder.decode(file) }.getOrNull() } ?: return@launch
-            beforePlay()
-            NativeEngine.replicaMask(0)
-            NativeEngine.stemClear()
-            NativeEngine.stemLoad(0, d.pcm, d.channels, d.rate)
-            NativeEngine.stemTrack(0, 1f, 0f, false, false)
-            NativeEngine.stemMaster(1f, 1f)
-            NativeEngine.stemLoop(-1.0, -1.0)
-            NativeEngine.stemSeek(0.0)
-            NativeEngine.stemPlay(true)
-            places = emptyList()
-            _ui.update { it.copy(loaded = true) }
-        }
+    fun previewFile(file: File) = viewModelScope.launch {
+        stop()
+        val d = withContext(Dispatchers.IO) { runCatching { AudioDecoder.decode(file) }.getOrNull() } ?: return@launch
+        beforePlay()
+        NativeEngine.replicaMask(0)
+        NativeEngine.stemClear()
+        NativeEngine.stemLoad(0, d.pcm, d.channels, d.rate)
+        NativeEngine.stemTrack(0, 1f, 0f, false, false)
+        NativeEngine.stemMaster(1f, 1f)
+        NativeEngine.stemLoop(-1.0, -1.0)
+        NativeEngine.stemSeek(0.0)
+        NativeEngine.stemPlay(true)
+        places = emptyList()
+        _ui.update { it.copy(loaded = true) }
     }
 
     // ---- obras ----
     fun newProject(title: String) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(projectWrites) {
             val p = PrincessLibrary.create(app, title)
             _ui.update { it.copy(projects = listOf(p) + it.projects) }
             open(p)
@@ -220,7 +229,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun deleteProject(p: Project) {
         if (_ui.value.current?.id == p.id) { stop(); _ui.update { it.copy(current = null, loaded = false) } }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(projectWrites) {
             PrincessLibrary.delete(app, p)
             val rest = _ui.value.projects.filter { it.id != p.id }
             _ui.update { it.copy(projects = rest, current = it.current ?: rest.firstOrNull()) }
@@ -228,15 +237,59 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun edit(f: (Project) -> Project) {
-        val cur = _ui.value.current ?: return
-        val p = f(cur)
-        _ui.update { u -> u.copy(current = p, projects = u.projects.map { if (it.id == p.id) p else it }) }
-        viewModelScope.launch(Dispatchers.IO) { PrincessLibrary.save(app, p) }
+        viewModelScope.launch {
+            projectEdits.withLock {
+                val cur = _ui.value.current ?: return@withLock
+                val p = f(cur)
+                updateProject(p)
+                viewModelScope.launch(projectWrites) {
+                    runCatching { PrincessLibrary.save(app, p) }.onFailure {
+                        _ui.update { u -> u.copy(error = "No se pudo guardar la obra.") }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun updateProject(p: Project) {
+        if (_ui.value.current?.id == p.id && _ui.value.current != p) {
+            stop()
+            places = emptyList()
+            _ui.update { it.copy(loaded = false, playingCue = -1) }
+        }
+        _ui.update { u -> u.copy(current = if (u.current?.id == p.id) p else u.current,
+            projects = u.projects.map { if (it.id == p.id) p else it }) }
+    }
+
+    /** Agrega el audio de la selección como una pista de voz editable de la obra. */
+    suspend fun addNarration(projectId: String, characterId: String, audio: NarratedAudio) = withContext(NonCancellable) {
+        projectEdits.withLock {
+            val p = _ui.value.current?.takeIf { it.id == projectId } ?: error("Abre la obra en la que preparaste la narración.")
+            require(p.characters.any { it.id == characterId }) { "Elige un personaje de la obra." }
+            val name = "narracion_${UUID.randomUUID()}.wav"
+            val cue = Cue(PrincessLibrary.newId(), CueType.VOICE, characterId, audio.text, name, audio.seconds, 0.6f)
+            val updated = p.copy(cues = p.cues + cue)
+            withContext(projectWrites) {
+                val target = File(PrincessLibrary.dir(app, p), name)
+                try {
+                    audio.file.copyTo(target)
+                    PrincessLibrary.save(app, updated)
+                } catch (e: Exception) {
+                    target.delete()
+                    throw e
+                }
+            }
+            updateProject(updated)
+        }
     }
 
     // ---- personajes ----
-    fun addCharacter(name: String) = edit { p ->
-        p.copy(characters = p.characters + Character(PrincessLibrary.newId(), name.ifBlank { "Personaje" }, PrincessLibrary.PALETTE[p.characters.size % PrincessLibrary.PALETTE.size]))
+    fun addCharacter(name: String): String {
+        val id = PrincessLibrary.newId()
+        edit { p ->
+            p.copy(characters = p.characters + Character(id, name.ifBlank { "Personaje" }, PrincessLibrary.PALETTE[p.characters.size % PrincessLibrary.PALETTE.size]))
+        }
+        return id
     }
 
     fun editCharacter(id: String, f: (Character) -> Character) = edit { p -> p.copy(characters = p.characters.map { if (it.id == id) f(it) else it }) }
@@ -250,6 +303,28 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     private fun add(cue: Cue) = edit { p -> p.copy(cues = p.cues + cue) }
 
     fun updateCue(index: Int, f: (Cue) -> Cue) = edit { p -> if (index in p.cues.indices) p.copy(cues = p.cues.toMutableList().also { it[index] = f(it[index]) }) else p }
+
+    fun editTimelineCue(id: String, change: (Cue) -> Cue) = edit { project ->
+        val anchored = DramaRenderer.anchorTimeline(project)
+        anchored.copy(cues = anchored.cues.map { if (it.id == id) change(it) else it })
+    }
+
+    fun muteTimelineLane(ids: Set<String>, muted: Boolean) = edit { project ->
+        project.copy(cues = project.cues.map { if (it.id in ids) it.copy(muted = muted) else it })
+    }
+
+    fun playFromSeconds(seconds: Double) {
+        val p = _ui.value.current ?: return
+        if (p.cues.isEmpty() || _ui.value.busy != null) return
+        viewModelScope.launch {
+            stop()
+            val pcm = renderProject(p, "Mezclando la obra…")
+            if (_ui.value.current != p) { _ui.update { it.copy(busy = null) }; return@launch }
+            places = DramaRenderer.layout(p)
+            load(pcm, seconds.coerceIn(0.0, DramaRenderer.totalSeconds(p)))
+            _ui.update { it.copy(busy = null) }
+        }
+    }
 
     fun moveCue(index: Int, delta: Int) = edit { p ->
         val to = index + delta
@@ -352,17 +427,10 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     /** Escucha la obra completa (o desde la pista [fromCue]). */
-    fun playAll(fromCue: Int = 0) {
+    fun playAll(fromCue: Int = -1) {
         val p = _ui.value.current ?: return
-        if (p.cues.isEmpty()) return
-        viewModelScope.launch {
-            stop()
-            val pcm = renderProject(p, "Mezclando la obra…")
-            places = DramaRenderer.layout(p)
-            val from = places.firstOrNull { it.index == fromCue }?.start ?: 0.0
-            load(pcm, from)
-            _ui.update { it.copy(busy = null) }
-        }
+        val from = DramaRenderer.layout(p).firstOrNull { it.index == fromCue }?.start ?: 0.0
+        playFromSeconds(from)
     }
 
     /** Escucha solo una pista, con el tono y volumen de su personaje. */
@@ -372,7 +440,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             stop()
             // La pista sola, desde el segundo 0 y de una vez (la música de fondo suena entera una sola vez).
-            val solo = p.copy(cues = listOf(c.copy(mode = CueMode.SEQ, gap = 0f, span = 0)), duckMusic = false)
+            val solo = p.copy(cues = listOf(c.copy(mode = CueMode.SEQ, gap = 0f, span = 0, startSeconds = null, loop = c.loop || c.mode == CueMode.BED, muted = false)), duckMusic = false)
             val pcm = renderProject(solo, "Preparando…")
             places = DramaRenderer.layout(solo).map { it.copy(index = index) }
             load(pcm, 0.0)
