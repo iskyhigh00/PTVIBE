@@ -74,22 +74,6 @@ fun KeyControls(vm: ChordsViewModel) {
 fun ChordsScreen(vm: ChordsViewModel, compact: Boolean, modifier: Modifier = Modifier) {
     val u by vm.ui.collectAsState()
     Column(modifier) {
-        if (!compact && u.bank == Bank.DIATONIC) {
-            Row(
-                Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Text("Variante:", Modifier.align(Alignment.CenterVertically),
-                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                FilterChip(selected = u.quality == null, onClick = { vm.edit { it.copy(quality = null) } },
-                    label = { Text("Normal") })
-                ChordType.extensions.forEach { t ->
-                    FilterChip(selected = u.quality == t, onClick = { vm.edit { it.copy(quality = t) } },
-                        label = { Text(t.short) })
-                }
-            }
-        }
-
         val allRows = u.rows
         // Compacto (Voces / Mixto): con más de dos filas se muestra una sola, más grande, y se elige cuál.
         var rowSel by rememberSaveable { mutableIntStateOf(1) }
@@ -132,44 +116,11 @@ fun ChordsScreen(vm: ChordsViewModel, compact: Boolean, modifier: Modifier = Mod
                 }
             }
             if (compact) FilterChip(selected = u.stairs, onClick = { vm.edit { it.copy(stairs = !it.stairs) } }, label = { Text("Escalera") })
-            Text("Deslizar ${u.glideMs} ms", style = MaterialTheme.typography.labelMedium)
-            Slider(
-                value = u.glideMs.toFloat(),
-                onValueChange = { v -> vm.edit { it.copy(glideMs = v.toInt()) } },
-                valueRange = 0f..2000f,
-                modifier = Modifier.weight(1f),
-            )
             FilterChip(
                 selected = u.editMode,
                 onClick = { vm.edit { it.copy(editMode = !it.editMode) } },
                 label = { Text("✎ Editar acordes") },
             )
-            GradientButton("Silenciar", { vm.stopAll() }, glyph = "■")
-        }
-        if (!compact) {
-            Row(
-                Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Text("Curva:", Modifier.align(Alignment.CenterVertically),
-                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                GlideCurve.entries.forEach { c ->
-                    FilterChip(selected = u.curve == c, onClick = { vm.edit { it.copy(curve = c) } },
-                        label = { Text(c.label) })
-                }
-                Text("Al tocar:", Modifier.align(Alignment.CenterVertically),
-                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TriggerMode.entries.forEach { t ->
-                    FilterChip(selected = u.trigger == t, onClick = { vm.edit { it.copy(trigger = t) } },
-                        label = { Text(t.label) })
-                }
-                Text("Salida:", Modifier.align(Alignment.CenterVertically),
-                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                ExitMode.entries.forEach { m ->
-                    FilterChip(selected = u.exit == m, onClick = { vm.edit { it.copy(exit = m) } },
-                        label = { Text(m.label) })
-                }
-            }
         }
     }
     if (u.editing != null) PadEditDialog(vm)
@@ -252,6 +203,28 @@ fun SoundPanel(vm: ChordsViewModel) {
     ) {
         val vizTheme by VizPrefs.theme.collectAsState()
         val ctx = androidx.compose.ui.platform.LocalContext.current
+        Text("Cómo suenan los acordes al tocar", style = MaterialTheme.typography.titleSmall)
+        Text("Deslizar ${u.glideMs} ms", style = MaterialTheme.typography.labelMedium)
+        Slider(value = u.glideMs.toFloat(), onValueChange = { v -> vm.edit { it.copy(glideMs = v.toInt()) } }, valueRange = 0f..2000f)
+        Text("Curva", style = MaterialTheme.typography.labelLarge)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            GlideCurve.entries.forEach { c -> FilterChip(selected = u.curve == c, onClick = { vm.edit { it.copy(curve = c) } }, label = { Text(c.label) }) }
+        }
+        Text("Al tocar", style = MaterialTheme.typography.labelLarge)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TriggerMode.entries.forEach { t -> FilterChip(selected = u.trigger == t, onClick = { vm.edit { it.copy(trigger = t) } }, label = { Text(t.label) }) }
+        }
+        Text("Salida", style = MaterialTheme.typography.labelLarge)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            ExitMode.entries.forEach { m -> FilterChip(selected = u.exit == m, onClick = { vm.edit { it.copy(exit = m) } }, label = { Text(m.label) }) }
+        }
+        if (u.bank == Bank.DIATONIC) {
+            Text("Variante de los acordes", style = MaterialTheme.typography.labelLarge)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                FilterChip(selected = u.quality == null, onClick = { vm.edit { it.copy(quality = null) } }, label = { Text("Normal") })
+                ChordType.extensions.forEach { t -> FilterChip(selected = u.quality == t, onClick = { vm.edit { it.copy(quality = t) } }, label = { Text(t.short) }) }
+            }
+        }
         Text("Estilo de las voces (pestaña Voces)", style = MaterialTheme.typography.labelLarge)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             VizTheme.entries.forEach { t ->

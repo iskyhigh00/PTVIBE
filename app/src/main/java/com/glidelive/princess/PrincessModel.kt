@@ -16,6 +16,8 @@ enum class CueMode(val label: String) {
     WITH_PREV("Junto a la anterior"),
     /** Música de fondo: suena por debajo de las siguientes pistas y se repite si hace falta. */
     BED("De fondo"),
+    /** En un momento exacto de la obra (encima de lo que suene en ese momento); el "espacio" es el segundo de entrada. */
+    AT("En un momento exacto"),
 }
 
 data class Character(val id: String, val name: String, val color: Long, val pitch: Float = 0f, val volume: Float = 1f, val pan: Float = 0f)

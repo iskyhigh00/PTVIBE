@@ -236,7 +236,7 @@ private fun CueCard(index: Int, c: Cue, characters: List<Character>, playing: Bo
                 Text(
                     when (c.type) { CueType.VOICE -> who?.name ?: "Voz"; CueType.MUSIC -> "Música"; CueType.SFX -> "Sonido"; CueType.SILENCE -> "Silencio" } +
                         "  ·  " + (if (c.mode == CueMode.BED) "de fondo" else secs(c.seconds)) +
-                        (if (c.mode == CueMode.WITH_PREV) "  ·  junto a la anterior" else ""),
+                        (if (c.mode == CueMode.WITH_PREV) "  ·  junto a la anterior" else if (c.mode == CueMode.AT) "  ·  encima, en ${fmtTime(c.gap.toDouble())}" else ""),
                     fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge, color = color,
                 )
                 if (c.text.isNotBlank() && c.type != CueType.SILENCE) Text(c.text, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
@@ -261,7 +261,7 @@ private fun CueCard(index: Int, c: Cue, characters: List<Character>, playing: Bo
                         FilterChip(selected = c.mode == m, onClick = { vm.updateCue(index) { it.copy(mode = m) } }, label = { Text(m.label) })
                     }
                 }
-                Stepper(if (c.mode == CueMode.WITH_PREV) "Entra con un desfase de" else "Espacio antes", c.gap) { v -> vm.updateCue(index) { it.copy(gap = v.coerceAtLeast(0f)) } }
+                Stepper(when (c.mode) { CueMode.WITH_PREV -> "Entra con un desfase de"; CueMode.AT -> "Empieza en el segundo"; else -> "Espacio antes" }, c.gap) { v -> vm.updateCue(index) { it.copy(gap = v.coerceAtLeast(0f)) } }
                 LabeledSlider("Volumen", c.volume, 0f..1.5f) { v -> vm.updateCue(index) { it.copy(volume = v) } }
                 if (c.mode == CueMode.BED) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -299,7 +299,19 @@ private fun SoundBoard(u: PrincessUi, vm: PrincessViewModel) {
     val counts = remember(u.hasSfx, u.storageMb) {
         com.glidelive.princess.SoundCatalog.groups.flatMap { it.sounds }.associate { it.id to com.glidelive.princess.SoundStore.clips(ctx, it.id).size }
     }
+    var overlay by remember { mutableStateOf(false) }
     Text("Sonidos para agregar", style = MaterialTheme.typography.titleSmall)
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Al tocar un sonido:", style = MaterialTheme.typography.labelMedium)
+        FilterChip(selected = !overlay, onClick = { overlay = false }, label = { Text("Va al final") })
+        FilterChip(selected = overlay, onClick = { overlay = true }, label = { Text("Encima, en el cursor") })
+    }
+    if (overlay) Text(
+        "Escucha la obra, pausa donde quieras o mueve la barra de tiempo, y toca un sonido: entra en ese instante, encima de lo que ya suena " +
+            "(Cursor: ${fmtTime(vm.overlayTime())}).",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    val at: () -> Double? = { if (overlay) vm.overlayTime() else null }
     u.download?.let { (label, p) ->
         Text("$label  ·  ${(p * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
         LinearProgressIndicator(progress = { p.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
@@ -344,7 +356,7 @@ private fun SoundBoard(u: PrincessUi, vm: PrincessViewModel) {
                 Text("${m.name}  ·  ${secs(m.seconds)}", Modifier.weight(1f), maxLines = 1)
                 val f = java.io.File(com.glidelive.princess.SoundStore.mineDir(ctx), m.file)
                 TextButton(onClick = { vm.previewFile(f) }) { Text("▶") }
-                FilterChip(selected = false, onClick = { vm.addSoundFile(f, m.name, CueType.SFX) }, label = { Text("+ Agregar") })
+                FilterChip(selected = false, onClick = { vm.addSoundFile(f, m.name, CueType.SFX, at()) }, label = { Text("+ Agregar") })
                 TextButton(onClick = { vm.deleteMine(m.id) }) { Text("Borrar") }
             }
         }
@@ -360,7 +372,7 @@ private fun SoundBoard(u: PrincessUi, vm: PrincessViewModel) {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         TextButton(onClick = { vm.clipFor(s.id)?.let { vm.previewFile(it) } }) { Text("▶") }
-                        TextButton(onClick = { vm.clipFor(s.id)?.let { vm.addSoundFile(it, s.label, CueType.SFX) } }) { Text("+ ${s.label}", fontWeight = FontWeight.Bold) }
+                        TextButton(onClick = { vm.clipFor(s.id)?.let { vm.addSoundFile(it, s.label, CueType.SFX, at()) } }) { Text("+ ${s.label}", fontWeight = FontWeight.Bold) }
                     }
                 }
             }

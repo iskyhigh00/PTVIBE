@@ -6,6 +6,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -83,6 +84,18 @@ fun TransportMore(vm: TransportViewModel, onDemo: () -> Unit) {
     }
 }
 
+/** Tempo en pequeño: − 98 + con la luz del compás; cabe en la fila única de arriba. */
+@Composable
+fun CompactBpm(vm: TransportViewModel) {
+    val u by vm.ui.collectAsState()
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(0.dp)) {
+        TextButton(onClick = { vm.setBpm(u.bpm - 1) }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) { Text("−") }
+        BeatLight(vm, 14.dp)
+        Text("${u.bpm}", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(horizontal = 6.dp))
+        TextButton(onClick = { vm.setBpm(u.bpm + 1) }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) { Text("+") }
+    }
+}
+
 /** BPM en grande con una luz que late en cada tiempo (más fuerte y rosa en el primero del compás). */
 @Composable
 fun BpmBadge(vm: TransportViewModel, modifier: Modifier = Modifier) {
@@ -145,55 +158,49 @@ private fun RecLabel(vm: TransportViewModel, drum: Boolean, recording: Boolean) 
     Text(if (drum) "● Grabando batería (${pos.drumEvents})" else "● Grabando acordes (${pos.chordEvents})")
 }
 
-/**
- * Bases de batería en una fila corta (base, variaciones A–D, relleno, breaks y final). "Base y bajo" despliega el resto:
- * elegir base y pads, silenciar, editar y el bajo.
- */
+/** Variaciones de la base para tocar: A–D, relleno, break y final. Van dentro de la fila única de arriba. */
 @Composable
-fun PatternBar(vm: TransportViewModel, padPicker: @Composable () -> Unit = {}) {
+fun RowScope.VariationChips(vm: TransportViewModel) {
+    val u by vm.ui.collectAsState()
+    val p = u.pattern ?: return
+    var breaks by remember { mutableStateOf(false) }
+    p.variations.forEachIndexed { i, v ->
+        val waiting = u.pendingVariation == i
+        FilterChip(
+            selected = u.variation == i && !u.fillOn && !waiting,
+            onClick = { vm.selectVariation(i) },
+            label = { Text(if (waiting) "${v.name}…" else v.name, fontWeight = FontWeight.Bold) },
+            colors = if (waiting) FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer) else FilterChipDefaults.filterChipColors(),
+        )
+    }
+    FilterChip(selected = u.fillOn && u.activeBreak == null, onClick = vm::fill, label = { Text("Relleno") })
+    if (p.breaks.isNotEmpty()) Box {
+        FilterChip(selected = u.fillOn && u.activeBreak != null, onClick = { breaks = true }, label = { Text("Break ▾") })
+        DropdownMenu(expanded = breaks, onDismissRequest = { breaks = false }) {
+            p.breaks.forEachIndexed { i, b -> androidx.compose.material3.DropdownMenuItem(text = { Text(b.name) }, onClick = { breaks = false; vm.breakNow(i) }) }
+        }
+    }
+    FilterChip(selected = u.endPending, onClick = vm::finish, label = { Text("Final") })
+}
+
+/** Lo demás de la base (elegir base, silenciar instrumentos, editar, bajo): vive en Ajustes, no en la pantalla de tocar. */
+@Composable
+fun PatternExtras(vm: TransportViewModel, onKeys: () -> Unit) {
     val u by vm.ui.collectAsState()
     val p = u.pattern
-    var more by rememberSaveable { mutableStateOf(false) }
     var muteMenu by remember { mutableStateOf(false) }
-    Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    androidx.compose.foundation.layout.Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        GradientButton("Base", vm::togglePattern, glyph = if (u.patternOn) "■" else "▶")
-        p?.variations?.forEachIndexed { i, v ->
-            val waiting = u.pendingVariation == i
-            FilterChip(
-                selected = u.variation == i && !u.fillOn && !waiting,
-                onClick = { vm.selectVariation(i) },
-                label = { Text(if (waiting) "${v.name}…" else v.name, fontWeight = FontWeight.Bold) },
-                colors = if (waiting) FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer) else FilterChipDefaults.filterChipColors(),
-            )
-        }
-        FilterChip(selected = u.fillOn && u.activeBreak == null, onClick = vm::fill, label = { Text("Relleno") })
-        p?.breaks?.forEachIndexed { i, b ->
-            FilterChip(selected = u.fillOn && u.activeBreak == i, onClick = { vm.breakNow(i) }, label = { Text(b.name) })
-        }
-        FilterChip(selected = u.endPending, onClick = vm::finish, label = { Text("Final") })
-        TextButton(onClick = { more = !more }) { Text(if (more) "Base y bajo ▴" else "Base y bajo ▾") }
-        Text((p?.name ?: "") + (u.bassLine?.takeIf { u.bassOn }?.let { " · bajo: ${it.name}" } ?: ""),
+        Text("Base de batería", style = MaterialTheme.typography.titleSmall)
+        Picker("Base: " + (p?.name ?: "—"), u.patterns, { (if (it.factory) "" else "★ ") + it.name + "  (${it.meter})" }) { vm.selectPattern(it) }
+        if (p != null) Text("${p.meter} · ${p.bpmMin}–${p.bpmMax} BPM" + if (p.bass == null) " · inspirada en el estilo de Gavin Harrison" else "",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-    if (more) {
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            padPicker()
-            Picker("Base: " + (p?.name ?: "—"), u.patterns, { (if (it.factory) "" else "★ ") + it.name + "  (${it.meter})" }) {
-                vm.selectPattern(it)
-            }
-            TextButton(onClick = { muteMenu = true }) {
-                Text(if (u.muted.isNotEmpty() || u.solo != null) "Silenciar ●" else "Silenciar…")
-            }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { muteMenu = true }) { Text(if (u.muted.isNotEmpty() || u.solo != null) "Silenciar instrumentos ●" else "Silenciar instrumentos…") }
             DropdownMenu(expanded = muteMenu, onDismissRequest = { muteMenu = false }) {
-                Column(Modifier.padding(horizontal = 12.dp)) {
+                androidx.compose.foundation.layout.Column(Modifier.padding(horizontal = 12.dp)) {
                     DrumKeys.labels.forEachIndexed { i, name ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(name, Modifier.width(120.dp))
@@ -206,12 +213,11 @@ fun PatternBar(vm: TransportViewModel, padPicker: @Composable () -> Unit = {}) {
             }
             TextButton(onClick = { p?.let(vm::openEditor) }) { Text(if (p?.factory == false) "Editar base" else "Duplicar y editar") }
             if (p != null && !p.factory) TextButton(onClick = { vm.deleteUserPattern(p.id) }) { Text("Borrar base") }
-            if (p != null) Text("${p.meter} · ${p.bpmMin}–${p.bpmMax} BPM" + if (p.bass == null) " · inspirada en el estilo de Gavin Harrison" else "",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        TextButton(onClick = onKeys) { Text("Asignar teclas a los pads…") }
+        Text("Bajo", style = MaterialTheme.typography.titleSmall)
         BassBar(vm)
     }
-    if (u.editor != null) SequencerDialog(vm)
 }
 
 /** Bases de bajo: línea, tono, sonido; sigue a la variación (A–D), el relleno y el final de la batería. */
@@ -307,7 +313,7 @@ private val UNITS = listOf(48 to "Corcheas", 24 to "Semicorcheas", 32 to "Tresil
 /** Secuenciador por pasos: longitud libre, compases irregulares, A–D, relleno y final. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SequencerDialog(vm: TransportViewModel) {
+internal fun SequencerDialog(vm: TransportViewModel) {
     val u by vm.ui.collectAsState()
     val ed = u.editor ?: return
     val p = ed.pattern

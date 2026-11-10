@@ -135,6 +135,8 @@ class MainActivity : ComponentActivity() {
                             dismissButton = { TextButton(onClick = { sessionVm.discardCapture() }) { Text("Descartar") } },
                         )
                     }
+                    val transportEditor by transportVm.ui.collectAsState()
+                    if (transportEditor.editor != null) SequencerDialog(transportVm)
                     LaunchedEffect(mode) { PadBindings.keysEnabled = mode == Mode.BATERIA || mode == Mode.MIXTO }
                     val shortScreen = cfg.screenHeightDp < 480
                     var fullscreen by rememberSaveable { mutableStateOf(false) }
@@ -148,27 +150,11 @@ class MainActivity : ComponentActivity() {
                     Box(Modifier.fillMaxSize()) {
                         Column(Modifier.fillMaxSize().windowInsetsPadding(playInsets)) {
                             if (!fullscreen) {
-                                TopBar(mode, { mode = it }, chordsVm, soloVm, vm, sessionVm, transportVm,
+                                TopBar(mode, { mode = it }, chordsVm, soloVm, vm, sessionVm, transportVm, stemsVm,
                                     { settingsGeneral = false; settingsOpen = true }, { settingsGeneral = true; settingsOpen = true },
-                                    { fullscreen = true }, { demoOpen = true }) {
-                                    // Mixto: sin barra de base; solo lo mínimo en la fila de arriba para dejar el espacio a los pads.
-                                    if (mode == Mode.MIXTO) {
-                                        val tu by transportVm.ui.collectAsState()
-                                        FilterChip(selected = tu.patternOn, onClick = transportVm::togglePattern, label = { Text(if (tu.patternOn) "■ Base" else "▶ Base") })
-                                        FilterChip(selected = soloLayer, onClick = { soloLayer = !soloLayer }, label = { Text("Solista") })
-                                    }
-                                }
+                                    { fullscreen = true }, { demoOpen = true },
+                                    soloLayer, { soloLayer = !soloLayer }, { mode = Mode.PISTAS })
                                 DemoStrip(transportVm) { demoOpen = true }
-                                if (mode != Mode.PISTAS && mode != Mode.PRINCESS) StemStrip(stemsVm) { mode = Mode.PISTAS }
-                                if (mode == Mode.BATERIA) {
-                                    PatternBar(transportVm) {
-                                        val k by vm.kit.collectAsState()
-                                        Picker("Pads: ${k.padLayout.label}", PadLayout.entries, { it.label + " — " + it.hint }) { l ->
-                                            vm.editKit { it.copy(padLayout = l) }
-                                        }
-                                        TextButton(onClick = { keysOpen = true }) { Text("Teclas de los pads…") }
-                                    }
-                                }
                             }
                             Row(
                                 Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp),
@@ -221,7 +207,8 @@ class MainActivity : ComponentActivity() {
                             ) { Text("⤡ Salir") }
                         }
                         if (settingsOpen && !fullscreen) {
-                            SettingsModal(mode, settingsGeneral, { settingsOpen = false }, vm, updateVm, chordsVm, soloVm, transportVm, sessionVm)
+                            SettingsModal(mode, settingsGeneral, { settingsOpen = false }, vm, updateVm, chordsVm, soloVm, transportVm, sessionVm,
+                                { settingsOpen = false; keysOpen = true })
                         }
                         if (keysOpen) PadKeysPanel(sessionVm.midi.status, onClose = { keysOpen = false; PadBindings.startLearn(null) })
                     }
@@ -286,6 +273,10 @@ private fun DrumsHost(pressure: Boolean, padLayout: PadLayout, modifier: Modifie
     )
 }
 
+/**
+ * Una sola fila para todo lo que se necesita mientras se toca: pestaña, tocar/parar, tempo, lo propio de cada pestaña y atajos.
+ * Todo lo demás (ajustes, bases, opciones) vive en ventanas que se abren encima, para dejar el espacio a lo que suena.
+ */
 @Composable
 private fun TopBar(
     mode: Mode,
@@ -295,31 +286,52 @@ private fun TopBar(
     engine: EngineViewModel,
     session: SessionViewModel,
     transport: TransportViewModel,
+    stems: StemsViewModel,
     onSettings: () -> Unit,
     onGeneral: () -> Unit,
     onFullscreen: () -> Unit,
     onDemo: () -> Unit,
-    extra: @Composable () -> Unit = {},
+    soloLayer: Boolean,
+    onSoloLayer: () -> Unit,
+    onOpenStems: () -> Unit,
 ) {
     var more by remember { mutableStateOf(false) }
+    var modes by remember { mutableStateOf(false) }
+    val tu by transport.ui.collectAsState()
+    val cap by session.capture.collectAsState()
+    val st by engine.stats.collectAsState()
+    val drumMode = mode == Mode.BATERIA || mode == Mode.MIXTO
+    val chordMode = mode == Mode.ACORDES || mode == Mode.VOCES || mode == Mode.DUO || mode == Mode.MIXTO
+    val standalone = mode == Mode.PRINCESS
     Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        CapsuleBar(Mode.entries, mode, { it.label }, onMode)
-        QuickTransport(transport)
-        extra()
-        val cap by session.capture.collectAsState()
-        val st by engine.stats.collectAsState()
-        val tu by transport.ui.collectAsState()
-        FilterChip(
+        Box {
+            FilterChip(selected = true, onClick = { modes = true }, label = { Text("${mode.label} ▾", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) })
+            DropdownMenu(expanded = modes, onDismissRequest = { modes = false }) {
+                Mode.entries.forEach { m ->
+                    androidx.compose.material3.DropdownMenuItem(text = { Text(m.label) }, onClick = { modes = false; onMode(m) })
+                }
+            }
+        }
+        if (!standalone) {
+            GradientButton("", { transport.toggleAll(drumMode) }, glyph = if (tu.playing) "■" else "▶")
+            CompactBpm(transport)
+        }
+        if (drumMode) VariationChips(transport)
+        if (mode == Mode.MIXTO) FilterChip(selected = soloLayer, onClick = onSoloLayer, label = { Text("Solista") })
+        if (chordMode) FilterChip(selected = false, onClick = { chords.stopAll() }, label = { Text("■ Acordes") })
+        if (mode != Mode.BATERIA && mode != Mode.PISTAS && mode != Mode.PRINCESS) KeyControls(chords)
+        if (mode != Mode.PISTAS && mode != Mode.PRINCESS) StemMini(stems, onOpenStems)
+        if (!standalone) FilterChip(
             selected = cap.recording, onClick = { session.toggleCapture(tu.bpm, st.sampleRate) },
             label = { Text(if (cap.recording) "■ ${cap.seconds / 60}:${"%02d".format(cap.seconds % 60)}" else "● Sonido") },
         )
-        TextButton(onClick = onSettings) { Text("⚙ Ajustes") }
+        TextButton(onClick = onSettings) { Text("⚙") }
         Box {
-            TextButton(onClick = { more = true }) { Text("☰ Más") }
+            TextButton(onClick = { more = true }) { Text("☰") }
             DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
                 Column(Modifier.width(340.dp).padding(horizontal = 12.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Reloj y grabación", style = MaterialTheme.typography.titleSmall)
@@ -336,8 +348,7 @@ private fun TopBar(
                 }
             }
         }
-        if (mode != Mode.BATERIA && mode != Mode.PISTAS && mode != Mode.PRINCESS) KeyControls(chords)
-        EqBars(level = { engine.level.value })
+        if (!standalone) EqBars(level = { engine.level.value })
     }
 }
 
@@ -419,15 +430,15 @@ private fun CalibrationPanel(vm: EngineViewModel) {
 private fun SettingsModal(
     mode: Mode, general: Boolean, onClose: () -> Unit,
     vm: EngineViewModel, updateVm: UpdateViewModel, chordsVm: ChordsViewModel, soloVm: SoloViewModel,
-    transportVm: TransportViewModel, sessionVm: SessionViewModel,
+    transportVm: TransportViewModel, sessionVm: SessionViewModel, onKeys: () -> Unit,
 ) {
     val up by updateVm.state.collectAsState()
     val tabs: List<String> = if (general) listOf("Sesión", "Latencia", if (up is UpdateState.Available) "Actualizar •" else "Actualizar") else when (mode) {
         Mode.ACORDES, Mode.VOCES -> listOf("Sonido", "Bucles")
         Mode.DUO -> listOf("Sonido", "Solista", "Bucles")
         Mode.SOLISTA -> listOf("Solista")
-        Mode.BATERIA -> listOf("Batería", "Bucles")
-        Mode.MIXTO -> listOf("Batería", "Sonido", "Solista", "Bucles")
+        Mode.BATERIA -> listOf("Base y bajo", "Batería", "Bucles")
+        Mode.MIXTO -> listOf("Base y bajo", "Batería", "Sonido", "Solista", "Bucles")
         Mode.PISTAS, Mode.PRINCESS -> listOf("Sesión", "Latencia", if (up is UpdateState.Available) "Actualizar •" else "Actualizar")
     }
     var tab by remember(general, mode) { mutableIntStateOf(0) }
@@ -457,6 +468,7 @@ private fun SettingsModal(
                 when (tabs.getOrElse(tab) { tabs[0] }.removeSuffix(" •")) {
                     "Sonido" -> SoundPanel(chordsVm)
                     "Solista" -> SoloPanel(soloVm)
+                    "Base y bajo" -> PatternExtras(transportVm, onKeys)
                     "Batería" -> KitPanel(vm)
                     "Bucles" -> LoopsPanel(transportVm)
                     "Sesión" -> SessionPanel(sessionVm, vm, transportVm)

@@ -42,25 +42,6 @@ fun SoloScreen(vm: SoloViewModel, modifier: Modifier = Modifier) {
         strings = u.tuning.strings,
     )
     Column(modifier) {
-        Row(
-            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text("Arriba/abajo:", style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Expression.entries.forEach { e ->
-                FilterChip(selected = u.expression == e, onClick = { vm.edit { it.copy(expression = e) } },
-                    label = { Text(e.label) })
-            }
-            Text("Imán de escala ${(u.lock * 100).toInt()}%", style = MaterialTheme.typography.labelLarge)
-            Slider(
-                value = u.lock, onValueChange = { v -> vm.edit { it.copy(lock = v) } },
-                modifier = Modifier.width(150.dp),
-            )
-            FilterChip(selected = u.followChord, onClick = { vm.edit { it.copy(followChord = !it.followChord) } },
-                label = { Text("Seguir el acorde") })
-        }
         AndroidView(
             factory = { ctx -> SoloSurfaceView(ctx) },
             update = { v -> (v as SoloTouchView).config = cfg },
@@ -84,6 +65,14 @@ fun SoloPanel(vm: SoloViewModel) {
         Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
+        Text("Arriba/abajo del dedo", style = MaterialTheme.typography.labelLarge)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Expression.entries.forEach { e ->
+                FilterChip(selected = u.expression == e, onClick = { vm.edit { it.copy(expression = e) } }, label = { Text(e.label) })
+            }
+        }
+        LabeledSlider("Imán de escala", u.lock, 0f..1f) { v -> vm.edit { it.copy(lock = v) } }
+        FilterChip(selected = u.followChord, onClick = { vm.edit { it.copy(followChord = !it.followChord) } }, label = { Text("Seguir el acorde") })
         Text("Instrumento del solista", style = MaterialTheme.typography.labelLarge)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             SOLO_INSTRUMENTS.forEachIndexed { i, n ->

@@ -34,10 +34,16 @@ object DramaRenderer {
         var cursor = 0.0        // fin de lo último que avanza la obra
         var lastStart = 0.0
         val bedStarts = HashMap<Int, Double>()
+        var atEnd = 0.0
         for ((i, c) in p.cues.withIndex()) {
             val dur = playedSeconds(c, pitchOf(p, c))
             when (c.mode) {
                 CueMode.BED -> { bedStarts[i] = cursor + max(0f, c.gap); out.add(null) }
+                CueMode.AT -> {
+                    val s = max(0f, c.gap).toDouble()
+                    out.add(Placement(i, c, s, s + dur))
+                    atEnd = max(atEnd, s + dur)
+                }
                 CueMode.WITH_PREV -> {
                     val s = lastStart + max(0f, c.gap)
                     out.add(Placement(i, c, s, s + dur))
@@ -51,14 +57,14 @@ object DramaRenderer {
                 }
             }
         }
-        val total = cursor
+        val total = max(cursor, atEnd)
         // Música de fondo: termina al acabar la última pista que acompaña (o al final de la obra).
         val result = ArrayList<Placement>()
         for ((i, pl) in out.withIndex()) {
             if (pl != null) { result.add(pl); continue }
             val c = p.cues[i]
             val start = bedStarts[i] ?: 0.0
-            val followers = (i + 1 until p.cues.size).filter { p.cues[it].mode != CueMode.BED && out[it] != null }
+            val followers = (i + 1 until p.cues.size).filter { p.cues[it].mode != CueMode.BED && p.cues[it].mode != CueMode.AT && out[it] != null }
             val end = if (c.span <= 0 || followers.isEmpty()) total else out[followers[min(c.span, followers.size) - 1]]!!.end
             result.add(Placement(i, c, start, max(start, end)))
         }

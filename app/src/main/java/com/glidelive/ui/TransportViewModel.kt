@@ -168,6 +168,12 @@ class TransportViewModel(private val app: Application) : AndroidViewModel(app) {
     fun stop() { NativeEngine.seq(NativeEngine.CMD_STOP); _ui.update { it.copy(recDrum = false, recChord = false) } }
     fun togglePlay() = if (_ui.value.playing) stop() else play()
 
+    /** Un solo botón: parar si suena; si no, tocar (y encender la base cuando [withPattern]). */
+    fun toggleAll(withPattern: Boolean) {
+        if (_ui.value.playing) { stop(); return }
+        if (withPattern && !_ui.value.patternOn) togglePattern() else play()
+    }
+
     fun setBpm(v: Int) = edit { it.copy(bpm = v.coerceIn(30, 300)) }
 
     fun tap() {

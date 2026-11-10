@@ -147,7 +147,15 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     private val sfxCounter = HashMap<String, Int>()
 
     /** Agrega a la obra un sonido del pack o propio: efectos sin el silencio sobrante, música de fondo entera. */
-    fun addSoundFile(file: File, label: String, type: CueType) {
+    /** Segundo de la obra donde cae un sonido puesto "encima": el cursor (lo que suena o quedó en pausa) o el inicio de la última pista. */
+    fun overlayTime(): Double {
+        val c = _clock.value
+        if (_ui.value.loaded && c.dur > 0) return Math.round(c.pos * 10) / 10.0
+        val p = _ui.value.current ?: return 0.0
+        return DramaRenderer.layout(p).filter { it.cue.mode == CueMode.SEQ }.maxOfOrNull { it.start } ?: 0.0
+    }
+
+    fun addSoundFile(file: File, label: String, type: CueType, atSeconds: Double? = null) {
         val p = _ui.value.current ?: return
         viewModelScope.launch {
             val r = withContext(Dispatchers.IO) {
@@ -168,8 +176,9 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
             }
             r.onSuccess { (name, sec) ->
                 val bed = type == CueType.MUSIC
-                add(Cue(PrincessLibrary.newId(), type, null, label, name, sec, if (bed) 0f else 0.5f,
-                    if (bed) CueMode.BED else CueMode.SEQ, if (bed) 0.5f else 1f, 0, if (bed) 1.5f else 0f, if (bed) 2f else 0f))
+                val over = atSeconds != null && !bed
+                add(Cue(PrincessLibrary.newId(), type, null, label, name, sec, if (over) atSeconds!!.toFloat() else if (bed) 0f else 0.5f,
+                    if (over) CueMode.AT else if (bed) CueMode.BED else CueMode.SEQ, if (bed) 0.5f else 1f, 0, if (bed) 1.5f else 0f, if (bed) 2f else 0f))
             }
             r.onFailure { e -> _ui.update { it.copy(error = "No se pudo agregar: ${e.message}") } }
         }

@@ -57,27 +57,6 @@ fun PerformScreen(
     }
 
     Column(modifier) {
-        Row(
-            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            if (showSoloControls) {
-                Text("Arriba/abajo:", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Expression.entries.forEach { e ->
-                    FilterChip(selected = s.expression == e, onClick = { soloVm.edit { it.copy(expression = e) } }, label = { Text(e.label) })
-                }
-                Text("Imán ${(s.lock * 100).toInt()}%", style = MaterialTheme.typography.labelLarge)
-                Slider(value = s.lock, onValueChange = { v -> soloVm.edit { it.copy(lock = v) } }, modifier = Modifier.width(130.dp))
-                FilterChip(selected = s.followChord, onClick = { soloVm.edit { it.copy(followChord = !it.followChord) } }, label = { Text("Seguir el acorde") })
-            }
-            Text("Deslizar ${c.glideMs} ms", style = MaterialTheme.typography.labelLarge)
-            Slider(
-                value = c.glideMs.toFloat(), onValueChange = { v -> chordsVm.edit { it.copy(glideMs = v.toInt()) } },
-                valueRange = 0f..2000f, modifier = Modifier.width(130.dp),
-            )
-            GradientButton("Silenciar", { chordsVm.stopAll() }, glyph = "■")
-        }
         AndroidView(
             factory = { ctx -> PerformHost(ctx) },
             update = { host ->

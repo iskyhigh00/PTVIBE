@@ -90,4 +90,21 @@ class DramaRendererTest {
         val back = PrincessLibrary.parse(PrincessLibrary.toJson(p).toString())
         assertEquals(p, back)
     }
+
+    @Test fun aSoundCanLandOnTopOfOthersAtAnExactSecond() {
+        val p = project(
+            cue("v1", CueType.VOICE, 4f),
+            cue("dog", CueType.SFX, 1f, gap = 1.5f, mode = CueMode.AT, ch = null),
+            cue("v2", CueType.VOICE, 2f, gap = 1f),
+        )
+        val l = DramaRenderer.layout(p).sortedBy { it.index }
+        assertEquals(1.5, l[1].start, 1e-6)          // encima de la 1.ª voz (0-4 s)
+        assertEquals(5.0, l[2].start, 1e-6)          // la siguiente sigue contando desde la última pista que avanza
+        val out = DramaRenderer.render(p, { c -> if (c.type == CueType.SFX) constant(16384, 1f) else constant(8192, 4f) })
+        fun at(sec: Double) = out[((sec * DramaRenderer.RATE).toInt()) * 2].toInt()
+        assertEquals(8191.0, at(0.5).toDouble(), 80.0)             // solo la voz
+        assertEquals(8191.0 + 16383.0, at(2.0).toDouble(), 400.0)  // voz + sonido a la vez
+        val longSfx = project(cue("v1", CueType.VOICE, 1f), cue("rain", CueType.SFX, 3f, gap = 2f, mode = CueMode.AT, ch = null))
+        assertEquals(5.0, DramaRenderer.totalSeconds(longSfx), 1e-6)   // un sonido encima puede alargar la obra
+    }
 }

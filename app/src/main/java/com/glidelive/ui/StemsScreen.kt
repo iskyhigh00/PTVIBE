@@ -320,3 +320,23 @@ fun StemStrip(vm: StemsViewModel, onOpen: () -> Unit) {
         TextButton(onClick = onOpen) { Text("Pistas") }
     }
 }
+
+/** La canción de Pistas dentro de la fila de arriba: un botón que reproduce y abre el menú de pistas (silenciar la guitarra, la batería…). */
+@Composable
+fun StemMini(vm: StemsViewModel, onOpen: () -> Unit) {
+    val u by vm.ui.collectAsState()
+    val song = u.current ?: return
+    val clock by vm.clock.collectAsState()
+    var menu by remember { mutableStateOf(false) }
+    Box {
+        FilterChip(selected = clock.playing, onClick = { menu = true }, label = { Text("♫ ${if (clock.playing) "■" else "▶"} ${fmt(clock.pos)}", maxLines = 1) })
+        androidx.compose.material3.DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            androidx.compose.material3.DropdownMenuItem(text = { Text(song.title, fontWeight = FontWeight.Bold) }, onClick = {})
+            androidx.compose.material3.DropdownMenuItem(text = { Text(if (clock.playing) "■ Pausa" else "▶ Tocar la canción") }, onClick = { vm.togglePlay(); menu = false })
+            song.tracks.forEachIndexed { i, t ->
+                androidx.compose.material3.DropdownMenuItem(text = { Text((if (t.mute) "      " else "✓  ") + t.name) }, onClick = { vm.editTrack(i) { it.copy(mute = !it.mute) } })
+            }
+            androidx.compose.material3.DropdownMenuItem(text = { Text("Abrir Pistas") }, onClick = { menu = false; onOpen() })
+        }
+    }
+}
