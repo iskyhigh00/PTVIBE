@@ -8,6 +8,19 @@ import java.nio.charset.Charset
 import java.util.Locale
 
 class NarrationTextTest {
+    @Test fun pastedTextCanBeNarratedWithoutSelectingItFirst() {
+        val text = "  ¿Dónde está la niña? ¡Aquí!  "
+        assertEquals(text.trim(), NarrationText.forNarration(text, text.length, text.length))
+        assertEquals(text.trim(), NarrationText.forNarration(text, 0, 0))
+    }
+
+    @Test fun selectionNarratesOnlyTheChosenPassageInEitherDirection() {
+        val text = "El zorro. La niña. El dragón."
+        assertEquals("La niña.", NarrationText.forNarration(text, 10, 18))
+        assertEquals("La niña.", NarrationText.forNarration(text, 18, 10))
+        assertEquals("", NarrationText.forNarration(text, 9, 10))
+    }
+
     @Test fun preservesAccentsAndPunctuationInCommonTextEncodings() {
         val text = "¿Dónde está la niña?\r\n¡Aquí!"
         assertEquals(text, NarrationText.decode(("\uFEFF" + text).toByteArray(Charsets.UTF_8)))

@@ -11,6 +11,13 @@ object NarrationText {
     const val MAX_SELECTION = 4_000
     const val MAX_FILE_BYTES = 256 * 1024
 
+    /** A cursor alone means the whole document; a selection means only that passage. */
+    fun forNarration(text: String, selectionStart: Int, selectionEnd: Int): String {
+        val start = minOf(selectionStart, selectionEnd).coerceIn(0, text.length)
+        val end = maxOf(selectionStart, selectionEnd).coerceIn(0, text.length)
+        return (if (start == end) text else text.substring(start, end)).trim()
+    }
+
     fun decode(bytes: ByteArray): String {
         require(bytes.size <= MAX_FILE_BYTES) { "El archivo de texto es demasiado grande." }
         val text = try {

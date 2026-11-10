@@ -308,12 +308,12 @@ private fun TopBar(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         CapsuleBar(Mode.entries, mode, { it.label }, onMode)
-        QuickTransport(transport)
+        val tu by transport.ui.collectAsState()
+        if (mode != Mode.PRINCESS || tu.playing) QuickTransport(transport)
         extra()
         val cap by session.capture.collectAsState()
         val st by engine.stats.collectAsState()
-        val tu by transport.ui.collectAsState()
-        FilterChip(
+        if (mode != Mode.PRINCESS || cap.recording) FilterChip(
             selected = cap.recording, onClick = { session.toggleCapture(tu.bpm, st.sampleRate) },
             label = { Text(if (cap.recording) "■ ${cap.seconds / 60}:${"%02d".format(cap.seconds % 60)}" else "● Sonido") },
         )

@@ -273,8 +273,12 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     // ---- personajes ----
-    fun addCharacter(name: String) = edit { p ->
-        p.copy(characters = p.characters + Character(PrincessLibrary.newId(), name.ifBlank { "Personaje" }, PrincessLibrary.PALETTE[p.characters.size % PrincessLibrary.PALETTE.size]))
+    fun addCharacter(name: String): String {
+        val id = PrincessLibrary.newId()
+        edit { p ->
+            p.copy(characters = p.characters + Character(id, name.ifBlank { "Personaje" }, PrincessLibrary.PALETTE[p.characters.size % PrincessLibrary.PALETTE.size]))
+        }
+        return id
     }
 
     fun editCharacter(id: String, f: (Character) -> Character) = edit { p -> p.copy(characters = p.characters.map { if (it.id == id) f(it) else it }) }

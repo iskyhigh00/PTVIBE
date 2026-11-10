@@ -23,12 +23,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -66,6 +68,13 @@ fun PrincessScreen(vm: PrincessViewModel, modifier: Modifier = Modifier) {
     val clock by vm.clock.collectAsState()
     val ctx = LocalContext.current
     var newProject by remember { mutableStateOf(false) }
+    var projectMenu by remember { mutableStateOf(false) }
+    var deleteProject by remember { mutableStateOf(false) }
+    var section by remember(u.current?.id) { mutableStateOf("Timeline") }
+    var extraTools by remember(u.current?.id) { mutableStateOf(false) }
+    var showClips by remember(u.current?.id) { mutableStateOf(false) }
+    var showMix by remember(u.current?.id) { mutableStateOf(false) }
+    var recordingCharacter by remember(u.current?.id) { mutableStateOf<String?>(null) }
     var newCharacter by remember { mutableStateOf(false) }
     var editingCharacter by remember { mutableStateOf<String?>(null) }
     var pendingImport by remember { mutableStateOf<Pair<CueType, String?>?>(null) }
@@ -111,34 +120,63 @@ fun PrincessScreen(vm: PrincessViewModel, modifier: Modifier = Modifier) {
     var voiceStudio by remember(p?.id) { mutableStateOf(false) }
     var voiceDocument by remember(p?.id) { mutableStateOf(TextFieldValue()) }
     if (p != null && voiceStudio) {
-        VoiceStudioDialog(p, vm, voiceDocument, { voiceDocument = it }, onClose = { voiceStudio = false })
+        VoiceStudioDialog(p, vm, voiceDocument, { voiceDocument = it }, onClose = { voiceStudio = false; section = "Timeline" })
     }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (p == null) return@Column
-        // Obra y reproducción
-        Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Picker("Obra: ${p.title}", u.projects, { it.title }) { vm.open(it) }
-            TextButton(onClick = { newProject = true }) { Text("+ Nueva obra") }
-            GradientButton(if (clock.playing) "Parar" else "Escuchar todo", { if (clock.playing) vm.stop() else vm.playFromSeconds(0.0) }, glyph = if (clock.playing) "■" else "▶")
-            TextButton(onClick = vm::export) { Text("Exportar WAV") }
-            TextButton(onClick = { vm.deleteProject(p) }) { Text("Borrar obra") }
-            Text("Duración: ${fmtTime(DramaRenderer.totalSeconds(p))}", style = MaterialTheme.typography.labelMedium)
+        val working = u.busy != null || u.recordingFor != null
+        if (deleteProject) AlertDialog(
+            onDismissRequest = { deleteProject = false },
+            title = { Text("¿Borrar «${p.title}»?") },
+            text = { Text("Se eliminarán la obra y sus audios. Esta acción no se puede deshacer.") },
+            confirmButton = { TextButton(onClick = { vm.deleteProject(p); deleteProject = false }) { Text("Borrar obra") } },
+            dismissButton = { TextButton(onClick = { deleteProject = false }) { Text("Cancelar") } },
+        )
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                if (!working) Picker(p.title, u.projects, { it.title }) { vm.open(it) }
+                else Text(p.title, style = MaterialTheme.typography.titleMedium)
+                Text("${p.cues.size} clips · ${fmtTime(DramaRenderer.totalSeconds(p))}", style = MaterialTheme.typography.labelMedium)
+            }
+            TextButton(enabled = clock.playing || (!working && p.cues.isNotEmpty()),
+                onClick = { if (clock.playing) vm.stop() else vm.playFromSeconds(0.0) }) {
+                Text(if (clock.playing) "■ Detener" else "▶ Escuchar cuento")
+            }
+            Box {
+                TextButton(enabled = !working, onClick = { projectMenu = true }) { Text("Obra ⋮") }
+                DropdownMenu(expanded = projectMenu, onDismissRequest = { projectMenu = false }) {
+                    DropdownMenuItem(text = { Text("Nueva obra") }, onClick = { projectMenu = false; newProject = true })
+                    DropdownMenuItem(text = { Text("Exportar WAV") }, enabled = p.cues.isNotEmpty(), onClick = { projectMenu = false; vm.export() })
+                    DropdownMenuItem(text = { Text("Borrar obra") }, onClick = { projectMenu = false; deleteProject = true })
+                }
+            }
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Button(enabled = !working, onClick = { voiceStudio = true }) { Text("+ Narrar texto") }
+            TextButton(enabled = !working, onClick = { pendingImport = CueType.MUSIC to null; picker.launch(arrayOf("*/*")) }) { Text("+ Música") }
+            TextButton(enabled = !working, onClick = { pendingImport = CueType.SFX to null; picker.launch(arrayOf("*/*")) }) { Text("+ Sonido") }
+            TextButton(enabled = !working, onClick = { extraTools = !extraTools }) { Text(if (extraTools) "Menos opciones" else "Más opciones") }
+        }
+        if (extraTools) {
+            val who = p.characters.firstOrNull { it.id == recordingCharacter } ?: p.characters.firstOrNull()
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (!working) Picker("Personaje: ${who?.name ?: "Elegir"}", p.characters, { it.name }) { recordingCharacter = it.id }
+                TextButton(enabled = !working && who != null, onClick = { who?.let { record(it.id) } }) { Text("● Grabar mi voz") }
+                TextButton(enabled = !working && who != null, onClick = {
+                    pendingImport = CueType.VOICE to who?.id; picker.launch(arrayOf("*/*"))
+                }) { Text("Importar voz") }
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Agregar pausa:", modifier = Modifier.align(Alignment.CenterVertically), style = MaterialTheme.typography.labelMedium)
+                for (seconds in listOf(1f, 2f, 3f, 5f)) FilterChip(selected = false, enabled = !working,
+                    onClick = { vm.addSilence(seconds) }, label = { Text("${seconds.toInt()} s") })
+            }
         }
         u.busy?.let { (label, pr) ->
             Text(label, style = MaterialTheme.typography.labelMedium)
             LinearProgressIndicator(progress = { pr.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
         }
         u.error?.let { Row(verticalAlignment = Alignment.CenterVertically) { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f)); TextButton(onClick = vm::dismissError) { Text("OK") } } }
-        if (u.loaded && clock.dur > 0) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(fmtTime(clock.pos), fontWeight = FontWeight.Bold)
-                Slider((clock.pos / clock.dur).toFloat().coerceIn(0f, 1f), { vm.seek(it * clock.dur) }, modifier = Modifier.weight(1f))
-                Text(fmtTime(clock.dur))
-            }
-        }
-
-        PrincessTimeline(p, vm, clock.pos, clock.playing, u.busy != null || u.recordingFor != null)
-
         // Grabando
         u.recordingFor?.let { id ->
             val who = p.characters.firstOrNull { it.id == id }
@@ -156,72 +194,68 @@ fun PrincessScreen(vm: PrincessViewModel, modifier: Modifier = Modifier) {
             }
         }
 
-        // Personajes
-        Text("Personajes", style = MaterialTheme.typography.titleSmall)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            for (c in p.characters) {
-                FilterChip(
-                    selected = editingCharacter == c.id,
-                    onClick = { editingCharacter = if (editingCharacter == c.id) null else c.id },
-                    label = { Text(c.name) },
-                    leadingIcon = { Box(Modifier.size(10.dp).background(Color(c.color), CircleShape)) },
-                )
-            }
-            TextButton(onClick = { newCharacter = true }) { Text("+ Personaje") }
-        }
-        p.characters.firstOrNull { it.id == editingCharacter }?.let { c -> CharacterEditor(c, vm, canDelete = p.characters.size > 1 && p.cues.none { it.characterId == c.id }) }
-
-        // Agregar
-        Text("Agregar a la obra", style = MaterialTheme.typography.titleSmall)
-        TextButton(enabled = u.busy == null && u.recordingFor == null, onClick = { voiceStudio = true }) {
-            Text("Narrar texto")
-        }
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            for (c in p.characters) FilterChip(selected = false, onClick = { record(c.id) }, label = { Text("● Grabar a ${c.name}") })
-        }
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            FilterChip(selected = false, onClick = { pendingImport = CueType.MUSIC to null; picker.launch(arrayOf("*/*")) }, label = { Text("+ Música de fondo") })
-            FilterChip(selected = false, onClick = { pendingImport = CueType.SFX to null; picker.launch(arrayOf("*/*")) }, label = { Text("+ Sonido (animal, puerta…)") })
-            for (c in p.characters) FilterChip(selected = false, onClick = { pendingImport = CueType.VOICE to c.id; picker.launch(arrayOf("*/*")) }, label = { Text("+ Voz de ${c.name} (archivo)") })
-        }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Silencio:", style = MaterialTheme.typography.labelMedium)
-            for (s in listOf(1f, 2f, 3f, 5f)) FilterChip(selected = false, onClick = { vm.addSilence(s) }, label = { Text("${s.toInt()} s") })
-        }
-
-        SoundBoard(u, vm)
-
-        // Lista de pistas
-        Text("Lista de clips", style = MaterialTheme.typography.titleSmall)
-        if (p.cues.isEmpty()) {
-            Text(
-                "Todavía no hay nada. Graba la voz de un personaje, trae una música de fondo o un sonido, y ordénalos aquí. " +
-                    "Cada pista entra después de la anterior, con el espacio que le pongas; también puede entrar junto a la anterior " +
-                    "(un ladrido mientras alguien habla) o quedar de fondo.",
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (label in listOf("Timeline", "Personajes", "Biblioteca")) FilterChip(
+                selected = section == label, onClick = { section = label }, label = { Text(label) },
             )
         }
-        p.cues.forEachIndexed { i, c -> CueCard(i, c, p.characters, playing = u.playingCue == i, vm = vm, last = i == p.cues.size - 1) }
-
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = p.normalizeVoices, onClick = { vm.edit { it.copy(normalizeVoices = !it.normalizeVoices) } }, label = { Text("Igualar el volumen de las voces") })
-            FilterChip(selected = p.duckMusic, onClick = { vm.edit { it.copy(duckMusic = !it.duckMusic) } }, label = { Text("Bajar la música cuando hablan") })
+        when (section) {
+            "Timeline" -> {
+                if (p.cues.isEmpty()) Text("Empieza con Narrar texto. Después agrega música o sonidos y mueve los clips para armar tu cuento.",
+                    style = MaterialTheme.typography.bodyMedium)
+                PrincessTimeline(p, vm, clock.pos, clock.playing, working)
+                TextButton(onClick = { showClips = !showClips }) { Text(if (showClips) "Ocultar lista de clips" else "Ver lista de clips (${p.cues.size})") }
+                if (showClips && !working) p.cues.forEachIndexed { i, c ->
+                    CueCard(i, c, p.characters, playing = u.playingCue == i, vm = vm, last = i == p.cues.size - 1)
+                }
+                TextButton(enabled = !working, onClick = { showMix = !showMix }) { Text(if (showMix) "Ocultar ajustes de mezcla" else "Ajustes de mezcla") }
+                if (showMix) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = p.normalizeVoices, enabled = !working, onClick = { vm.edit { it.copy(normalizeVoices = !it.normalizeVoices) } }, label = { Text("Igualar volumen de voces") })
+                    FilterChip(selected = p.duckMusic, enabled = !working, onClick = { vm.edit { it.copy(duckMusic = !it.duckMusic) } }, label = { Text("Bajar música al hablar") })
+                }
+            }
+            "Personajes" -> {
+                Text("Elige la voz de cada personaje en Narrar texto. Aquí puedes ajustar cómo suena en la mezcla.", style = MaterialTheme.typography.bodyMedium)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for (c in p.characters) FilterChip(
+                        selected = editingCharacter == c.id, enabled = !working,
+                        onClick = { editingCharacter = if (editingCharacter == c.id) null else c.id },
+                        label = { Text(c.name) },
+                        leadingIcon = { Box(Modifier.size(10.dp).background(Color(c.color), CircleShape)) },
+                    )
+                    TextButton(enabled = !working, onClick = { newCharacter = true }) { Text("+ Personaje") }
+                }
+                if (!working) p.characters.firstOrNull { it.id == editingCharacter }?.let { c ->
+                    CharacterEditor(c, vm, canDelete = p.characters.size > 1 && p.cues.none { it.characterId == c.id })
+                }
+            }
+            "Biblioteca" -> {
+                Text("Escucha un sonido y toca Agregar para llevarlo al cuento.", style = MaterialTheme.typography.bodyMedium)
+                if (!working) SoundBoard(u, vm)
+                else Text("Termina la operación actual para agregar sonidos.")
+            }
         }
+
     }
 }
 
 @Composable
 private fun CharacterEditor(c: Character, vm: PrincessViewModel, canDelete: Boolean) {
+    var effects by remember(c.id) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(12.dp)).padding(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(c.name, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             if (canDelete) TextButton(onClick = { vm.removeCharacter(c.id) }) { Text("Quitar") }
         }
-        LabeledSlider("Tono de la voz: ${if (c.pitch > 0) "+" else ""}${c.pitch.toInt()} (más grave ← → más aguda y rápida)", c.pitch, -12f..12f) { v -> vm.editCharacter(c.id) { it.copy(pitch = v.toInt().toFloat()) } }
         LabeledSlider("Volumen", c.volume, 0f..1.5f) { v -> vm.editCharacter(c.id) { it.copy(volume = v) } }
-        LabeledSlider("Posición (izquierda ← → derecha)", c.pan, -1f..1f) { v -> vm.editCharacter(c.id) { it.copy(pan = if (kotlin.math.abs(v) < 0.08f) 0f else v) } }
-        Text("El tono cambia la voz grabada: úsalo para hacer personajes distintos con tu misma voz.", style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        TextButton(onClick = { effects = !effects }) { Text(if (effects) "Ocultar ajustes avanzados" else "Ajustes avanzados${if (c.pitch != 0f) " · tono modificado" else ""}") }
+        if (effects) {
+            LabeledSlider("Tono de la voz: ${if (c.pitch > 0) "+" else ""}${c.pitch.toInt()}", c.pitch, -12f..12f) { v -> vm.editCharacter(c.id) { it.copy(pitch = v.toInt().toFloat()) } }
+            LabeledSlider("Posición (izquierda ← → derecha)", c.pan, -1f..1f) { v -> vm.editCharacter(c.id) { it.copy(pan = if (kotlin.math.abs(v) < 0.08f) 0f else v) } }
+            Text("El tono modifica la altura y la velocidad de todas las pistas de este personaje.", style = MaterialTheme.typography.bodySmall)
+            if (c.pitch != 0f || c.pan != 0f) TextButton(onClick = { vm.editCharacter(c.id) { it.copy(pitch = 0f, pan = 0f) } }) { Text("Restablecer tono y posición") }
+        }
+
     }
 }
 
