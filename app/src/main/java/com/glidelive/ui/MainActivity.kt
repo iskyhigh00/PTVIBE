@@ -45,6 +45,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -105,7 +107,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             AppTheme {
                 AppBackground {
-                    var mode by rememberSaveable { mutableStateOf(Mode.ACORDES) }
+                    val appPrefs = remember { getSharedPreferences("glide_app", MODE_PRIVATE) }
+                    var firstChoice by remember { mutableStateOf(appPrefs.getString("start", null)) }
+                    var mode by rememberSaveable { mutableStateOf(if (firstChoice == "music") Mode.ACORDES else Mode.PRINCESS) }
                     val princessUi by princessVm.ui.collectAsState()
                     var voiceStudio by androidx.compose.runtime.saveable.rememberSaveable(princessUi.current?.id) { mutableStateOf(false) }
                     var voiceDocument by androidx.compose.runtime.saveable.rememberSaveable(princessUi.current?.id, stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
@@ -157,8 +161,23 @@ class MainActivity : ComponentActivity() {
                         if (fullscreen) c.hide(WindowInsetsCompat.Type.systemBars()) else c.show(WindowInsetsCompat.Type.systemBars())
                     }
                     Box(Modifier.fillMaxSize()) {
+                        if (firstChoice == null) {
+                            Column(Modifier.fillMaxSize().windowInsetsPadding(playInsets).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically)) {
+                                Text("¡Bienvenido a GlideLive!", fontSize = 26.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold)
+                                Text("¿Qué quieres hacer?", fontSize = 18.sp)
+                                Button(onClick = { appPrefs.edit().putString("start", "story").apply(); firstChoice = "story"; mode = Mode.PRINCESS }, modifier = Modifier.fillMaxWidth(0.8f).height(64.dp)) {
+                                    Text("🎙 Hacer un cuento con mi voz y sonidos", fontSize = 17.sp)
+                                }
+                                Button(onClick = { appPrefs.edit().putString("start", "music").apply(); firstChoice = "music"; mode = Mode.ACORDES }, modifier = Modifier.fillMaxWidth(0.8f).height(64.dp)) {
+                                    Text("🎸 Tocar música (acordes, batería…)", fontSize = 17.sp)
+                                }
+                                Text("Después puedes cambiar desde el menú ⋮.", fontSize = 13.sp)
+                            }
+                            return@Box
+                        }
                         Column(Modifier.fillMaxSize().windowInsetsPadding(playInsets)) {
-                            if (!fullscreen) {
+                            if (!fullscreen && mode != Mode.PRINCESS) {
                                 TopBar(mode, { mode = it }, chordsVm, soloVm, vm, sessionVm, transportVm, stemsVm,
                                     { settingsGeneral = false; settingsOpen = true }, { settingsGeneral = true; settingsOpen = true },
                                     { fullscreen = true }, { demoOpen = true },
@@ -182,10 +201,10 @@ class MainActivity : ComponentActivity() {
                                         Mode.SOLISTA -> SoloHost(soloVm, Modifier.weight(1f))
                                         Mode.BATERIA -> DrumsHost(kit.pressure, kit.padLayout, Modifier.weight(1f))
                                         Mode.PRINCESS -> {
-                                            PrincessScreen(princessVm, Modifier.weight(1f), onNarrate = {
+                                            StoryScreen(princessVm, Modifier.weight(1f), onNarrate = {
                                                 princessVm.stop()
                                                 voiceStudio = true
-                                            })
+                                            }, onOtherMode = { mode = Mode.ACORDES }, onUpdate = { settingsGeneral = true; settingsOpen = true })
                                         }
                                         Mode.PISTAS -> {
                                             val soloUi by soloVm.ui.collectAsState()
@@ -280,7 +299,7 @@ val playInsets: WindowInsets
     @Composable get() = WindowInsets.safeDrawing.union(WindowInsets.systemGestures.only(WindowInsetsSides.Horizontal))
 
 enum class Mode(val label: String) {
-    ACORDES("Acordes"), VOCES("Voces"), DUO("Voces + Solista"), SOLISTA("Solista"), BATERIA("Batería"), MIXTO("Mixto"), PISTAS("Pistas"), PRINCESS("Princess")
+    ACORDES("Acordes"), VOCES("Voces"), DUO("Voces + Solista"), SOLISTA("Solista"), BATERIA("Batería"), MIXTO("Mixto"), PISTAS("Pistas"), PRINCESS("Cuentos")
 }
 
 @Composable

@@ -175,6 +175,23 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun cancelDownload() { downloadJob?.cancel() }
 
+    /** Baja de una vez los sonidos y la música (una sola vez; queda guardado en el teléfono). */
+    fun downloadAll() {
+        if (downloadJob?.isActive == true) return
+        downloadJob = viewModelScope.launch {
+            _ui.update { it.copy(download = "Descargando sonidos…" to 0f, error = null) }
+            val r = runCatching {
+                com.glidelive.princess.SoundStore.downloadSfx(app, 10, { p -> _ui.update { u -> u.copy(download = "Descargando sonidos…" to p * 0.8f) } }, { !isActive })
+                com.glidelive.princess.SoundStore.downloadMusic(app, { p -> _ui.update { u -> u.copy(download = "Descargando música…" to 0.8f + p * 0.2f) } }, { !isActive })
+            }
+            r.onFailure { e -> if (e !is java.util.concurrent.CancellationException) _ui.update { it.copy(error = friendly(e)) } }
+            _ui.update { it.copy(download = null, notice = if (r.isSuccess) "Listo. Ya tienes sonidos y música, guardados en tu teléfono." else it.notice) }
+            refreshSounds()
+        }
+    }
+
+    fun renameProject(title: String) = edit { it.copy(title = title.trim().ifBlank { it.title }) }
+
     /** Guarda una captura (de cualquier pestaña) como sonido propio. */
     fun saveCaptured(wav: File, name: String) {
         viewModelScope.launch(Dispatchers.IO) { com.glidelive.princess.SoundStore.addMine(app, wav, name); refreshSounds() }
@@ -233,7 +250,9 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                 // "Encima": posición absoluta en el timeline; el resto de las pistas no se mueve.
                 add(Cue(PrincessLibrary.newId(), type, null, label, name, sec, if (bed) 0f else 0.5f,
                     if (bed) CueMode.BED else CueMode.SEQ, if (bed) 0.5f else 1f, 0, if (bed) 1.5f else 0f, if (bed) 2f else 0f,
-                    startSeconds = if (over) atSeconds!!.toFloat() else null))
+                    startSeconds = if (bed) (atSeconds ?: 0.0).toFloat() else if (over) atSeconds!!.toFloat() else null))
+                val where = atSeconds ?: 0.0
+                _ui.update { it.copy(notice = if (bed) "Puse «$label» de fondo, suave, desde el segundo ${"%.0f".format(where)}. Se oye bajito mientras hablas." else "Agregué «$label» donde está la línea roja.") }
             }
             r.onFailure { e -> _ui.update { it.copy(error = "No pude agregar ese sonido. Prueba con otro.") } }
         }
@@ -605,6 +624,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun dismissNotice() = _ui.update { it.copy(notice = null) }
+    fun setNotice(text: String) = _ui.update { it.copy(notice = text) }
 
     fun stop() {
         if (_ui.value.loaded) NativeEngine.stemPlay(false)
