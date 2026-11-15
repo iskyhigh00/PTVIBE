@@ -398,6 +398,7 @@ private fun RecordingBar(u: PrincessUi, onStop: () -> Unit, onDiscard: () -> Uni
 
 private fun Modifier.size16() = this.then(Modifier.width(16.dp).height(16.dp))
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SelectionBar(cue: Cue, onCut: () -> Unit, onTone: () -> Unit, onVolume: () -> Unit, onListen: () -> Unit, onRemove: () -> Unit, onDone: () -> Unit,
                          canTone: Boolean, busy: Boolean) {
@@ -619,6 +620,7 @@ private fun MusicSheet(vm: PrincessViewModel, u: PrincessUi, onClose: () -> Unit
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ToneSheet(cue: Cue, onPick: (Int) -> Unit, onClose: () -> Unit, onListen: () -> Unit) {
     val labels = listOf(-2 to "Muy grave", -1 to "Grave", 0 to "Normal", 1 to "Aguda", 2 to "Muy aguda")
