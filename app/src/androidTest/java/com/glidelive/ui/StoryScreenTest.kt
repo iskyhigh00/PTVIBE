@@ -113,7 +113,7 @@ class StoryScreenTest {
         rule.onNodeWithText("Gato").performClick()
         rule.onNodeWithText("Quitar", substring = true).performClick()
         waitFor("quitado") { vm.ui.value.current!!.cues.none { it.id == "s1" } }
-        rule.onNodeWithText("Deshacer", substring = true).performClick()
+        rule.onNodeWithText("↶ Deshacer").performClick()
         waitFor("deshecho") { vm.ui.value.current!!.cues.any { it.id == "s1" } }
     }
 
@@ -121,8 +121,8 @@ class StoryScreenTest {
         val vm = prepare(); story(vm)
         val h = 56f
         rule.onNodeWithText("Había una vez").performTouchInput {
-            down(center); advanceEventTime(700); moveBy(androidx.compose.ui.geometry.Offset(0f, 40f)); advanceEventTime(100)
-            moveBy(androidx.compose.ui.geometry.Offset(0f, 200f)); up()
+            down(center); advanceEventTime(700); moveBy(androidx.compose.ui.geometry.Offset(0f, 30f)); advanceEventTime(100)
+            moveBy(androidx.compose.ui.geometry.Offset(0f, 90f)); up()
         }
         rule.waitForIdle()
         waitFor("cambió de voz") { cue(vm, "v1").characterId == "b" }
