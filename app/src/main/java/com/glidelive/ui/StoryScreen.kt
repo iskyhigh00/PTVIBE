@@ -420,7 +420,7 @@ private fun StoryTimeline(
     }.filter { it.clips.isNotEmpty() || it.label == "Sonidos" || it.label == "Música de fondo" || project.characters.size <= 3 }
     val duration = max(30.0, DramaRenderer.totalSeconds(project) + 10.0)
     val widthDp = (duration * zoom).coerceAtMost(30000.0).toFloat()
-    val scale = widthDp / duration
+    val scale = (widthDp / duration).toFloat()
     val density = LocalDensity.current.density
     val hScroll = rememberScrollState()
     Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f), RoundedCornerShape(14.dp)).padding(6.dp)) {
