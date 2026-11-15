@@ -599,7 +599,12 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun removeCue(id: String) = edit { cur -> TimelineOps.delete(DramaRenderer.anchorTimeline(cur), id) }
 
-    fun moveCueTo(id: String, start: Double) = edit { cur -> TimelineOps.moveTo(cur, id, start.coerceIn(0.0, 1800.0)) }
+    fun moveCueTo(id: String, start: Double, characterId: String? = null) = edit { cur ->
+        val moved = TimelineOps.moveTo(cur, id, start.coerceIn(0.0, 1800.0))
+        if (characterId != null && cur.characters.any { it.id == characterId })
+            moved.copy(cues = moved.cues.map { if (it.id == id && it.type == CueType.VOICE) it.copy(characterId = characterId) else it })
+        else moved
+    }
 
     /** Cambia el tono de una grabación sin cambiar su velocidad. [steps]: −2 muy grave … 0 normal … +2 muy aguda. */
     fun setTone(id: String, steps: Int) {

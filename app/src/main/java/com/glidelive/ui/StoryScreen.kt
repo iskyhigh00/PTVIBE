@@ -11,7 +11,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.ui.zIndex
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -294,7 +295,7 @@ private fun StoryEditor(
             // ── La línea de tiempo ──
             Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp)) {
                 StoryTimeline(project, placements, position, playing, selectedId, zoom, enabled = u.busy == null && u.recordingFor == null,
-                    onSelect = { selectedId = it }, onCursor = { vm.setCursor(it) }, onMove = { id, s -> vm.moveCueTo(id, s) })
+                    onSelect = { selectedId = it }, onCursor = { vm.setCursor(it) }, onMove = { id, s, who -> vm.moveCueTo(id, s, who) })
                 if (project.cues.isEmpty()) {
                     Column(Modifier.align(Alignment.Center).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f), RoundedCornerShape(16.dp)).padding(18.dp),
                         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -403,7 +404,7 @@ private fun Modifier.size16() = this.then(Modifier.width(16.dp).height(16.dp))
 private fun SelectionBar(cue: Cue, onCut: () -> Unit, onTone: () -> Unit, onVolume: () -> Unit, onListen: () -> Unit, onRemove: () -> Unit, onDone: () -> Unit,
                          canTone: Boolean, busy: Boolean) {
     Column {
-        Text("«${cue.text.ifBlank { cue.type.label }}» está elegido. Arrástralo para moverlo. Para cortar: toca la regla de arriba donde quieras cortar y luego «✂ Cortar aquí».",
+        Text("«${cue.text.ifBlank { cue.type.label }}» está elegido. Para moverlo, mantén apretado el audio y arrástralo (también a otra línea de voz). Para cortar: toca la regla de arriba donde quieras cortar y luego «✂ Cortar aquí».",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3)
         androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             FilledTonalButton(onClick = onCut, modifier = Modifier.height(52.dp), enabled = !busy && cue.type != CueType.MUSIC) { Text("✂ Cortar aquí", fontSize = 16.sp) }
@@ -418,7 +419,7 @@ private fun SelectionBar(cue: Cue, onCut: () -> Unit, onTone: () -> Unit, onVolu
 
 // ───────────────────────────── Línea de tiempo ─────────────────────────────
 
-private data class Lane(val label: String, val color: Color, val clips: List<Placement>)
+private data class Lane(val label: String, val color: Color, val clips: List<Placement>, val characterId: String? = null)
 
 private fun packRows(clips: List<Placement>): List<List<Placement>> {
     val rows = mutableListOf<MutableList<Placement>>()
@@ -432,10 +433,10 @@ private fun packRows(clips: List<Placement>): List<List<Placement>> {
 @Composable
 private fun StoryTimeline(
     project: Project, placements: List<Placement>, position: Double, playing: Boolean, selectedId: String?, zoom: Float, enabled: Boolean,
-    onSelect: (String?) -> Unit, onCursor: (Double) -> Unit, onMove: (String, Double) -> Unit,
+    onSelect: (String?) -> Unit, onCursor: (Double) -> Unit, onMove: (String, Double, String?) -> Unit,
 ) {
     val lanes = buildList {
-        project.characters.forEach { ch -> add(Lane(ch.name, Color(ch.color), placements.filter { it.cue.type == CueType.VOICE && it.cue.characterId == ch.id })) }
+        project.characters.forEach { ch -> add(Lane(ch.name, Color(ch.color), placements.filter { it.cue.type == CueType.VOICE && it.cue.characterId == ch.id }, ch.id)) }
         val orphan = placements.filter { it.cue.type == CueType.VOICE && project.characters.none { c -> c.id == it.cue.characterId } }
         if (orphan.isNotEmpty()) add(Lane("Otras voces", Color(0xFF60A5FA), orphan))
         add(Lane("Sonidos", Color(0xFF34D399), placements.filter { it.cue.type == CueType.SFX }))
@@ -446,6 +447,12 @@ private fun StoryTimeline(
     val scale = (widthDp / duration).toFloat()
     val density = LocalDensity.current.density
     val hScroll = rememberScrollState()
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    var draggingId by remember { mutableStateOf<String?>(null) }
+    val laneTops = remember(lanes.map { it.label to packRows(it.clips).size }) {
+        var y = 0f
+        lanes.map { l -> y.also { y += max(1, packRows(l.clips).size) * 56f } }
+    }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f), RoundedCornerShape(14.dp)).padding(6.dp).verticalScroll(rememberScrollState())) {
     Row(Modifier.fillMaxWidth()) {
         Column(Modifier.width(92.dp)) {
@@ -466,9 +473,11 @@ private fun StoryTimeline(
             }
             Column {
                 lanes.forEach { lane ->
-                    packRows(lane.clips).ifEmpty { listOf(emptyList()) }.forEach { row ->
+                    val laneIdx = lanes.indexOf(lane)
+                    packRows(lane.clips).ifEmpty { listOf(emptyList()) }.forEachIndexed { rowIdx, row ->
                         Box(
                             Modifier.width(widthDp.dp).height(56.dp).border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                                .zIndex(if (row.any { it.cue.id == draggingId }) 1f else 0f)
                                 .pointerInput(scale, enabled) { detectTapGestures { at -> if (enabled) { onCursor((at.x / density / scale).toDouble()); onSelect(null) } } },
                         ) {
                             Canvas(Modifier.fillMaxSize()) {
@@ -476,21 +485,36 @@ private fun StoryTimeline(
                                 drawLine(RED, Offset(x, 0f), Offset(x, size.height), 3.dp.toPx())
                             }
                             row.forEach { place ->
-                                var drag by remember(place.cue.id, place.start) { mutableStateOf(0f) }
+                                var dragX by remember(place.cue.id, place.start) { mutableStateOf(0f) }
+                                var dragY by remember(place.cue.id, place.start) { mutableStateOf(0f) }
                                 val isSel = place.cue.id == selectedId
-                                val start = (place.start + drag).coerceAtLeast(0.0)
+                                val lifted = draggingId == place.cue.id
+                                val start = (place.start + dragX).coerceAtLeast(0.0)
+                                val curPlace by androidx.compose.runtime.rememberUpdatedState(place)
+                                val curScale by androidx.compose.runtime.rememberUpdatedState(scale)
                                 Box(
-                                    Modifier.offset(x = (start * scale).toFloat().dp, y = 4.dp)
-                                        .width(max(34f, ((place.end - place.start) * scale).toFloat()).dp).height(48.dp)
-                                        .background(lane.color.copy(alpha = if (place.cue.muted) 0.15f else if (isSel) 0.75f else 0.5f), RoundedCornerShape(8.dp))
-                                        .border(if (isSel) 3.dp else 1.dp, if (isSel) Color.White else lane.color, RoundedCornerShape(8.dp))
-                                        .pointerInput(place.cue.id, place.start, isSel, enabled, scale) {
+                                    Modifier.offset(x = (start * scale).toFloat().dp, y = 4.dp + dragY.dp)
+                                        .width(max(40f, ((place.end - place.start) * scale).toFloat()).dp).height(48.dp)
+                                        .background(lane.color.copy(alpha = if (place.cue.muted) 0.15f else if (lifted) 0.95f else if (isSel) 0.75f else 0.5f), RoundedCornerShape(8.dp))
+                                        .border(if (isSel || lifted) 3.dp else 1.dp, if (isSel || lifted) Color.White else lane.color, RoundedCornerShape(8.dp))
+                                        .pointerInput(place.cue.id, enabled) {
                                             if (!enabled) return@pointerInput
-                                            if (!isSel) detectTapGestures { at -> onSelect(place.cue.id); onCursor(place.start + (at.x / density / scale).toDouble()) }
-                                            else detectDragGestures(
-                                                onDragEnd = { val target = (place.start + drag).coerceAtLeast(0.0); drag = 0f; onMove(place.cue.id, target) },
-                                                onDragCancel = { drag = 0f },
-                                                onDrag = { change, amount -> change.consume(); drag += amount.x / density / scale },
+                                            detectTapGestures { at -> onSelect(place.cue.id); onCursor(curPlace.start + (at.x / density / curScale).toDouble()) }
+                                        }
+                                        .pointerInput(place.cue.id, enabled) {
+                                            if (!enabled) return@pointerInput
+                                            detectDragGesturesAfterLongPress(
+                                                onDragStart = { haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); draggingId = curPlace.cue.id; onSelect(curPlace.cue.id) },
+                                                onDragEnd = {
+                                                    val target = (curPlace.start + dragX).coerceAtLeast(0.0)
+                                                    val yCenter = laneTops[laneIdx] + rowIdx * 56f + 28f + dragY
+                                                    val toLane = laneTops.indexOfLast { it <= yCenter }.coerceAtLeast(0)
+                                                    val who = if (curPlace.cue.type == CueType.VOICE && toLane != laneIdx) lanes.getOrNull(toLane)?.characterId else null
+                                                    dragX = 0f; dragY = 0f; draggingId = null
+                                                    onMove(curPlace.cue.id, target, who)
+                                                },
+                                                onDragCancel = { dragX = 0f; dragY = 0f; draggingId = null },
+                                                onDrag = { change, amount -> change.consume(); dragX += amount.x / density / curScale; dragY += amount.y / density },
                                             )
                                         }.padding(6.dp),
                                 ) {
