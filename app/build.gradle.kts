@@ -16,6 +16,7 @@ android {
         val build = (findProperty("buildNumber") as String?)?.toIntOrNull() ?: 1
         versionCode = build
         versionName = "0.2.$build"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
         externalNativeBuild {
             cmake {
@@ -83,6 +84,9 @@ dependencies {
     implementation("com.k2fsa.sherpa:sherpa-onnx-static-link-onnxruntime:2.0.1@aar")
     implementation("org.apache.commons:commons-compress:1.27.1")
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2024.10.01"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test:runner:1.6.2")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20231013")
 }
