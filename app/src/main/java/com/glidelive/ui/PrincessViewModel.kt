@@ -118,7 +118,11 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) {
             val list = PrincessLibrary.list(app)
             val last = prefs.getString("princess_last", null)
-            _ui.update { it.copy(projects = list, current = list.firstOrNull { p -> p.id == last } ?: list.firstOrNull()) }
+            _ui.update { u ->
+                // Si ya se creó o abrió algo mientras cargaba la lista, eso manda.
+                val merged = u.projects + list.filter { p -> u.projects.none { it.id == p.id } }
+                u.copy(projects = merged, current = u.current ?: list.firstOrNull { p -> p.id == last } ?: list.firstOrNull())
+            }
         }
         viewModelScope.launch(Dispatchers.Default) {
             while (isActive) {
