@@ -86,7 +86,15 @@ object SoundStore {
     fun clips(ctx: Context, category: String): List<File> =
         escDir(ctx, category).listFiles { f -> f.extension == "wav" }?.sortedBy { it.name } ?: emptyList()
 
-    fun hasSfx(ctx: Context) = File(root(ctx), "esc50").listFiles()?.any { d -> d.isDirectory && (d.list()?.isNotEmpty() == true) } == true
+    /** Los efectos están listos solo si casi todos los sonidos tienen al menos un audio (una descarga a medias no cuenta). */
+    fun hasSfx(ctx: Context): Boolean {
+        val all = SoundCatalog.groups.flatMap { it.sounds }
+        val have = all.count { clips(ctx, it.id).isNotEmpty() }
+        return have >= all.size * 8 / 10
+    }
+
+    /** Hay algo bajado pero incompleto: se ofrece "Completar descarga". */
+    fun sfxPartial(ctx: Context): Boolean = !hasSfx(ctx) && SoundCatalog.groups.flatMap { it.sounds }.any { clips(ctx, it.id).isNotEmpty() }
 
     fun musicFiles(ctx: Context): List<Pair<SoundCatalog.Track, File>> =
         SoundCatalog.music.mapNotNull { t -> File(musicDir(ctx), t.file).takeIf { it.exists() && it.length() > 0 }?.let { t to it } }
@@ -180,7 +188,12 @@ object SoundStore {
     }.getOrDefault(emptyList())
 
     private fun saveMine(ctx: Context, list: List<MySound>) {
-        mineIndex(ctx).writeText(JSONArray(list.map { JSONObject().put("id", it.id).put("name", it.name).put("file", it.file).put("seconds", it.seconds.toDouble()) }).toString())
+        val text = JSONArray(list.map { JSONObject().put("id", it.id).put("name", it.name).put("file", it.file).put("seconds", it.seconds.toDouble()) }).toString()
+        val tmp = File.createTempFile("mine-", ".tmp", mineDir(ctx))
+        try {
+            tmp.writeText(text)
+            java.nio.file.Files.move(tmp.toPath(), mineIndex(ctx).toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        } finally { tmp.delete() }
     }
 
     /** Guarda una grabación (WAV 16 bit) como sonido propio, recortándole el silencio de los extremos. */

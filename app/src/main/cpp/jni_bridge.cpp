@@ -55,6 +55,7 @@ Java_com_glidelive_audio_NativeEngine_nativeStemLoad(JNIEnv* env, jobject, jint 
                                                      jint channels, jint rate) {
     const jsize n = env->GetArrayLength(data);
     jshort* p = env->GetShortArrayElements(data, nullptr);
+    if (p == nullptr) return;  // sin memoria para copiar el audio
     g_engine.stems().load(idx, p, n / (channels > 0 ? channels : 1), channels, rate);
     env->ReleaseShortArrayElements(data, p, JNI_ABORT);
 }

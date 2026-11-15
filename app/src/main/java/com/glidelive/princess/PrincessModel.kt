@@ -51,6 +51,10 @@ data class Cue(
     val trimStart: Float = 0f,
     val muted: Boolean = false,
     val loop: Boolean = false,
+    /** Cambio de tono sin cambiar la velocidad, en pasos de la escala "muy grave … muy aguda" (−2..+2). */
+    val toneSteps: Int = 0,
+    /** Archivo original antes de aplicar el tono (para poder volver a "Normal" sin perder calidad). */
+    val sourceFile: String? = null,
 )
 
 data class Project(
@@ -107,6 +111,7 @@ object PrincessLibrary {
             c.startSeconds?.let { put("startSeconds", it.toDouble()) }
             c.durationSeconds?.let { put("durationSeconds", it.toDouble()) }
             put("trimStart", c.trimStart.toDouble()); put("muted", c.muted); put("loop", c.loop)
+            put("toneSteps", c.toneSteps); c.sourceFile?.let { put("sourceFile", it) }
         }) })
     }
 
@@ -128,7 +133,8 @@ object PrincessLibrary {
                 it.optDouble("startSeconds").takeIf { value -> value.isFinite() && value >= 0 }?.toFloat(),
                 it.optDouble("durationSeconds").takeIf { value -> value.isFinite() && value >= 0 }?.toFloat(),
                 it.optDouble("trimStart", 0.0).takeIf { value -> value.isFinite() && value >= 0 }?.toFloat() ?: 0f,
-                it.optBoolean("muted", false), it.optBoolean("loop", false)) } },
+                it.optBoolean("muted", false), it.optBoolean("loop", false),
+                it.optInt("toneSteps", 0).coerceIn(-2, 2), it.optString("sourceFile").ifEmpty { null }) } },
             o.optBoolean("normalizeVoices", true), o.optBoolean("duckMusic", true),
         )
     }

@@ -35,8 +35,13 @@ public:
     // ---- hilo de carga / UI
     void load(int idx, const int16_t* data, int64_t frames, int channels, int rate) {
         if (idx < 0 || idx >= kMax || channels < 1 || channels > 2 || rate < 8000 || frames <= 0) return;
-        auto b = std::make_unique<Buf>();
-        b->d.assign(data, data + frames * channels);
+        std::unique_ptr<Buf> b;
+        try {
+            b = std::make_unique<Buf>();
+            b->d.assign(data, data + frames * channels);
+        } catch (...) {
+            return;  // sin memoria: se conserva lo que ya había cargado
+        }
         b->ch = channels;
         b->rate = rate;
         b->frames = frames;

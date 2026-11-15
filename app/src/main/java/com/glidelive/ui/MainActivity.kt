@@ -100,14 +100,15 @@ class MainActivity : ComponentActivity() {
         EventHub.start(lifecycleScope)
         VizPrefs.init(this)
         PadBindings.init(this)
+        princessVm.beforePlay = { stemsVm.close() }   // el reproductor es compartido: Cuentos suelta la canción de Pistas al sonar
         sessionVm.attach(chordsVm, soloVm, vm, transportVm)
         setContent {
             AppTheme {
                 AppBackground {
                     var mode by rememberSaveable { mutableStateOf(Mode.ACORDES) }
                     val princessUi by princessVm.ui.collectAsState()
-                    var voiceStudio by remember(princessUi.current?.id) { mutableStateOf(false) }
-                    var voiceDocument by remember(princessUi.current?.id) { mutableStateOf(TextFieldValue()) }
+                    var voiceStudio by androidx.compose.runtime.saveable.rememberSaveable(princessUi.current?.id) { mutableStateOf(false) }
+                    var voiceDocument by androidx.compose.runtime.saveable.rememberSaveable(princessUi.current?.id, stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
                     val cfg = LocalConfiguration.current
                     // Los ajustes de cada pestaña se abren en una ventana encima (semitransparente, con X para cerrar).
                     var settingsOpen by rememberSaveable { mutableStateOf(false) }
@@ -142,7 +143,10 @@ class MainActivity : ComponentActivity() {
                     }
                     val transportEditor by transportVm.ui.collectAsState()
                     if (transportEditor.editor != null) SequencerDialog(transportVm)
-                    LaunchedEffect(mode) { PadBindings.keysEnabled = mode == Mode.BATERIA || mode == Mode.MIXTO }
+                    LaunchedEffect(mode) {
+                        PadBindings.keysEnabled = mode == Mode.BATERIA || mode == Mode.MIXTO
+                        if (mode != Mode.PRINCESS) princessVm.onLeave()   // al salir de Cuentos se guarda y se calla
+                    }
                     val shortScreen = cfg.screenHeightDp < 480
                     var fullscreen by rememberSaveable { mutableStateOf(false) }
                     var soloLayer by rememberSaveable { mutableStateOf(false) }
@@ -178,7 +182,6 @@ class MainActivity : ComponentActivity() {
                                         Mode.SOLISTA -> SoloHost(soloVm, Modifier.weight(1f))
                                         Mode.BATERIA -> DrumsHost(kit.pressure, kit.padLayout, Modifier.weight(1f))
                                         Mode.PRINCESS -> {
-                                            androidx.compose.runtime.LaunchedEffect(Unit) { princessVm.beforePlay = { stemsVm.close() } }
                                             PrincessScreen(princessVm, Modifier.weight(1f), onNarrate = {
                                                 princessVm.stop()
                                                 voiceStudio = true
@@ -263,6 +266,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        princessVm.onLeave()   // guarda lo grabado y lo editado: nada se pierde al salir
         sessionVm.flush()
         sessionVm.stopIfRecording(transportVm.ui.value.bpm)
         chordsVm.stopAll(immediate = true)

@@ -15,12 +15,16 @@ import com.glidelive.princess.CueType
 import com.glidelive.princess.DramaRenderer
 import com.glidelive.princess.MicRecorder
 import com.glidelive.princess.Placement
+import com.glidelive.princess.History
+import com.glidelive.princess.PitchShifter
 import com.glidelive.princess.PrincessLibrary
+import com.glidelive.princess.TimelineOps
 import com.glidelive.princess.Project
 import com.glidelive.princess.NarratedAudio
 import com.glidelive.princess.WavIo
 import com.glidelive.stems.AudioDecoder
 import com.glidelive.stems.StemLibrary
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
@@ -55,6 +59,14 @@ data class PrincessUi(
     val mine: List<com.glidelive.princess.MySound> = emptyList(),
     val download: Pair<String, Float>? = null,
     val storageMb: Long = 0,
+    /** Dónde está la línea roja (segundos) y si hay algo que deshacer o rehacer. */
+    val cursor: Double = 0.0,
+    val canUndo: Boolean = false,
+    val canRedo: Boolean = false,
+    /** Los efectos bajados quedaron a medias. */
+    val sfxPartial: Boolean = false,
+    /** Aviso amable de una línea (no es un error): "Listo, elige WhatsApp", "Pon la línea roja sobre el audio"… */
+    val notice: String? = null,
 )
 
 /** Pista de audio de una obra dramática: personajes, voces grabadas, silencios, música de fondo y efectos. */
@@ -72,6 +84,30 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     private var recorder: MicRecorder? = null
     private val prefs = app.getSharedPreferences("ui", android.content.Context.MODE_PRIVATE)
     private val projectEdits = Mutex()
+    private val history = History<Project>(40)
+    private var previewing = false
+
+    /** Cualquier error inesperado se convierte en un aviso en español; nunca cierra la app. */
+    private val safety = CoroutineExceptionHandler { _, t -> report(t) }
+
+    private fun friendly(t: Throwable): String = when {
+        t is OutOfMemoryError -> "El cuento es muy largo para escucharlo entero de una vez. Escucha por partes con «Desde aquí»."
+        t is java.net.UnknownHostException || t is java.net.SocketTimeoutException || t is java.net.ConnectException ->
+            "No hay conexión a internet. Revisa el WiFi y vuelve a intentar."
+        t is java.io.IOException && (t.message ?: "").contains("ENOSPC", true) -> "No queda espacio en el teléfono. Borra algo y vuelve a intentar."
+        t is SecurityException -> "La app no tiene permiso para hacer eso."
+        else -> "Algo salió mal. Vuelve a intentarlo; tu cuento está guardado."
+    }
+
+    private fun report(t: Throwable) {
+        if (t is java.util.concurrent.CancellationException) return
+        _ui.update { it.copy(busy = null, download = null, error = friendly(t)) }
+    }
+
+    /** Lanza trabajo en segundo plano sin que un fallo pueda cerrar la app. */
+    private fun launchSafe(block: suspend () -> Unit) = viewModelScope.launch(safety) {
+        try { block() } catch (c: java.util.concurrent.CancellationException) { throw c } catch (t: Throwable) { report(t) }
+    }
     @OptIn(ExperimentalCoroutinesApi::class)
     private val projectWrites = Dispatchers.IO.limitedParallelism(1)
 
@@ -105,7 +141,8 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
             val music = com.glidelive.princess.SoundStore.musicFiles(app).size
             val mine = com.glidelive.princess.SoundStore.mine(app)
             val mb = com.glidelive.princess.SoundStore.bytesUsed(app) / 1_000_000
-            _ui.update { it.copy(hasSfx = sfx, musicCount = music, mine = mine, storageMb = mb) }
+            val partial = com.glidelive.princess.SoundStore.sfxPartial(app)
+            _ui.update { it.copy(hasSfx = sfx, musicCount = music, mine = mine, storageMb = mb, sfxPartial = partial) }
         }
     }
 
@@ -117,7 +154,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
             val r = runCatching {
                 com.glidelive.princess.SoundStore.downloadSfx(app, perSound, { p -> _ui.update { u -> u.copy(download = "Bajando sonidos…" to p) } }, { !isActive })
             }
-            r.onFailure { e -> if (e !is java.util.concurrent.CancellationException) _ui.update { it.copy(error = "No se pudieron bajar los sonidos: ${e.message}") } }
+            r.onFailure { e -> if (e !is java.util.concurrent.CancellationException) _ui.update { it.copy(error = friendly(e)) } }
             _ui.update { it.copy(download = null) }
             refreshSounds()
         }
@@ -130,7 +167,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
             val r = runCatching {
                 com.glidelive.princess.SoundStore.downloadMusic(app, { p -> _ui.update { u -> u.copy(download = "Bajando música…" to p) } }, { !isActive })
             }
-            r.onFailure { e -> if (e !is java.util.concurrent.CancellationException) _ui.update { it.copy(error = "No se pudo bajar la música: ${e.message}") } }
+            r.onFailure { e -> if (e !is java.util.concurrent.CancellationException) _ui.update { it.copy(error = friendly(e)) } }
             _ui.update { it.copy(download = null) }
             refreshSounds()
         }
@@ -159,14 +196,21 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     /** Segundo de la obra donde cae un sonido puesto "encima": el cursor (lo que suena o quedó en pausa) o el inicio de la última pista. */
     fun overlayTime(): Double {
         val c = _clock.value
-        if (_ui.value.loaded && c.dur > 0) return Math.round(c.pos * 10) / 10.0
-        val p = _ui.value.current ?: return 0.0
-        return DramaRenderer.layout(p).filter { it.cue.mode == CueMode.SEQ }.maxOfOrNull { it.start } ?: 0.0
+        if (_ui.value.loaded && !previewing && c.dur > 0 && c.playing) return Math.round(c.pos * 10) / 10.0
+        return Math.round(_ui.value.cursor * 10) / 10.0
+    }
+
+    /** Pone la línea roja en el segundo [t] (también mueve la reproducción si está sonando la mezcla). */
+    fun setCursor(t: Double) {
+        val total = _ui.value.current?.let { DramaRenderer.totalSeconds(it) } ?: 0.0
+        val v = t.coerceIn(0.0, maxOf(total, 0.0) + 30.0)
+        _ui.update { it.copy(cursor = v) }
+        if (_ui.value.loaded && !previewing && _clock.value.dur > 0) seek(v.coerceAtMost(_clock.value.dur))
     }
 
     fun addSoundFile(file: File, label: String, type: CueType, atSeconds: Double? = null) {
         val p = _ui.value.current ?: return
-        viewModelScope.launch {
+        launchSafe {
             val r = withContext(Dispatchers.IO) {
                 runCatching {
                     val id = PrincessLibrary.newId()
@@ -191,14 +235,15 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                     if (bed) CueMode.BED else CueMode.SEQ, if (bed) 0.5f else 1f, 0, if (bed) 1.5f else 0f, if (bed) 2f else 0f,
                     startSeconds = if (over) atSeconds!!.toFloat() else null))
             }
-            r.onFailure { e -> _ui.update { it.copy(error = "No se pudo agregar: ${e.message}") } }
+            r.onFailure { e -> _ui.update { it.copy(error = "No pude agregar ese sonido. Prueba con otro.") } }
         }
     }
 
     /** Escucha un archivo del pack sin agregarlo. */
-    fun previewFile(file: File) = viewModelScope.launch {
+    fun previewFile(file: File) = launchSafe {
         stop()
-        val d = withContext(Dispatchers.IO) { runCatching { AudioDecoder.decode(file) }.getOrNull() } ?: return@launch
+        val d = withContext(Dispatchers.IO) { runCatching { AudioDecoder.decode(file) }.getOrNull() } ?: return@launchSafe
+        previewing = true
         beforePlay()
         NativeEngine.replicaMask(0)
         NativeEngine.stemClear()
@@ -222,9 +267,9 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun open(p: Project) {
-        stop(); clips.clear(); places = emptyList()
+        stop(); clips.clear(); places = emptyList(); history.clear(); previewing = false
         prefs.edit().putString("princess_last", p.id).apply()
-        _ui.update { it.copy(current = p, loaded = false, playingCue = -1, error = null) }
+        _ui.update { it.copy(current = p, loaded = false, playingCue = -1, error = null, cursor = 0.0, canUndo = false, canRedo = false) }
     }
 
     fun deleteProject(p: Project) {
@@ -241,6 +286,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
             projectEdits.withLock {
                 val cur = _ui.value.current ?: return@withLock
                 val p = f(cur)
+                if (p != cur) { history.record(cur); _ui.update { it.copy(canUndo = history.canUndo, canRedo = history.canRedo) } }
                 updateProject(p)
                 viewModelScope.launch(projectWrites) {
                     runCatching { PrincessLibrary.save(app, p) }.onFailure {
@@ -249,6 +295,35 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                 }
             }
         }
+    }
+
+    /** Vuelve atrás el último cambio. */
+    fun undo() = stepHistory { cur -> history.undo(cur) }
+    fun redo() = stepHistory { cur -> history.redo(cur) }
+
+    private fun stepHistory(next: (Project) -> Project?) {
+        launchSafe {
+            projectEdits.withLock {
+                val cur = _ui.value.current ?: return@withLock
+                val target = next(cur) ?: return@withLock
+                updateProject(target)
+                _ui.update { it.copy(canUndo = history.canUndo, canRedo = history.canRedo) }
+                withContext(projectWrites) { PrincessLibrary.save(app, target) }
+            }
+        }
+    }
+
+    /** Guarda ya mismo lo que haya (al salir de la pantalla o de la app). */
+    fun flush() {
+        val p = _ui.value.current ?: return
+        runCatching { PrincessLibrary.save(app, p) }
+    }
+
+    /** Al salir de la pestaña o pasar la app a segundo plano: se guarda la grabación en curso y se para el sonido. */
+    fun onLeave() {
+        if (recorder != null) finishRecording()
+        stop()
+        flush()
     }
 
     private fun updateProject(p: Project) {
@@ -269,6 +344,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
             val name = "narracion_${UUID.randomUUID()}.wav"
             val cue = Cue(PrincessLibrary.newId(), CueType.VOICE, characterId, audio.text, name, audio.seconds, 0.6f)
             val updated = p.copy(cues = p.cues + cue)
+            history.record(p); _ui.update { it.copy(canUndo = history.canUndo, canRedo = history.canRedo) }
             withContext(projectWrites) {
                 val target = File(PrincessLibrary.dir(app, p), name)
                 try {
@@ -316,11 +392,13 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     fun playFromSeconds(seconds: Double) {
         val p = _ui.value.current ?: return
         if (p.cues.isEmpty() || _ui.value.busy != null) return
-        viewModelScope.launch {
+        _ui.update { it.copy(busy = "Preparando tu cuento…" to 0f, error = null) }   // antes de lanzar: un segundo toque no repite el trabajo
+        launchSafe {
             stop()
-            val pcm = renderProject(p, "Mezclando la obra…")
-            if (_ui.value.current != p) { _ui.update { it.copy(busy = null) }; return@launch }
+            val pcm = renderProject(p, "Preparando tu cuento…")
+            if (_ui.value.current != p) { _ui.update { it.copy(busy = null) }; return@launchSafe }
             places = DramaRenderer.layout(p)
+            previewing = false
             load(pcm, seconds.coerceIn(0.0, DramaRenderer.totalSeconds(p)))
             _ui.update { it.copy(busy = null) }
         }
@@ -339,7 +417,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     /** Trae un archivo de audio: [type] voz (del personaje [characterId]), música de fondo o efecto. */
     fun importAudio(uri: Uri, type: CueType, characterId: String?) {
         val p = _ui.value.current ?: return
-        viewModelScope.launch {
+        launchSafe {
             _ui.update { it.copy(busy = "Importando…" to 0f, error = null) }
             val r = withContext(Dispatchers.IO) {
                 runCatching {
@@ -347,9 +425,11 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                     val ext = name.substringAfterLast('.', "audio").lowercase().take(5)
                     val id = PrincessLibrary.newId()
                     val f = File(PrincessLibrary.dir(app, p), "$id.$ext")
-                    app.contentResolver.openInputStream(uri)!!.use { i -> f.outputStream().use { o -> i.copyTo(o) } }
-                    val d = AudioDecoder.decode(f)
-                    Triple(f.name, name.substringBeforeLast('.'), d.seconds.toFloat())
+                    try {
+                        app.contentResolver.openInputStream(uri)!!.use { i -> f.outputStream().use { o -> i.copyTo(o) } }
+                        val d = AudioDecoder.decode(f)
+                        Triple(f.name, name.substringBeforeLast('.'), d.seconds.toFloat())
+                    } catch (e: Throwable) { f.delete(); throw e }
                 }
             }
             r.onSuccess { (file, title, sec) ->
@@ -358,7 +438,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                     if (type == CueType.MUSIC) CueMode.BED else CueMode.SEQ, if (type == CueType.MUSIC) 0.5f else 1f,
                     0, if (type == CueType.MUSIC) 1.5f else 0f, if (type == CueType.MUSIC) 2f else 0f))
             }
-            r.onFailure { e -> _ui.update { it.copy(error = "No se pudo importar: ${e.message}") } }
+            r.onFailure { _ui.update { it.copy(error = "No pude leer ese archivo. Prueba con otro audio (mp3, m4a, wav).") } }
             _ui.update { it.copy(busy = null) }
         }
     }
@@ -369,7 +449,11 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         stop()
         val rec = MicRecorder { lvl -> _ui.update { it.copy(recLevel = lvl, recSeconds = recorder?.seconds ?: it.recSeconds) } }
         recorder = rec
-        if (!rec.start()) { recorder = null; _ui.update { it.copy(error = "No se pudo abrir el micrófono") }; return false }
+        if (!rec.start()) {
+            recorder = null
+            _ui.update { it.copy(error = "No pude abrir el micrófono. Puede que otra app lo esté usando o que falte el permiso.") }
+            return false
+        }
         _ui.update { it.copy(recordingFor = characterId, recSeconds = 0f, recLevel = 0f, error = null) }
         return true
     }
@@ -379,15 +463,25 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         _ui.update { it.copy(recordingFor = null, recLevel = 0f) }
     }
 
-    /** Termina la grabación y agrega la voz al final de la obra (sin silencio sobrante). */
-    fun finishRecording() {
+    /** Termina la grabación y agrega la voz en la línea roja (o después de lo último), sin el silencio sobrante. */
+    fun finishRecording(atSeconds: Double? = null) {
         val rec = recorder ?: return
         val who = _ui.value.recordingFor
         val p = _ui.value.current
         val pcm = rec.stop(); recorder = null
+        val peak = rec.peak; val failed = rec.failed; val full = rec.full
         _ui.update { it.copy(recordingFor = null, recLevel = 0f) }
-        if (p == null || who == null || pcm.size < MicRecorder.RATE / 5) return
-        viewModelScope.launch {
+        if (p == null || who == null) return
+        if (failed && pcm.size < MicRecorder.RATE) {
+            _ui.update { it.copy(error = "Se cortó la grabación: otra app pudo haber tomado el micrófono. Vuelve a intentar.") }; return
+        }
+        if (pcm.size < MicRecorder.RATE / 5) {
+            _ui.update { it.copy(notice = "La grabación fue muy corta. Toca el botón rojo y habla un poco más.") }; return
+        }
+        if (peak < 150) {
+            _ui.update { it.copy(error = "No se oyó nada. Revisa que el micrófono no esté tapado ni silenciado y habla más cerca.") }; return
+        }
+        launchSafe {
             val saved = withContext(Dispatchers.IO) {
                 val trimmed = WavIo.trimSilence(pcm, MicRecorder.RATE)
                 val f = File(PrincessLibrary.dir(app, p), "voz_${PrincessLibrary.newId()}.wav")
@@ -395,7 +489,9 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                 f.name to trimmed.size.toFloat() / MicRecorder.RATE
             }
             val cueCount = _ui.value.current?.cues?.count { it.type == CueType.VOICE } ?: 0
-            add(Cue(PrincessLibrary.newId(), CueType.VOICE, who, "Línea ${cueCount + 1}", saved.first, saved.second, 0.6f))
+            add(Cue(PrincessLibrary.newId(), CueType.VOICE, who, "Mi voz ${cueCount + 1}", saved.first, saved.second, 0.6f,
+                startSeconds = atSeconds?.toFloat()))
+            if (full) _ui.update { it.copy(notice = "Llegaste al máximo de 10 minutos seguidos. Lo grabado quedó guardado.") }
         }
     }
 
@@ -405,11 +501,18 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         synchronized(clips) { clips[name]?.let { return it } }
         val d = runCatching { AudioDecoder.decode(File(PrincessLibrary.dir(app, p), name)) }.getOrNull() ?: return null
         val clip = Clip(d.pcm, d.channels, d.rate)
-        synchronized(clips) { clips[name] = clip }
+        synchronized(clips) {
+            // Caché acotada (~64 MB de audio): al pasarse se suelta lo más viejo.
+            var bytes = clips.values.sumOf { it.pcm.size * 2L }
+            val it = clips.entries.iterator()
+            while (bytes > 64_000_000L && it.hasNext()) { val e = it.next(); bytes -= e.value.pcm.size * 2L; it.remove() }
+            clips[name] = clip
+        }
         return clip
     }
 
     private suspend fun renderProject(p: Project, label: String): ShortArray = withContext(Dispatchers.Default) {
+        _ui.update { it.copy(busy = label to 0f) }
         DramaRenderer.render(p, { clipOf(p, it) }) { pr -> _ui.update { it.copy(busy = label to pr) } }
     }
 
@@ -437,16 +540,71 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     fun preview(index: Int) {
         val p = _ui.value.current ?: return
         val c = p.cues.getOrNull(index) ?: return
-        viewModelScope.launch {
+        if (_ui.value.busy != null) return
+        _ui.update { it.copy(busy = "Preparando…" to 0f, error = null) }
+        launchSafe {
             stop()
             // La pista sola, desde el segundo 0 y de una vez (la música de fondo suena entera una sola vez).
             val solo = p.copy(cues = listOf(c.copy(mode = CueMode.SEQ, gap = 0f, span = 0, startSeconds = null, loop = c.loop || c.mode == CueMode.BED, muted = false)), duckMusic = false)
             val pcm = renderProject(solo, "Preparando…")
             places = DramaRenderer.layout(solo).map { it.copy(index = index) }
+            previewing = true
             load(pcm, 0.0)
             _ui.update { it.copy(busy = null) }
         }
     }
+
+    fun previewCue(id: String) { val i = _ui.value.current?.cues?.indexOfFirst { it.id == id } ?: -1; if (i >= 0) preview(i) }
+
+    // ---- editar sin tocar los archivos: cortar, quitar, mover, tono ----
+    /** Corta el audio [id] donde está la línea roja. Si no se puede, explica por qué. */
+    fun cutAtCursor(id: String) {
+        val p = _ui.value.current ?: return
+        val at = _ui.value.cursor
+        val problem = TimelineOps.cutProblem(p, id, at)
+        if (problem != null) { _ui.update { it.copy(notice = problem) }; return }
+        edit { cur -> TimelineOps.split(cur, id, at, PrincessLibrary.newId()) ?: cur }
+        _ui.update { it.copy(notice = "Listo, lo corté. Ahora puedes mover o quitar cada pedazo.") }
+    }
+
+    fun removeCue(id: String) = edit { cur -> TimelineOps.delete(cur, id) }
+
+    fun moveCueTo(id: String, start: Double) = edit { cur -> TimelineOps.moveTo(cur, id, start) }
+
+    /** Cambia el tono de una grabación sin cambiar su velocidad. [steps]: −2 muy grave … 0 normal … +2 muy aguda. */
+    fun setTone(id: String, steps: Int) {
+        val p = _ui.value.current ?: return
+        val cue = p.cues.firstOrNull { it.id == id } ?: return
+        if (cue.file == null || cue.type == CueType.SILENCE) return
+        if (_ui.value.busy != null) return
+        val target = steps.coerceIn(-2, 2)
+        if (target == cue.toneSteps) return
+        _ui.update { it.copy(busy = "Cambiando la voz…" to 0f, error = null) }
+        launchSafe {
+            val dir = PrincessLibrary.dir(app, p)
+            val original = cue.sourceFile ?: cue.file
+            val result = withContext(Dispatchers.Default) {
+                if (target == 0) Triple(original, null as String?, cue.seconds)
+                else {
+                    val d = AudioDecoder.decode(File(dir, original))
+                    val mono = if (d.channels == 1) d.pcm else ShortArray(d.pcm.size / d.channels) { i -> ((d.pcm[i * d.channels].toInt() + d.pcm[i * d.channels + 1]) / 2).toShort() }
+                    val shifted = PitchShifter.shift(mono, d.rate, PitchShifter.semitonesFor(target).toFloat())
+                    val name = "tono_${PrincessLibrary.newId()}.wav"
+                    WavIo.write(File(dir, name), shifted, 1, d.rate)
+                    Triple(name, original, shifted.size.toFloat() / d.rate)
+                }
+            }
+            edit { cur ->
+                cur.copy(cues = cur.cues.map {
+                    if (it.id == id) it.copy(file = result.first, sourceFile = result.second, toneSteps = target, seconds = result.third) else it
+                })
+            }
+            clips.remove(cue.file)
+            _ui.update { it.copy(busy = null) }
+        }
+    }
+
+    fun dismissNotice() = _ui.update { it.copy(notice = null) }
 
     fun stop() {
         if (_ui.value.loaded) NativeEngine.stemPlay(false)
@@ -455,26 +613,29 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun seek(sec: Double) { NativeEngine.stemSeek(sec); _clock.update { it.copy(pos = sec) } }
 
-    /** Mezcla la obra a un WAV y abre el menú de compartir. */
+    /** Mezcla el cuento a un audio y abre el menú de compartir (WhatsApp, guardar, etc.). */
     fun export() {
         val p = _ui.value.current ?: return
-        if (p.cues.isEmpty()) return
-        viewModelScope.launch {
-            val pcm = renderProject(p, "Exportando…")
+        if (p.cues.isEmpty()) { _ui.update { it.copy(notice = "Todavía no hay nada que enviar. Graba tu voz o agrega un sonido primero.") }; return }
+        if (_ui.value.busy != null) return
+        _ui.update { it.copy(busy = "Preparando tu cuento para enviar…" to 0f, error = null) }
+        launchSafe {
+            val pcm = renderProject(p, "Preparando tu cuento para enviar…")
             val f = withContext(Dispatchers.IO) {
-                File(PrincessLibrary.dir(app, p), p.title.replace(Regex("[^A-Za-z0-9áéíóúñÁÉÍÓÚÑ _-]"), "").ifBlank { "obra" } + ".wav")
-                    .also { WavIo.write(it, pcm, 2, DramaRenderer.RATE) }
+                val safe = p.title.replace(Regex("[^A-Za-z0-9 _-]"), "").trim().ifBlank { "cuento" }
+                File(PrincessLibrary.dir(app, p), "$safe.wav").also { WavIo.write(it, pcm, 2, DramaRenderer.RATE) }
             }
-            _ui.update { it.copy(busy = null) }
+            _ui.update { it.copy(busy = null, notice = "Listo. Elige dónde enviarlo, por ejemplo WhatsApp.") }
             val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", f)
             val send = Intent(Intent.ACTION_SEND).setType("audio/wav").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            app.startActivity(Intent.createChooser(send, "Exportar la obra").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            app.startActivity(Intent.createChooser(send, "Enviar mi cuento").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
     }
 
-    fun dismissError() = _ui.update { it.copy(error = null) }
+    fun dismissError() = _ui.update { it.copy(error = null, notice = null) }
 
     override fun onCleared() {
+        flush()
         recorder?.stop()
         if (_ui.value.loaded) NativeEngine.stemPlay(false)
         super.onCleared()
