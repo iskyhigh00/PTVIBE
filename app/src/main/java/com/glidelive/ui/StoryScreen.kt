@@ -246,6 +246,7 @@ private fun StoryEditor(
         )
     }
 
+    androidx.compose.runtime.LaunchedEffect(selectedId) { if (panel == Panel.TONE || panel == Panel.VOLUME) panel = null }
     androidx.activity.compose.BackHandler {
         when {
             panel != null -> panel = null
@@ -258,8 +259,19 @@ private fun StoryEditor(
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             // ── Barra de arriba (sin deslizar: todo a la vista) ──
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = onBack) { Text("← Mis cuentos") }
-                TextButton(onClick = { renaming = true }, modifier = Modifier.weight(1f)) { Text(project.title + "  ✎", fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1) }
+                TextButton(onClick = onBack, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) { Text("← Cuentos", maxLines = 1) }
+                TextButton(onClick = { renaming = true }, modifier = Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) { Text(project.title + " ✎", fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1) }
+                FilledTonalButton(onClick = { vm.undo() }, enabled = u.canUndo && !working, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp)) { Text("↶ Deshacer", fontSize = 14.sp, maxLines = 1) }
+                Button(
+                    onClick = { if (playing) { vm.setCursor(clk.pos); vm.stop() } else vm.playFromSeconds(u.cursor) },
+                    enabled = project.cues.isNotEmpty() && u.busy == null && u.recordingFor == null,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D6E), contentColor = Color.White),
+                    modifier = Modifier.height(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp),
+                ) { Text(if (playing) "■ Parar" else "▶ Escuchar", fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
+                Text(clock(position), fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Button(onClick = { vm.export() }, enabled = project.cues.isNotEmpty() && !working, modifier = Modifier.height(48.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5), contentColor = Color.White),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp)) { Text("📤 Enviar", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
                 var more by remember { mutableStateOf(false) }
                 Box {
                     TextButton(onClick = { more = true }) { Text("Más ▾", fontSize = 15.sp) }
@@ -272,20 +284,6 @@ private fun StoryEditor(
                         onOtherMode?.let { DropdownMenuItem(text = { Text("Cambiar a música (acordes, batería…)") }, onClick = { more = false; it() }) }
                     }
                 }
-            }
-            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilledTonalButton(onClick = { vm.undo() }, enabled = u.canUndo && !working, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp)) { Text("↶ Deshacer", fontSize = 14.sp, maxLines = 1) }
-                Button(
-                    onClick = { if (playing) { vm.setCursor(clk.pos); vm.stop() } else vm.playFromSeconds(u.cursor) },
-                    enabled = project.cues.isNotEmpty() && u.busy == null && u.recordingFor == null,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D6E), contentColor = Color.White),
-                    modifier = Modifier.height(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp),
-                ) { Text(if (playing) "■ Parar" else "▶ Escuchar", fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
-                Text(clock(position), fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Spacer(Modifier.weight(1f))
-                Button(onClick = { vm.export() }, enabled = project.cues.isNotEmpty() && !working, modifier = Modifier.height(48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5), contentColor = Color.White),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp)) { Text("📤 Enviar mi cuento", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
             }
             u.busy?.let { (label, p) ->
                 Text(label, Modifier.padding(horizontal = 12.dp), style = MaterialTheme.typography.labelLarge)
@@ -333,6 +331,8 @@ private fun StoryEditor(
             Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
                 when {
                     u.recordingFor != null -> RecordingBar(u, onStop = { vm.finishRecording(if (u.cursor > 0.05) u.cursor else null) }, onDiscard = { vm.cancelRecording() })
+                    selected != null && panel == Panel.TONE -> InlineTone(selected.cue, onPick = { vm.setTone(selected.cue.id, it) }, onListen = { vm.previewCue(selected.cue.id) }, onDone = { panel = null }, busy = u.busy != null)
+                    selected != null && panel == Panel.VOLUME -> InlineVolume(selected.cue, onSet = { v -> vm.editTimelineCue(selected.cue.id) { c -> c.copy(volume = v) } }, onListen = { vm.previewCue(selected.cue.id) }, onDone = { panel = null })
                     selected != null -> SelectionBar(
                         selected.cue,
                         onCut = { if (playing) { vm.setCursor(clk.pos); vm.stop() }; vm.cutAtCursor(selected.cue.id) },
@@ -359,8 +359,7 @@ private fun StoryEditor(
         when (panel) {
             Panel.SOUNDS -> SoundsSheet(vm, u, onClose = { panel = null }, onPickFile = { panelTypeForImport = CueType.SFX; filePicker.launch(arrayOf("audio/*")) })
             Panel.MUSIC -> MusicSheet(vm, u, onClose = { panel = null }, onPickFile = { panelTypeForImport = CueType.MUSIC; filePicker.launch(arrayOf("audio/*")) })
-            Panel.TONE -> selected?.let { ToneSheet(it.cue, onPick = { steps -> vm.setTone(it.cue.id, steps) }, onClose = { panel = null }, onListen = { vm.previewCue(it.cue.id) }) } ?: run { panel = null }
-            Panel.VOLUME -> selected?.let { VolumeSheet(it.cue, onSet = { v -> vm.editTimelineCue(it.cue.id) { c -> c.copy(volume = v) } }, onClose = { panel = null }) } ?: run { panel = null }
+            Panel.TONE, Panel.VOLUME -> {}
             null -> {}
         }
     }
@@ -399,21 +398,20 @@ private fun RecordingBar(u: PrincessUi, onStop: () -> Unit, onDiscard: () -> Uni
 
 private fun Modifier.size16() = this.then(Modifier.width(16.dp).height(16.dp))
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SelectionBar(cue: Cue, onCut: () -> Unit, onTone: () -> Unit, onVolume: () -> Unit, onListen: () -> Unit, onRemove: () -> Unit, onDone: () -> Unit,
                          canTone: Boolean, busy: Boolean) {
-    Column {
-        Text("«${cue.text.ifBlank { cue.type.label }}» está elegido. Para moverlo, mantén apretado el audio y arrástralo (también a otra línea de voz). Para cortar: toca la regla de arriba donde quieras cortar y luego «✂ Cortar aquí».",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3)
-        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            FilledTonalButton(onClick = onCut, modifier = Modifier.height(52.dp), enabled = !busy && cue.type != CueType.MUSIC) { Text("✂ Cortar aquí", fontSize = 16.sp) }
-            FilledTonalButton(onClick = onTone, modifier = Modifier.height(52.dp), enabled = !busy && canTone) { Text("🎚 Más grave o aguda", fontSize = 16.sp) }
-            FilledTonalButton(onClick = onVolume, modifier = Modifier.height(52.dp), enabled = !busy) { Text("🔉 Volumen", fontSize = 16.sp) }
-            FilledTonalButton(onClick = onListen, modifier = Modifier.height(52.dp), enabled = !busy) { Text("▶ Escuchar solo este", fontSize = 16.sp) }
-            FilledTonalButton(onClick = onRemove, modifier = Modifier.height(52.dp), enabled = !busy) { Text("🗑 Quitar", fontSize = 16.sp) }
-            BigButton("✓ Listo", Color(0xFF2E7D6E), onDone)
-        }
+    val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
+    @Composable fun Btn(text: String, enabled: Boolean, onClick: () -> Unit, modifier: Modifier) =
+        FilledTonalButton(onClick = onClick, modifier = modifier.height(46.dp), enabled = enabled, contentPadding = pad) { Text(text, fontSize = 14.sp, maxLines = 1) }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        Btn("✂ Cortar", !busy && cue.type != CueType.MUSIC, onCut, Modifier.weight(1f))
+        Btn("🎚 Tono", !busy && canTone, onTone, Modifier.weight(1f))
+        Btn("🔉 Volumen", !busy, onVolume, Modifier.weight(1.1f))
+        Btn("▶ Oír", !busy, onListen, Modifier.weight(0.9f))
+        Btn("🗑 Quitar", !busy, onRemove, Modifier.weight(1f))
+        Button(onClick = onDone, modifier = Modifier.height(46.dp).weight(1f), contentPadding = pad,
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D6E), contentColor = Color.White)) { Text("✓ Listo", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
     }
 }
 
@@ -676,5 +674,33 @@ private fun VolumeSheet(cue: Cue, onSet: (Float) -> Unit, onClose: () -> Unit) {
             Row { Text("Más bajito", Modifier.weight(1f)); Text("Más fuerte") }
             Text("Toca «Escuchar» arriba para oír cómo quedó.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
+}
+
+@Composable
+private fun InlineTone(cue: Cue, onPick: (Int) -> Unit, onListen: () -> Unit, onDone: () -> Unit, busy: Boolean) {
+    val labels = listOf(-2 to "Muy grave", -1 to "Grave", 0 to "Normal", 1 to "Aguda", 2 to "Muy aguda")
+    val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        labels.forEach { (steps, label) ->
+            Button(onClick = { onPick(steps) }, enabled = !busy, modifier = Modifier.height(46.dp).weight(1f), contentPadding = pad,
+                colors = if (cue.toneSteps == steps) ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors()) { Text(label, fontSize = 13.sp, maxLines = 1) }
+        }
+        FilledTonalButton(onClick = onListen, enabled = !busy, modifier = Modifier.height(46.dp).weight(0.9f), contentPadding = pad) { Text("▶ Oír", fontSize = 14.sp, maxLines = 1) }
+        Button(onClick = onDone, modifier = Modifier.height(46.dp).weight(1f), contentPadding = pad,
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D6E), contentColor = Color.White)) { Text("✓ Listo", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
+    }
+}
+
+@Composable
+private fun InlineVolume(cue: Cue, onSet: (Float) -> Unit, onListen: () -> Unit, onDone: () -> Unit) {
+    var v by remember(cue.id) { mutableStateOf(cue.volume) }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Bajito", fontSize = 13.sp)
+        Slider(v, { v = it }, valueRange = 0f..1.5f, onValueChangeFinished = { onSet(v) }, modifier = Modifier.weight(1f))
+        Text("Fuerte  ${(v * 100).roundToInt()} %", fontSize = 13.sp)
+        FilledTonalButton(onClick = onListen, modifier = Modifier.height(46.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)) { Text("▶ Oír", fontSize = 14.sp) }
+        Button(onClick = onDone, modifier = Modifier.height(46.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D6E), contentColor = Color.White)) { Text("✓ Listo", fontSize = 15.sp, fontWeight = FontWeight.Bold) }
     }
 }
