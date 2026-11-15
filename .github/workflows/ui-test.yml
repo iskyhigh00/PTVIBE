@@ -1,5 +1,7 @@
 name: ui-test
 on:
+  push:
+    branches: ['ccr-**']
   workflow_dispatch:
 jobs:
   ui:
