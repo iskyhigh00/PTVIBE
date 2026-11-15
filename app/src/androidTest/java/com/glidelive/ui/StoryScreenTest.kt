@@ -47,8 +47,9 @@ class StoryScreenTest {
     }
 
     private fun story(vm: PrincessViewModel) {
-        vm.newProject("Prueba")
-        waitFor("proyecto abierto") { vm.ui.value.current != null }
+        val title = "Prueba ${System.nanoTime()}"
+        vm.newProject(title)
+        waitFor("proyecto abierto") { vm.ui.value.current?.title == title }
         vm.edit { p ->
             p.copy(
                 characters = p.characters + Character("b", "Bruja", 0xFF60A5FA),
@@ -70,10 +71,10 @@ class StoryScreenTest {
         shot("1-inicio")
         story(vm)
         shot("2-cuento")
-        rule.onNodeWithText("Enviar", substring = true).assertIsDisplayed()
+        rule.onNodeWithText("📤 Enviar").assertIsDisplayed()
         rule.onNodeWithText("Escuchar", substring = true).assertIsDisplayed()
         rule.onNodeWithText("Grabar mi voz", substring = true).assertIsDisplayed()
-        rule.onNodeWithText("Música", substring = true).assertIsDisplayed()
+        rule.onNodeWithText("🎵 Música").assertIsDisplayed()
     }
 
     @Test fun moverManteniendoApretado() {
