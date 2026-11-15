@@ -436,7 +436,7 @@ private fun StoryTimeline(
             }
         }
         Column(Modifier.weight(1f).horizontalScroll(hScroll)) {
-            Box(Modifier.width(widthDp.dp).height(26.dp).pointerInput(scale, enabled) { detectTapGestures { at -> if (enabled) onCursor(at.x / density / scale) } }) {
+            Box(Modifier.width(widthDp.dp).height(26.dp).pointerInput(scale, enabled) { detectTapGestures { at -> if (enabled) onCursor((at.x / density / scale).toDouble()) } }) {
                 val step = when { scale >= 60 -> 1; scale >= 24 -> 5; else -> 10 }
                 for (s in 0..duration.toInt() step step) Text(clock(s.toDouble()), Modifier.offset(x = (s * scale).dp), fontSize = 11.sp)
             }
@@ -445,7 +445,7 @@ private fun StoryTimeline(
                     packRows(lane.clips).ifEmpty { listOf(emptyList()) }.forEach { row ->
                         Box(
                             Modifier.width(widthDp.dp).height(56.dp).border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
-                                .pointerInput(scale, enabled) { detectTapGestures { at -> if (enabled) { onCursor(at.x / density / scale); onSelect(null) } } },
+                                .pointerInput(scale, enabled) { detectTapGestures { at -> if (enabled) { onCursor((at.x / density / scale).toDouble()); onSelect(null) } } },
                         ) {
                             Canvas(Modifier.fillMaxSize()) {
                                 val x = (position * scale * density).toFloat()
