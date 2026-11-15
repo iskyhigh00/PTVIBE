@@ -39,9 +39,16 @@ class StoryScreenTest {
         assertTrue("Tiempo agotado: $what", cond())
     }
 
-    private fun prepare(): PrincessViewModel {
+    private fun prepare(fontScale: Float = 1f): PrincessViewModel {
         val vm = vm()
-        rule.setContent { AppTheme { Box(Modifier.fillMaxSize()) { StoryScreen(vm, Modifier.fillMaxSize(), onNarrate = {}) } } }
+        rule.setContent {
+            AppTheme {
+                val d = androidx.compose.ui.platform.LocalDensity.current
+                androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density, fontScale)) {
+                    Box(Modifier.fillMaxSize()) { StoryScreen(vm, Modifier.fillMaxSize(), onNarrate = {}) }
+                }
+            }
+        }
         rule.waitForIdle()
         return vm
     }
@@ -138,5 +145,46 @@ class StoryScreenTest {
         vm.setCursor(4.0)
         rule.onNodeWithText("Cortar", substring = true).performClick()
         waitFor("se cortó") { vm.ui.value.current!!.cues.count { it.type == CueType.VOICE } == 2 }
+    }
+
+    private fun insideRoot(label: String) {
+        val root = rule.onRoot().fetchSemanticsNode().boundsInRoot
+        val b = rule.onNodeWithText(label).fetchSemanticsNode().boundsInRoot
+        assertTrue("$label se sale de la pantalla: $b vs $root", b.left >= root.left - 1 && b.right <= root.right + 1 && b.top >= root.top - 1 && b.bottom <= root.bottom + 1)
+    }
+
+    @Test fun nadaSeSaleConLetraGrande() {
+        val vm = prepare(1.3f); story(vm)
+        for (t in listOf("📤 Enviar", "▶ Escuchar", "↶ Deshacer", "Más ▾", "● Grabar mi voz", "🔊 Sonido", "🎵 Música")) insideRoot(t)
+        rule.onNodeWithText("Gato").performClick(); rule.waitForIdle()
+        for (t in listOf("✂ Cortar", "🎚 Tono", "🔉 Volumen", "▶ Oír", "🗑 Quitar", "✓ Listo")) insideRoot(t)
+        shot("8-letra-grande")
+    }
+
+    @Test fun lineaDeTiempoNoQuedaTapada() {
+        val vm = prepare(); story(vm)
+        rule.onNodeWithText("Gato").performClick(); rule.waitForIdle()
+        val gato = rule.onNodeWithText("Gato").fetchSemanticsNode().boundsInRoot
+        val bar = rule.onNodeWithText("🗑 Quitar").fetchSemanticsNode().boundsInRoot
+        val root = rule.onRoot().fetchSemanticsNode().boundsInRoot
+        assertTrue("el audio elegido queda tapado por los botones: $gato / $bar", gato.bottom <= bar.top + 1)
+        assertTrue("la línea de tiempo es muy chica: ${gato.height}", gato.height > 40f && root.height > 0f)
+        rule.onNodeWithText("Tono", substring = true).performClick(); rule.waitForIdle()
+        val gato2 = rule.onNodeWithText("Gato").fetchSemanticsNode().boundsInRoot
+        val normal = rule.onNodeWithText("Normal").fetchSemanticsNode().boundsInRoot
+        assertTrue("el tono tapa el audio: $gato2 / $normal", gato2.bottom <= normal.top + 1)
+    }
+
+    @Test fun moverDosVeces() {
+        val vm = prepare(); story(vm)
+        fun drag() = rule.onNodeWithText("Gato").performTouchInput {
+            down(center); advanceEventTime(700); moveBy(androidx.compose.ui.geometry.Offset(100f, 0f)); advanceEventTime(100); moveBy(androidx.compose.ui.geometry.Offset(100f, 0f)); up()
+        }
+        val a = cue(vm, "s1").startSeconds!!
+        drag(); waitFor("1.er movimiento") { cue(vm, "s1").startSeconds != a }
+        val b = cue(vm, "s1").startSeconds!!
+        rule.waitForIdle()
+        drag(); waitFor("2.º movimiento") { cue(vm, "s1").startSeconds != b }
+        assertTrue(cue(vm, "s1").startSeconds!! > b)
     }
 }
