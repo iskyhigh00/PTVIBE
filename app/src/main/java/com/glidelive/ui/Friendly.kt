@@ -8,6 +8,6 @@ object Friendly {
             "No hay conexión a internet. Revisa el WiFi y vuelve a intentar."
         t is java.io.IOException && (t.message ?: "").contains("ENOSPC", true) -> "No queda espacio en el teléfono. Borra algo y vuelve a intentar."
         t is SecurityException -> "La app no tiene permiso para hacer eso."
-        else -> "Algo salió mal. Vuelve a intentarlo; tu cuento está guardado."
+        else -> "Algo salió mal. Vuelve a intentarlo."
     }
 }

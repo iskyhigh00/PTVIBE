@@ -10,7 +10,8 @@ import java.nio.ByteOrder
 /** Escribe un M4A (AAC, ~128 kbps) por partes: un cuento de 10 minutos pesa ~10 MB en vez de ~100 MB y se manda bien por WhatsApp. */
 class AacWriter(file: File, private val rate: Int = 44100, private val channels: Int = 2, bitrate: Int = 128_000) : java.io.Closeable {
     private val codec: MediaCodec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
-    private val muxer = MediaMuxer(file.path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+    private val muxer: MediaMuxer = try { MediaMuxer(file.path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4) } catch (t: Throwable) { codec.release(); throw t }
+    private var sawEnd = false
     private val info = MediaCodec.BufferInfo()
     private var track = -1
     private var started = false
@@ -22,8 +23,7 @@ class AacWriter(file: File, private val rate: Int = 44100, private val channels:
             setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
             setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 1 shl 16)
         }
-        codec.configure(fmt, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-        codec.start()
+        try { codec.configure(fmt, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE); codec.start() } catch (t: Throwable) { codec.release(); muxer.release(); throw t }
     }
 
     /** Agrega [count] muestras (no cuadros) intercaladas de [pcm]. */
@@ -59,20 +59,28 @@ class AacWriter(file: File, private val rate: Int = 44100, private val channels:
                         muxer.writeSampleData(track, b, info)
                     }
                     codec.releaseOutputBuffer(out, false)
-                    if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) return
+                    if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) { sawEnd = true; return }
                 }
             }
         }
     }
 
+    /** Cierra el archivo. Lanza un error si el M4A no quedó completo (para que quien lo usa pueda caer al WAV). */
     override fun close() {
+        var failure: Throwable? = null
         try {
-            val idx = codec.dequeueInputBuffer(1_000_000)
-            if (idx >= 0) codec.queueInputBuffer(idx, 0, 0, frames * 1_000_000L / rate, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+            val idx = codec.dequeueInputBuffer(5_000_000)
+            if (idx < 0) throw java.io.IOException("El codificador no aceptó el final del audio")
+            codec.queueInputBuffer(idx, 0, 0, frames * 1_000_000L / rate, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
             drain(true)
+            if (!sawEnd || !started) throw java.io.IOException("El M4A quedó incompleto")
+        } catch (t: Throwable) {
+            failure = t
         } finally {
             runCatching { codec.stop() }; runCatching { codec.release() }
-            runCatching { if (started) muxer.stop() }; runCatching { muxer.release() }
+            try { if (started) muxer.stop() } catch (t: Throwable) { if (failure == null) failure = t }
+            runCatching { muxer.release() }
         }
+        failure?.let { throw it }
     }
 }

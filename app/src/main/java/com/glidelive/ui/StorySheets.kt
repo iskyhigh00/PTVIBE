@@ -155,7 +155,7 @@ internal fun SoundTile(icon: String, label: String, onListen: () -> Unit, onAdd:
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(icon, fontSize = 34.sp)
-        Text(label, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, textAlign = TextAlign.Center)
+        Text(label, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, textAlign = TextAlign.Center)
         TextButton(onClick = onListen, modifier = Modifier.height(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("▶ Oír", fontSize = 16.sp) }
     }
 }
@@ -199,7 +199,7 @@ internal fun InlineTone(cue: Cue, onPick: (Int) -> Unit, onListen: () -> Unit, o
             Button(onClick = { onPick(steps) }, enabled = !busy, modifier = Modifier.height(48.dp).weight(1f), contentPadding = pad,
                 colors = if (cue.toneSteps == steps) ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors()) { Text(label, fontSize = 15.sp, maxLines = 1) }
         }
-        FilledTonalButton(onClick = onListen, enabled = !busy, modifier = Modifier.height(48.dp).weight(0.9f), contentPadding = pad) { Text("▶ Oír", fontSize = 14.sp, maxLines = 1) }
+        FilledTonalButton(onClick = onListen, enabled = !busy, modifier = Modifier.height(48.dp).weight(0.9f), contentPadding = pad) { Text("▶ Oír", fontSize = 15.sp, maxLines = 1) }
         Button(onClick = onDone, modifier = Modifier.height(48.dp).weight(1f), contentPadding = pad,
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D6E), contentColor = Color.White)) { Text("✓ Listo", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
     }
@@ -212,14 +212,14 @@ internal fun InlineVolume(cue: Cue, onSet: (Float) -> Unit, onListen: () -> Unit
         Text("Bajito", fontSize = 15.sp)
         Slider(v, { v = it }, valueRange = 0f..1.5f, onValueChangeFinished = { onSet(v) }, modifier = Modifier.weight(1f))
         Text("Fuerte  ${(v * 100).roundToInt()} %", fontSize = 15.sp)
-        FilledTonalButton(onClick = onListen, modifier = Modifier.height(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)) { Text("▶ Oír", fontSize = 14.sp) }
+        FilledTonalButton(onClick = onListen, modifier = Modifier.height(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)) { Text("▶ Oír", fontSize = 15.sp) }
         Button(onClick = onDone, modifier = Modifier.height(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D6E), contentColor = Color.White)) { Text("✓ Listo", fontSize = 15.sp, fontWeight = FontWeight.Bold) }
     }
 }
 
 @Composable
-internal fun InlineMove(cue: Cue, start: Double, onMove: (Double) -> Unit, onDone: () -> Unit) {
+internal fun InlineMove(cue: Cue, start: Double, onMove: (Double) -> Unit, onDone: () -> Unit, onVoice: ((Int) -> Unit)? = null) {
     val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
     @Composable fun Step(label: String, delta: Double, modifier: Modifier) =
         FilledTonalButton(onClick = { onMove(delta) }, modifier = modifier.height(48.dp), contentPadding = pad) { Text(label, fontSize = 16.sp, maxLines = 1) }
@@ -229,6 +229,10 @@ internal fun InlineMove(cue: Cue, start: Double, onMove: (Double) -> Unit, onDon
         Text("Empieza en ${clock(start)}", Modifier.weight(1.3f), fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, textAlign = TextAlign.Center)
         Step("1 s ▶", 1.0, Modifier.weight(1f))
         Step("5 s ▶▶", 5.0, Modifier.weight(1f))
+        if (onVoice != null) {
+            FilledTonalButton(onClick = { onVoice(-1) }, modifier = Modifier.height(48.dp).weight(0.8f), contentPadding = pad) { Text("▲ Voz", fontSize = 15.sp, maxLines = 1) }
+            FilledTonalButton(onClick = { onVoice(1) }, modifier = Modifier.height(48.dp).weight(0.8f), contentPadding = pad) { Text("▼ Voz", fontSize = 15.sp, maxLines = 1) }
+        }
         Button(onClick = onDone, modifier = Modifier.height(48.dp).weight(1f), contentPadding = pad,
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D6E), contentColor = Color.White)) { Text("✓ Listo", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
     }

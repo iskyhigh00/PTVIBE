@@ -309,6 +309,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun open(p: Project) {
+        if (recorder != null) finishRecording()   // una grabación en curso se guarda en el cuento donde empezó
         stop(); synchronized(clips) { clips.clear() }; places = emptyList(); history.clear(); previewing = false
         viewModelScope.launch(projectWrites + safety) { PrincessLibrary.cleanup(app, p) }
         prefs.edit().putString("princess_last", p.id).apply()
@@ -691,15 +692,17 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
 
     /** Mezcla el cuento por bloques y lo deja en un archivo M4A (si el teléfono no puede, en WAV). */
     suspend fun renderExport(p: Project, label: String = "Preparando tu cuento para enviar…"): File = withContext(Dispatchers.Default) {
-        val safe = "Cuento " + p.title.replace(Regex("[^\\p{L}\\p{N} _-]"), "").trim().ifBlank { "sin nombre" }
+        val safe = "Cuento " + p.title.replace(Regex("[^\\p{L}\\p{N} _-]"), "").trim().take(60).ifBlank { "sin nombre" }
         val dir = PrincessLibrary.dir(app, p)
         val progress = { pr: Float -> _ui.update { it.copy(busy = label to pr) } }
         val part = File(dir, "export.part")
+        dir.listFiles()?.filter { it.isFile && it.name.startsWith("Cuento ") && (it.extension == "m4a" || it.extension == "wav") }?.forEach { it.delete() }   // envíos anteriores
         try {
             val m4a = runCatching {
                 AacWriter(part).use { w -> DramaRenderer.renderTo(p, { clipOf(p, it) }, progress) { block, _, n -> w.write(block, n * 2) } }
                 File(dir, "$safe.m4a").also { if (!part.renameTo(it)) part.copyTo(it, overwrite = true) }
             }
+            m4a.exceptionOrNull()?.let { if (it is kotlinx.coroutines.CancellationException || it is OutOfMemoryError) throw it }
             m4a.getOrNull() ?: run {
                 WavIo.Writer(part, 2, DramaRenderer.RATE).use { w -> DramaRenderer.renderTo(p, { clipOf(p, it) }, progress) { block, _, n -> w.write(block, n * 2) } }
                 File(dir, "$safe.wav").also { if (!part.renameTo(it)) part.copyTo(it, overwrite = true) }
@@ -716,8 +719,8 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         val gen = leaveGen
         launchSafe {
             val f = renderExport(p)
+            if (gen != leaveGen) { _ui.update { it.copy(busy = null) }; return@launchSafe }
             _ui.update { it.copy(busy = null, notice = "Listo. Elige dónde enviarlo, por ejemplo WhatsApp.") }
-            if (gen != leaveGen) return@launchSafe
             val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", f)
             val send = Intent(Intent.ACTION_SEND).setType(if (f.extension == "m4a") "audio/mp4" else "audio/wav").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             app.startActivity(Intent.createChooser(send, "Enviar mi cuento").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))

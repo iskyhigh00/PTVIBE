@@ -11,8 +11,8 @@ class FriendlyTest {
         assertTrue(Friendly.message(SecurityException()).contains("permiso"))
     }
 
-    @Test fun anythingElseReassuresThatTheStoryIsSaved() {
-        assertTrue(Friendly.message(IllegalStateException("x")).contains("guardado"))
+    @Test fun anythingElseAsksToTryAgain() {
+        assertTrue(Friendly.message(IllegalStateException("x")).contains("intentarlo"))
     }
 
     @Test fun messagesNeverMentionRemovedButtons() {

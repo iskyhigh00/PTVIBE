@@ -214,8 +214,7 @@ class StemsViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun close() {
         stop()
-        NativeEngine.replicaMask(0)
-        NativeEngine.stemClear()
+        if (!PlayerOwner.story) { NativeEngine.replicaMask(0); NativeEngine.stemClear() }
         _ui.update { it.copy(current = null, loading = null) }
         _clock.value = StemClock()
     }
@@ -236,7 +235,7 @@ class StemsViewModel(private val app: Application) : AndroidViewModel(app) {
         _clock.update { it.copy(playing = true) }
     }
     fun stop() {
-        NativeEngine.stemPlay(false)
+        if (!PlayerOwner.story) NativeEngine.stemPlay(false)
         _clock.update { it.copy(playing = false) }
     }
     fun seek(sec: Double) { NativeEngine.stemSeek(sec); _clock.update { it.copy(pos = sec) } }
@@ -332,7 +331,7 @@ class StemsViewModel(private val app: Application) : AndroidViewModel(app) {
     fun dismissError() = _ui.update { it.copy(error = null, notice = null) }
 
     override fun onCleared() {
-        NativeEngine.stemPlay(false)
+        if (!PlayerOwner.story) NativeEngine.stemPlay(false)
         super.onCleared()
     }
 
