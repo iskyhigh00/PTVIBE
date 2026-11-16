@@ -27,6 +27,35 @@ object WavIo {
         }
     }
 
+    /** Escribe un WAV por partes (sin tener todo el audio en memoria). Llamar a [close] al terminar. */
+    class Writer(file: File, private val channels: Int, private val rate: Int) : java.io.Closeable {
+        private val raf = RandomAccessFile(file, "rw").also { it.setLength(0) }
+        private var bytes = 0L
+        private val buf = ByteArray(1 shl 16)
+        init { header(0) }
+        private fun le32(v: Long) = byteArrayOf(v.toByte(), (v shr 8).toByte(), (v shr 16).toByte(), (v shr 24).toByte())
+        private fun le16(v: Int) = byteArrayOf(v.toByte(), (v shr 8).toByte())
+        private fun header(dataBytes: Long) {
+            raf.seek(0)
+            raf.write("RIFF".toByteArray()); raf.write(le32(36 + dataBytes)); raf.write("WAVE".toByteArray())
+            raf.write("fmt ".toByteArray()); raf.write(le32(16)); raf.write(le16(1)); raf.write(le16(channels))
+            raf.write(le32(rate.toLong())); raf.write(le32(rate.toLong() * channels * 2)); raf.write(le16(channels * 2)); raf.write(le16(16))
+            raf.write("data".toByteArray()); raf.write(le32(dataBytes))
+        }
+        /** Agrega [count] muestras (no cuadros) de [pcm]. */
+        fun write(pcm: ShortArray, count: Int = pcm.size) {
+            var i = 0
+            while (i < count) {
+                val n = minOf(buf.size / 2, count - i)
+                for (k in 0 until n) { val v = pcm[i + k].toInt(); buf[2 * k] = v.toByte(); buf[2 * k + 1] = (v shr 8).toByte() }
+                raf.write(buf, 0, n * 2)
+                i += n
+            }
+            bytes += count * 2L
+        }
+        override fun close() { try { header(bytes) } finally { raf.close() } }
+    }
+
     /** Lee un WAV PCM 16 bit; null si el archivo es de otro tipo (entonces se usa el decodificador del sistema). */
     fun read(file: File): Decoded? = runCatching {
         val b = file.readBytes()

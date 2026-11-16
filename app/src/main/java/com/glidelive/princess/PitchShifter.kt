@@ -40,8 +40,8 @@ object PitchShifter {
         val hop = window / 2
         if (input.size < window * 2) return input.copyOf(targetLength)
         val length = targetLength
-        val sums = DoubleArray(length + window)
-        val weights = DoubleArray(sums.size)
+        val sums = FloatArray(length + window)
+        val weights = FloatArray(sums.size)
         val search = rate / 200
         var destination = 0
         while (destination < length) {
@@ -53,7 +53,7 @@ object PitchShifter {
                     var dot = 0.0; var ea = 1.0; var eb = 1.0
                     for (i in 0 until hop step 4) {
                         val w = weights[destination + i]
-                        val a = if (w > 0) sums[destination + i] / w else 0.0
+                        val a = if (w > 0) (sums[destination + i] / w).toDouble() else 0.0
                         val b = input[candidate + i].toDouble()
                         dot += a * b; ea += a * a; eb += b * b
                     }
@@ -63,11 +63,11 @@ object PitchShifter {
             }
             for (i in 0 until window) {
                 val w = 0.5 - 0.5 * cos(2 * PI * (i + 0.5) / window)
-                sums[destination + i] += input[best + i] * w
-                weights[destination + i] += w
+                sums[destination + i] += (input[best + i] * w).toFloat()
+                weights[destination + i] += w.toFloat()
             }
             destination += hop
         }
-        return ShortArray(length) { i -> (sums[i] / max(weights[i], 1e-9)).roundToInt().coerceIn(-32768, 32767).toShort() }
+        return ShortArray(length) { i -> (sums[i] / max(weights[i], 1e-9f)).roundToInt().coerceIn(-32768, 32767).toShort() }
     }
 }

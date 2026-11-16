@@ -82,7 +82,7 @@ object DramaRenderer {
         val positions = layout(p).associateBy { it.index }
         return p.copy(cues = p.cues.mapIndexed { i, cue ->
             val place = positions.getValue(i)
-            cue.copy(startSeconds = place.start.toFloat(), durationSeconds = if (cue.mode == CueMode.BED)
+            cue.copy(startSeconds = place.start.toFloat(), durationSeconds = if (cue.mode == CueMode.BED && cue.span > 0)
                 (place.end - place.start).toFloat().takeIf { it > 0f } ?: cue.seconds else cue.durationSeconds)
         })
     }
@@ -107,72 +107,114 @@ object DramaRenderer {
         return env
     }
 
+    private const val BLOCK = RATE * 10   // la mezcla se arma de a 10 s: la memoria no crece con el largo del cuento
+
+    /** Total de cuadros de la mezcla (incluye medio segundo de cola). */
+    fun frameCount(p: Project): Int = ((layout(p).maxOfOrNull { it.end } ?: 0.0) * RATE).toInt() + RATE / 2
+
     /**
      * Mezcla la obra. [clipOf] entrega el audio de cada pista (null = sin archivo). Devuelve PCM 16 bit estéreo intercalado a 44,1 kHz.
      * [progress] recibe 0..1.
      */
     fun render(p: Project, clipOf: (Cue) -> Clip?, progress: (Float) -> Unit = {}): ShortArray {
+        val frames = frameCount(p)
+        val out = ShortArray(frames * 2)
+        renderTo(p, clipOf, progress) { block, from, n -> System.arraycopy(block, 0, out, from * 2, n * 2) }
+        return out
+    }
+
+    /** Igual que [render], pero entrega la mezcla por bloques (intercalado L/R, [count] cuadros desde [from]) sin juntarla toda en memoria. */
+    fun renderTo(p: Project, clipOf: (Cue) -> Clip?, progress: (Float) -> Unit = {}, sink: (ShortArray, Int, Int) -> Unit) {
         val places = layout(p)
         val total = places.maxOfOrNull { it.end } ?: 0.0
-        val frames = (total * RATE).toInt() + RATE / 2  // medio segundo de cola
-        val mixL = FloatArray(frames)
-        val mixR = FloatArray(frames)
+        val frames = (total * RATE).toInt() + RATE / 2
         val duck = if (p.duckMusic) duckEnvelope(places, total) else null
-
-        for ((n, pl) in places.withIndex()) {
+        val gains = HashMap<String, Float>()
+        val clips = HashMap<String, Clip?>()
+        fun clip(c: Cue): Clip? = clips.getOrPut(c.id) { clipOf(c) }
+        for (pl in places) {
             val c = pl.cue
             if (c.type == CueType.SILENCE || c.muted) continue
-            val clip = clipOf(c) ?: continue
-            if (clip.frames < 2) continue
-            val ch = if (c.type == CueType.VOICE) p.characters.firstOrNull { it.id == c.characterId } else null
-            val pitch = pitchOf(p, c)
-            val step = clip.rate * pitchFactor(pitch) / RATE          // muestras de origen por muestra de salida
-            val startF = (pl.start * RATE).toInt()
-            val endF = min(frames, (pl.end * RATE).toInt())
-            val loop = c.mode == CueMode.BED || c.loop
-            val gain = c.volume * (ch?.volume ?: 1f) * (if (c.type == CueType.VOICE && p.normalizeVoices) voiceGain(clip) else 1f)
-            val pan = ch?.pan ?: 0f
-            val gl = gain * min(1f, 1f - pan); val gr = gain * min(1f, 1f + pan)
-            val fadeInF = (c.fadeIn * RATE).toInt(); val fadeOutF = (c.fadeOut * RATE).toInt()
-            val len = endF - startF
-            val sourceStart = min((c.trimStart * clip.rate).toInt().coerceAtLeast(0), clip.frames - 1)
-            val sourceFrames = clip.frames - sourceStart
-            var pos = 0.0
-            for (i in 0 until len) {
-                var sp = pos
-                if (loop) sp %= sourceFrames.toDouble() else if (sp >= sourceFrames - 1) break
-                sp += sourceStart
-                val i0 = sp.toInt()
-                val i1 = if (i0 + 1 < clip.frames) i0 + 1 else if (loop) sourceStart else i0
-                val f = (sp - i0).toFloat()
-                val l: Float; val r: Float
-                if (clip.channels >= 2) {
-                    l = clip.pcm[i0 * clip.channels] + (clip.pcm[i1 * clip.channels] - clip.pcm[i0 * clip.channels]) * f
-                    r = clip.pcm[i0 * clip.channels + 1] + (clip.pcm[i1 * clip.channels + 1] - clip.pcm[i0 * clip.channels + 1]) * f
-                } else {
-                    l = clip.pcm[i0] + (clip.pcm[i1] - clip.pcm[i0]) * f; r = l
-                }
-                var e = 1f
-                if (fadeInF > 0 && i < fadeInF) e = i.toFloat() / fadeInF
-                if (fadeOutF > 0 && len - i < fadeOutF) e = min(e, (len - i).toFloat() / fadeOutF)
-                if (c.type == CueType.MUSIC && duck != null) e *= duck[min(duck.size - 1, (startF + i) / (RATE / 100))]
-                val o = startF + i
-                mixL[o] += l * (1f / 32768f) * gl * e
-                mixR[o] += r * (1f / 32768f) * gr * e
-                pos += step
-            }
-            progress((n + 1f) / places.size)
+            val clip = clip(c) ?: continue
+            if (c.type == CueType.VOICE && p.normalizeVoices) gains[c.id] = voiceGain(clip)
         }
-        // Limitador: si la suma pasa de 1, se baja todo parejo (sin recortar).
+        val mixL = FloatArray(minOf(BLOCK, maxOf(frames, 1)))
+        val mixR = FloatArray(mixL.size)
+        val pcm = ShortArray(mixL.size * 2)
+        // Pasada 1: el pico global (para bajar todo parejo si se pasa). Pasada 2: la mezcla ya ajustada.
         var peak = 0f
-        for (i in 0 until frames) peak = max(peak, max(abs(mixL[i]), abs(mixR[i])))
-        val scale = if (peak > 0.98f) 0.98f / peak else 1f
-        val out = ShortArray(frames * 2)
-        for (i in 0 until frames) {
-            out[2 * i] = (mixL[i] * scale * 32767f).toInt().coerceIn(-32768, 32767).toShort()
-            out[2 * i + 1] = (mixR[i] * scale * 32767f).toInt().coerceIn(-32768, 32767).toShort()
+        for (pass in 0..1) {
+            val scale = if (pass == 1 && peak > 0.98f) 0.98f / peak else 1f
+            var from = 0
+            while (from < frames) {
+                val n = minOf(mixL.size, frames - from)
+                java.util.Arrays.fill(mixL, 0, n, 0f); java.util.Arrays.fill(mixR, 0, n, 0f)
+                for (pl in places) {
+                    val c = pl.cue
+                    if (c.type == CueType.SILENCE || c.muted) continue
+                    val startF = (pl.start * RATE).toInt()
+                    val endF = min(frames, (pl.end * RATE).toInt())
+                    if (endF <= from || startF >= from + n) continue
+                    val clip = clip(c) ?: continue
+                    if (clip.frames < 2) continue
+                    mixInto(p, c, clip, startF, endF, from, n, gains[c.id] ?: 1f, duck, mixL, mixR)
+                }
+                if (pass == 0) {
+                    for (i in 0 until n) peak = max(peak, max(abs(mixL[i]), abs(mixR[i])))
+                } else {
+                    for (i in 0 until n) {
+                        pcm[2 * i] = (mixL[i] * scale * 32767f).toInt().coerceIn(-32768, 32767).toShort()
+                        pcm[2 * i + 1] = (mixR[i] * scale * 32767f).toInt().coerceIn(-32768, 32767).toShort()
+                    }
+                    sink(pcm, from, n)
+                }
+                from += n
+                progress(((pass * frames + from).toFloat() / (2f * frames)).coerceIn(0f, 1f))
+            }
         }
-        return out
+    }
+
+    private fun mixInto(
+        p: Project, c: Cue, clip: Clip, startF: Int, endF: Int, from: Int, n: Int, voiceNorm: Float, duck: FloatArray?,
+        mixL: FloatArray, mixR: FloatArray,
+    ) {
+        val ch = if (c.type == CueType.VOICE) p.characters.firstOrNull { it.id == c.characterId } else null
+        val pitch = pitchOf(p, c)
+        val step = clip.rate * pitchFactor(pitch) / RATE          // muestras de origen por muestra de salida
+        val loop = c.mode == CueMode.BED || c.loop
+        val gain = c.volume * (ch?.volume ?: 1f) * voiceNorm
+        val pan = ch?.pan ?: 0f
+        val gl = gain * min(1f, 1f - pan); val gr = gain * min(1f, 1f + pan)
+        val fadeInF = (c.fadeIn * RATE).toInt(); val fadeOutF = (c.fadeOut * RATE).toInt()
+        val len = endF - startF
+        val sourceStart = min((c.trimStart * clip.rate).toInt().coerceAtLeast(0), clip.frames - 1)
+        val sourceFrames = clip.frames - sourceStart
+        val first = max(0, from - startF)
+        val last = min(len, from + n - startF)
+        var pos = first * step
+        for (i in first until last) {
+            var sp = pos
+            if (loop) sp %= sourceFrames.toDouble() else if (sp >= sourceFrames - 1) break
+            sp += sourceStart
+            val i0 = sp.toInt()
+            val i1 = if (i0 + 1 < clip.frames) i0 + 1 else if (loop) sourceStart else i0
+            val f = (sp - i0).toFloat()
+            val l: Float; val r: Float
+            if (clip.channels >= 2) {
+                l = clip.pcm[i0 * clip.channels] + (clip.pcm[i1 * clip.channels] - clip.pcm[i0 * clip.channels]) * f
+                r = clip.pcm[i0 * clip.channels + 1] + (clip.pcm[i1 * clip.channels + 1] - clip.pcm[i0 * clip.channels + 1]) * f
+            } else {
+                l = clip.pcm[i0] + (clip.pcm[i1] - clip.pcm[i0]) * f; r = l
+            }
+            var e = 1f
+            if (fadeInF > 0 && i < fadeInF) e = i.toFloat() / fadeInF
+            if (fadeOutF > 0 && len - i < fadeOutF) e = min(e, (len - i).toFloat() / fadeOutF)
+            if (c.type == CueType.MUSIC && duck != null) e *= duck[min(duck.size - 1, (startF + i) / (RATE / 100))]
+            val o = startF + i - from
+            mixL[o] += l * (1f / 32768f) * gl * e
+            mixR[o] += r * (1f / 32768f) * gr * e
+            pos += step
+        }
     }
 
     /** Ganancia para llevar el pico de una voz a ~0,7 (sin subir más de 8 veces ni bajar de 0,25). */

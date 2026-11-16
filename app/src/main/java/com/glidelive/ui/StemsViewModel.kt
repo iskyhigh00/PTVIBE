@@ -127,6 +127,7 @@ class StemsViewModel(private val app: Application) : AndroidViewModel(app) {
                     }
                 }
                 r.onSuccess { d ->
+                    PlayerOwner.story = false
                     NativeEngine.stemLoad(i, d.pcm, d.channels, d.rate)
                     NativeEngine.stemTrack(i, t.volume, t.pan, t.mute, t.solo)
                 }

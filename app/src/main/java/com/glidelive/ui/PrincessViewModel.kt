@@ -126,6 +126,11 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         }
         viewModelScope.launch(Dispatchers.Default) {
             while (isActive) {
+                if (_ui.value.loaded && !PlayerOwner.story) {   // Pistas se quedó con el reproductor
+                    previewing = false
+                    _clock.value = StemClock()
+                    _ui.update { it.copy(loaded = false, playingCue = -1) }
+                }
                 if (_ui.value.loaded) {
                     val s = NativeEngine.stemStatus()
                     val c = StemClock(s[0], s[1], s[2] > 0.5)
@@ -200,10 +205,14 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
 
     /** Guarda una captura (de cualquier pestaña) como sonido propio. */
     fun saveCaptured(wav: File, name: String) {
-        viewModelScope.launch(Dispatchers.IO) { com.glidelive.princess.SoundStore.addMine(app, wav, name); refreshSounds() }
+        viewModelScope.launch(Dispatchers.IO + safety) {
+            val r = com.glidelive.princess.SoundStore.addMine(app, wav, name)
+            if (r == null) _ui.update { it.copy(error = "No pude guardar ese sonido. Revisa que quede espacio en el teléfono.") }
+            refreshSounds()
+        }
     }
 
-    fun deleteMine(id: String) { viewModelScope.launch(Dispatchers.IO) { com.glidelive.princess.SoundStore.deleteMine(app, id); refreshSounds() } }
+    fun deleteMine(id: String) { viewModelScope.launch(Dispatchers.IO + safety) { com.glidelive.princess.SoundStore.deleteMine(app, id); refreshSounds() } }
 
     /** Un clip cualquiera de [category], alternando para que no suene siempre el mismo. */
     fun clipFor(category: String): File? {
@@ -271,9 +280,12 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     /** Escucha un archivo del pack sin agregarlo. */
     fun previewFile(file: File) = launchSafe {
         stop()
+        val gen = leaveGen
         val d = withContext(Dispatchers.IO) { runCatching { AudioDecoder.decode(file) }.getOrNull() } ?: return@launchSafe
+        if (gen != leaveGen) return@launchSafe
         previewing = true
         beforePlay()
+        PlayerOwner.story = true
         NativeEngine.replicaMask(0)
         NativeEngine.stemClear()
         NativeEngine.stemLoad(0, d.pcm, d.channels, d.rate)
@@ -288,7 +300,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
 
     // ---- obras ----
     fun newProject(title: String) {
-        viewModelScope.launch(projectWrites) {
+        viewModelScope.launch(projectWrites + safety) {
             val p = PrincessLibrary.create(app, title)
             _ui.update { it.copy(projects = listOf(p) + it.projects) }
             open(p)
@@ -297,6 +309,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun open(p: Project) {
         stop(); synchronized(clips) { clips.clear() }; places = emptyList(); history.clear(); previewing = false
+        viewModelScope.launch(projectWrites + safety) { PrincessLibrary.cleanup(app, p) }
         prefs.edit().putString("princess_last", p.id).apply()
         _ui.update { it.copy(current = p, loaded = false, playingCue = -1, error = null, cursor = 0.0, canUndo = false, canRedo = false) }
     }
@@ -449,8 +462,9 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     /** Trae un archivo de audio: [type] voz (del personaje [characterId]), música de fondo o efecto. */
     fun importAudio(uri: Uri, type: CueType, characterId: String?) {
         val p = _ui.value.current ?: return
+        if (_ui.value.busy != null) return
+        _ui.update { it.copy(busy = "Importando…" to 0f, error = null) }
         launchSafe {
-            _ui.update { it.copy(busy = "Importando…" to 0f, error = null) }
             val r = withContext(Dispatchers.IO) {
                 runCatching {
                     val name = StemLibrary.displayName(app, uri)
@@ -476,8 +490,11 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     // ---- grabar voces ----
-    fun startRecording(characterId: String): Boolean {
+    private var recordAt: Double? = null
+
+    fun startRecording(characterId: String, atSeconds: Double? = null): Boolean {
         if (recorder != null) return false
+        recordAt = atSeconds
         stop()
         val rec = MicRecorder { lvl -> _ui.update { it.copy(recLevel = lvl, recSeconds = recorder?.seconds ?: it.recSeconds) } }
         recorder = rec
@@ -487,6 +504,11 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
             return false
         }
         _ui.update { it.copy(recordingFor = characterId, recSeconds = 0f, recLevel = 0f, error = null) }
+        // Si el tope de 10 minutos o un fallo la detienen, se guarda sola (sin esperar a que se toque Terminar).
+        viewModelScope.launch(safety) {
+            while (recorder === rec && rec.isRunning) delay(300)
+            if (recorder === rec) finishRecording()
+        }
         return true
     }
 
@@ -498,6 +520,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     /** Termina la grabación y agrega la voz en la línea roja (o después de lo último), sin el silencio sobrante. */
     fun finishRecording(atSeconds: Double? = null) {
         val rec = recorder ?: return
+        val at = atSeconds ?: recordAt
         val who = _ui.value.recordingFor
         val p = _ui.value.current
         val pcm = rec.stop(); recorder = null
@@ -522,7 +545,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
             }
             val cueCount = _ui.value.current?.cues?.count { it.type == CueType.VOICE } ?: 0
             add(Cue(PrincessLibrary.newId(), CueType.VOICE, who, "Mi voz ${cueCount + 1}", saved.first, saved.second, 0.6f,
-                startSeconds = atSeconds?.toFloat()))
+                startSeconds = at?.toFloat()))
             if (full) _ui.update { it.copy(notice = "Llegaste al máximo de 10 minutos seguidos. Lo grabado quedó guardado.") }
         }
     }
@@ -550,6 +573,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private fun load(pcm: ShortArray, from: Double) {
         beforePlay()
+        PlayerOwner.story = true
         NativeEngine.replicaMask(0)
         NativeEngine.stemClear()
         NativeEngine.stemLoad(0, pcm, 2, DramaRenderer.RATE)
@@ -604,7 +628,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     fun removeCue(id: String) = edit { cur -> TimelineOps.delete(DramaRenderer.anchorTimeline(cur), id) }
 
     fun moveCueTo(id: String, start: Double, characterId: String? = null) = edit { cur ->
-        val moved = TimelineOps.moveTo(cur, id, start.coerceIn(0.0, 1800.0))
+        val moved = TimelineOps.moveTo(cur, id, start.coerceIn(0.0, DramaRenderer.totalSeconds(cur) + 60.0))
         if (characterId != null && cur.characters.any { it.id == characterId })
             moved.copy(cues = moved.cues.map { if (it.id == id && it.type == CueType.VOICE) it.copy(characterId = characterId) else it })
         else moved
@@ -616,6 +640,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         val cue = p.cues.firstOrNull { it.id == id } ?: return
         if (cue.file == null || cue.type == CueType.SILENCE) return
         if (_ui.value.busy != null) return
+        if (cue.seconds > 120f) { _ui.update { it.copy(notice = "Esta grabación es muy larga para cambiarle el tono (máximo 2 minutos). Córtala en pedazos más chicos primero.") }; return }
         val target = steps.coerceIn(-2, 2)
         if (target == cue.toneSteps) return
         _ui.update { it.copy(busy = "Cambiando la voz…" to 0f, error = null) }
@@ -661,10 +686,16 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         _ui.update { it.copy(busy = "Preparando tu cuento para enviar…" to 0f, error = null) }
         val gen = leaveGen
         launchSafe {
-            val pcm = renderProject(p, "Preparando tu cuento para enviar…")
-            val f = withContext(Dispatchers.IO) {
-                val safe = p.title.replace(Regex("[^A-Za-z0-9 _-]"), "").trim().ifBlank { "cuento" }
-                File(PrincessLibrary.dir(app, p), "$safe.wav").also { WavIo.write(it, pcm, 2, DramaRenderer.RATE) }
+            val f = withContext(Dispatchers.Default) {
+                val safe = p.title.replace(Regex("[^\\p{L}\\p{N} _-]"), "").trim().ifBlank { "cuento" }
+                val dir = PrincessLibrary.dir(app, p)
+                val part = File(dir, "export.part")
+                try {
+                    WavIo.Writer(part, 2, DramaRenderer.RATE).use { w ->
+                        DramaRenderer.renderTo(p, { clipOf(p, it) }, { pr -> _ui.update { it.copy(busy = "Preparando tu cuento para enviar…" to pr) } }) { block, _, n -> w.write(block, n * 2) }
+                    }
+                    File(dir, "$safe.wav").also { part.copyTo(it, overwrite = true) }
+                } finally { part.delete() }
             }
             _ui.update { it.copy(busy = null, notice = "Listo. Elige dónde enviarlo, por ejemplo WhatsApp.") }
             if (gen != leaveGen) return@launchSafe

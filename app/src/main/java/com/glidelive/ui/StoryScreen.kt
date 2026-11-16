@@ -215,12 +215,13 @@ private fun StoryEditor(
     val playing = clk.playing && u.loaded
     val position = if (playing) clk.pos else u.cursor
 
+    fun recordPoint(): Double? = if (u.cursor > 0.05) u.cursor else null
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) { micDenied = false; vm.startRecording(speakerId) } else micDenied = true
+        if (granted) { micDenied = false; vm.startRecording(speakerId, recordPoint()) } else micDenied = true
     }
     fun record() {
         micDenied = false
-        if (ctx.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) vm.startRecording(speakerId)
+        if (ctx.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) vm.startRecording(speakerId, recordPoint())
         else micPermission.launch(Manifest.permission.RECORD_AUDIO)
     }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -251,7 +252,7 @@ private fun StoryEditor(
         when {
             panel != null -> panel = null
             selectedId != null -> selectedId = null
-            u.recordingFor != null -> vm.cancelRecording()
+            u.recordingFor != null -> vm.finishRecording()   // Atrás no debe tirar una grabación: se guarda
             else -> onBack()
         }
     }
@@ -267,10 +268,17 @@ private fun StoryEditor(
             // ── La línea de tiempo ──
             Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp)) {
                 StoryTimeline(project, placements, position, playing, selectedId, zoom, enabled = u.busy == null && u.recordingFor == null,
-                    onSelect = { selectedId = it }, onCursor = { vm.setCursor(it) }, onMove = { id, s, who -> vm.moveCueTo(id, s, who) })
+                    onSelect = { selectedId = it }, onCursor = { vm.setCursor(it) }, onMove = { id, s, who -> vm.moveCueTo(id, s, who) },
+                    onZoom = { f -> zoom = (zoom * f).coerceIn(8f, 120f) })
                 if (project.cues.isEmpty()) StoryEmptyHint(Modifier.align(Alignment.Center))
             }
 
+            if (project.cues.isNotEmpty() && u.recordingFor == null && u.busy == null)
+                Text(
+                    if (selected == null) "👆 Toca un audio para elegirlo. Mantenlo apretado para moverlo. Toca la regla de arriba para poner la línea roja."
+                    else "↔ Mantén apretado el audio y arrástralo para moverlo. La línea roja marca dónde se corta.",
+                    Modifier.padding(horizontal = 12.dp), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             // ── Avisos ──
             StoryNotices(vm, u, micDenied, { micPermission.launch(Manifest.permission.RECORD_AUDIO) })
 
@@ -297,7 +305,8 @@ private fun StoryTopBar(
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 TextButton(onClick = onBack, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) { Text("← Cuentos", maxLines = 1) }
                 TextButton(onClick = { onRename() }, modifier = Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) { Text(project.title + " ✎", fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1) }
-                FilledTonalButton(onClick = { vm.undo() }, enabled = u.canUndo && !working, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp)) { Text("↶ Deshacer", fontSize = 14.sp, maxLines = 1) }
+                FilledTonalButton(onClick = { vm.undo() }, enabled = u.canUndo && !working, modifier = Modifier.height(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp)) { Text("↶ Deshacer", fontSize = 14.sp, maxLines = 1) }
+                FilledTonalButton(onClick = { vm.redo() }, enabled = u.canRedo && !working, modifier = Modifier.height(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp)) { Text("↷", fontSize = 18.sp, maxLines = 1) }
                 Button(
                     onClick = { if (playing) { vm.setCursor(clkPos); vm.stop() } else vm.playFromSeconds(u.cursor) },
                     enabled = project.cues.isNotEmpty() && u.busy == null && u.recordingFor == null,
@@ -330,7 +339,7 @@ private fun StoryEmptyHint(modifier: Modifier) {
                         Text("Tu cuento empieza aquí", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                         Text("1. Toca el botón rojo y cuenta una frase.", style = MaterialTheme.typography.bodyLarge)
                         Text("2. Agrega sonidos y música con los botones de abajo.", style = MaterialTheme.typography.bodyLarge)
-                        Text("3. Toca «Enviar mi cuento» para mandarlo por WhatsApp.", style = MaterialTheme.typography.bodyLarge)
+                        Text("3. Toca «📤 Enviar» para mandarlo por WhatsApp.", style = MaterialTheme.typography.bodyLarge)
                         Text("Si te equivocas, toca «↶ Deshacer».", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
 }
@@ -366,7 +375,7 @@ private fun StoryBottomBar(
 ) {
             Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
         when {
-            u.recordingFor != null -> RecordingBar(u, onStop = { vm.finishRecording(if (u.cursor > 0.05) u.cursor else null) }, onDiscard = { vm.cancelRecording() })
+            u.recordingFor != null -> RecordingBar(u, onStop = { vm.finishRecording() }, onDiscard = { vm.cancelRecording() })
             selected != null && panel == Panel.TONE -> InlineTone(selected.cue, onPick = { vm.setTone(selected.cue.id, it) }, onListen = { vm.previewCue(selected.cue.id) }, onDone = { setPanel(null) }, busy = u.busy != null)
             selected != null && panel == Panel.VOLUME -> InlineVolume(selected.cue, onSet = { v -> vm.editTimelineCue(selected.cue.id) { c -> c.copy(volume = v) } }, onListen = { vm.previewCue(selected.cue.id) }, onDone = { setPanel(null) })
             selected != null -> SelectionBar(
@@ -399,7 +408,7 @@ private fun SpeakerMenu(project: Project, current: String, onPick: (String) -> U
     var open by remember { mutableStateOf(false) }
     val name = project.characters.firstOrNull { it.id == current }?.name ?: "Yo"
     Box(modifier) {
-        FilledTonalButton(onClick = { open = true }, modifier = Modifier.height(52.dp).fillMaxWidth(), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) { Text("Habla: $name ▾", fontSize = 14.sp, maxLines = 1) }
+        FilledTonalButton(onClick = { open = true }, modifier = Modifier.height(52.dp).fillMaxWidth(), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) { Text("Voz: $name ▾", fontSize = 14.sp, maxLines = 1) }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             project.characters.forEach { c -> DropdownMenuItem(text = { Text(c.name) }, onClick = { open = false; onPick(c.id) }) }
             DropdownMenuItem(text = { Text("＋ Otra voz (la bruja, el lobo…)") }, onClick = { open = false; onNew() })
@@ -429,14 +438,14 @@ private fun SelectionBar(cue: Cue, onCut: () -> Unit, onTone: () -> Unit, onVolu
                          canTone: Boolean, busy: Boolean) {
     val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
     @Composable fun Btn(text: String, enabled: Boolean, onClick: () -> Unit, modifier: Modifier) =
-        FilledTonalButton(onClick = onClick, modifier = modifier.height(46.dp), enabled = enabled, contentPadding = pad) { Text(text, fontSize = 14.sp, maxLines = 1) }
+        FilledTonalButton(onClick = onClick, modifier = modifier.height(48.dp), enabled = enabled, contentPadding = pad) { Text(text, fontSize = 14.sp, maxLines = 1) }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
         Btn("✂ Cortar", !busy && cue.type != CueType.MUSIC, onCut, Modifier.weight(1f))
         Btn("🎚 Tono", !busy && canTone, onTone, Modifier.weight(1f))
         Btn("🔉 Volumen", !busy, onVolume, Modifier.weight(1.1f))
         Btn("▶ Oír", !busy, onListen, Modifier.weight(0.9f))
         Btn("🗑 Quitar", !busy, onRemove, Modifier.weight(1f))
-        Button(onClick = onDone, modifier = Modifier.height(46.dp).weight(1f), contentPadding = pad,
+        Button(onClick = onDone, modifier = Modifier.height(48.dp).weight(1f), contentPadding = pad,
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D6E), contentColor = Color.White)) { Text("✓ Listo", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
     }
 }
@@ -457,7 +466,7 @@ private fun packRows(clips: List<Placement>): List<List<Placement>> {
 @Composable
 private fun StoryTimeline(
     project: Project, placements: List<Placement>, position: Double, playing: Boolean, selectedId: String?, zoom: Float, enabled: Boolean,
-    onSelect: (String?) -> Unit, onCursor: (Double) -> Unit, onMove: (String, Double, String?) -> Unit,
+    onSelect: (String?) -> Unit, onCursor: (Double) -> Unit, onMove: (String, Double, String?) -> Unit, onZoom: (Float) -> Unit,
 ) {
     val lanes = buildList {
         project.characters.forEach { ch -> add(Lane(ch.name, Color(ch.color), placements.filter { it.cue.type == CueType.VOICE && it.cue.characterId == ch.id }, ch.id)) }
@@ -480,7 +489,10 @@ private fun StoryTimeline(
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f), RoundedCornerShape(14.dp)).padding(6.dp).verticalScroll(rememberScrollState())) {
     Row(Modifier.fillMaxWidth()) {
         Column(Modifier.width(92.dp)) {
-            Spacer(Modifier.height(26.dp))
+            Row(Modifier.height(40.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { onZoom(1f / 1.5f) }, modifier = Modifier.width(44.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("➖", fontSize = 14.sp) }
+                TextButton(onClick = { onZoom(1.5f) }, modifier = Modifier.width(44.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("➕", fontSize = 14.sp) }
+            }
             Column {
                 lanes.forEach { lane ->
                     val h = (packRows(lane.clips).size.coerceAtLeast(1) * 56).dp
@@ -491,7 +503,7 @@ private fun StoryTimeline(
             }
         }
         Column(Modifier.weight(1f).horizontalScroll(hScroll)) {
-            Box(Modifier.width(widthDp.dp).height(26.dp).pointerInput(scale, enabled) { detectTapGestures { at -> if (enabled) onCursor((at.x / density / scale).toDouble()) } }) {
+            Box(Modifier.width(widthDp.dp).height(40.dp).pointerInput(scale, enabled) { detectTapGestures { at -> if (enabled) onCursor((at.x / density / scale).toDouble()) } }) {
                 val step = when { scale >= 60 -> 1; scale >= 24 -> 5; else -> 10 }
                 for (s in 0..duration.toInt() step step) Text(clock(s.toDouble()), Modifier.offset(x = (s * scale).dp), fontSize = 13.sp)
             }
@@ -518,8 +530,8 @@ private fun StoryTimeline(
                                 val curScale by androidx.compose.runtime.rememberUpdatedState(scale)
                                 Box(
                                     Modifier.offset(x = (start * scale).toFloat().dp, y = 4.dp + dragY.dp)
-                                        .width(max(40f, ((place.end - place.start) * scale).toFloat()).dp).height(48.dp)
-                                        .background(lane.color.copy(alpha = if (place.cue.muted) 0.15f else if (lifted) 0.95f else if (isSel) 0.75f else 0.5f), RoundedCornerShape(8.dp))
+                                        .width(max(48f, ((place.end - place.start) * scale).toFloat()).dp).height(48.dp)
+                                        .background(lane.color.copy(alpha = if (place.cue.muted) 0.3f else if (lifted || isSel) 1f else 0.85f), RoundedCornerShape(8.dp))
                                         .border(if (isSel || lifted) 3.dp else 1.dp, if (isSel || lifted) Color.White else lane.color, RoundedCornerShape(8.dp))
                                         .pointerInput(place.cue.id, enabled) {
                                             if (!enabled) return@pointerInput
@@ -543,7 +555,7 @@ private fun StoryTimeline(
                                         }.padding(6.dp),
                                 ) {
                                     Text((if (place.cue.toneSteps != 0) "🎚 " else "") + place.cue.text.ifBlank { place.cue.type.label },
-                                        fontSize = 14.sp, maxLines = 2, color = Color.White, fontWeight = FontWeight.Medium)
+                                        fontSize = 14.sp, maxLines = 2, color = Color(0xFF0B1020), fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -568,7 +580,7 @@ private fun Sheet(title: String, onClose: () -> Unit, content: @Composable () ->
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                BigButton("Listo", Color(0xFF2E7D6E), onClose, Modifier.height(46.dp))
+                BigButton("Listo", Color(0xFF2E7D6E), onClose, Modifier.height(48.dp))
             }
             content()
         }
@@ -709,11 +721,11 @@ private fun InlineTone(cue: Cue, onPick: (Int) -> Unit, onListen: () -> Unit, on
     val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
         labels.forEach { (steps, label) ->
-            Button(onClick = { onPick(steps) }, enabled = !busy, modifier = Modifier.height(46.dp).weight(1f), contentPadding = pad,
+            Button(onClick = { onPick(steps) }, enabled = !busy, modifier = Modifier.height(48.dp).weight(1f), contentPadding = pad,
                 colors = if (cue.toneSteps == steps) ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors()) { Text(label, fontSize = 13.sp, maxLines = 1) }
         }
-        FilledTonalButton(onClick = onListen, enabled = !busy, modifier = Modifier.height(46.dp).weight(0.9f), contentPadding = pad) { Text("▶ Oír", fontSize = 14.sp, maxLines = 1) }
-        Button(onClick = onDone, modifier = Modifier.height(46.dp).weight(1f), contentPadding = pad,
+        FilledTonalButton(onClick = onListen, enabled = !busy, modifier = Modifier.height(48.dp).weight(0.9f), contentPadding = pad) { Text("▶ Oír", fontSize = 14.sp, maxLines = 1) }
+        Button(onClick = onDone, modifier = Modifier.height(48.dp).weight(1f), contentPadding = pad,
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D6E), contentColor = Color.White)) { Text("✓ Listo", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
     }
 }
@@ -725,8 +737,8 @@ private fun InlineVolume(cue: Cue, onSet: (Float) -> Unit, onListen: () -> Unit,
         Text("Bajito", fontSize = 13.sp)
         Slider(v, { v = it }, valueRange = 0f..1.5f, onValueChangeFinished = { onSet(v) }, modifier = Modifier.weight(1f))
         Text("Fuerte  ${(v * 100).roundToInt()} %", fontSize = 13.sp)
-        FilledTonalButton(onClick = onListen, modifier = Modifier.height(46.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)) { Text("▶ Oír", fontSize = 14.sp) }
-        Button(onClick = onDone, modifier = Modifier.height(46.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp),
+        FilledTonalButton(onClick = onListen, modifier = Modifier.height(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)) { Text("▶ Oír", fontSize = 14.sp) }
+        Button(onClick = onDone, modifier = Modifier.height(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D6E), contentColor = Color.White)) { Text("✓ Listo", fontSize = 15.sp, fontWeight = FontWeight.Bold) }
     }
 }

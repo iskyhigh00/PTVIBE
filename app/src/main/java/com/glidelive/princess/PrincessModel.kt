@@ -98,6 +98,21 @@ object PrincessLibrary {
 
     fun delete(ctx: Context, p: Project) { dir(ctx, p).deleteRecursively() }
 
+    /** Nombres de archivo de la carpeta de un cuento que ningún audio usa (tonos viejos, audios quitados, envíos anteriores). */
+    fun orphans(files: List<String>, p: Project): List<String> {
+        val used = HashSet<String>()
+        for (c in p.cues) { c.file?.let(used::add); c.sourceFile?.let(used::add) }
+        return files.filter { it !in used && it != "project.json" && !it.startsWith("project-") }
+    }
+
+    /** Borra lo que sobra en la carpeta del cuento (solo lo que tiene más de 10 minutos, para no tocar lo que se está creando). */
+    fun cleanup(ctx: Context, p: Project) {
+        val folder = dir(ctx, p)
+        val all = folder.listFiles()?.filter { it.isFile } ?: return
+        val old = System.currentTimeMillis() - 10 * 60_000L
+        for (name in orphans(all.map { it.name }, p)) File(folder, name).takeIf { it.lastModified() < old }?.delete()
+    }
+
     fun toJson(p: Project): JSONObject = JSONObject().apply {
         put("id", p.id); put("title", p.title); put("normalizeVoices", p.normalizeVoices); put("duckMusic", p.duckMusic)
         put("characters", JSONArray().also { a -> for (c in p.characters) a.put(JSONObject().put("id", c.id).put("name", c.name).put("color", c.color)
