@@ -40,7 +40,7 @@ object DramaRenderer {
             if ((c.startSeconds != null && c.mode != CueMode.BED) || c.durationSeconds != null && c.mode == CueMode.BED) {
                 val start = (c.startSeconds?.toDouble() ?: (cursor + max(0f, c.gap))).coerceAtLeast(0.0)
                 out.add(Placement(i, c, start, start + dur))
-                lastStart = start
+                if (c.mode != CueMode.BED) lastStart = start
                 cursor = max(cursor, start + dur)
                 continue
             }
@@ -116,10 +116,10 @@ object DramaRenderer {
      * Mezcla la obra. [clipOf] entrega el audio de cada pista (null = sin archivo). Devuelve PCM 16 bit estéreo intercalado a 44,1 kHz.
      * [progress] recibe 0..1.
      */
-    fun render(p: Project, clipOf: (Cue) -> Clip?, progress: (Float) -> Unit = {}): ShortArray {
+    fun render(p: Project, clipOf: (Cue) -> Clip?, progress: (Float) -> Unit = {}, cancelled: () -> Boolean = { false }): ShortArray {
         val frames = frameCount(p)
         val out = ShortArray(frames * 2)
-        renderTo(p, clipOf, progress) { block, from, n -> System.arraycopy(block, 0, out, from * 2, n * 2) }
+        renderTo(p, clipOf, progress, cancelled) { block, from, n -> System.arraycopy(block, 0, out, from * 2, n * 2) }
         return out
     }
 
@@ -135,6 +135,7 @@ object DramaRenderer {
         if (p.normalizeVoices) for (pl in places) {   // las ganancias se miden sin guardar el audio (se decodifica de nuevo al mezclar)
             val c = pl.cue
             if (c.type != CueType.VOICE || c.muted) continue
+            if (cancelled()) throw java.util.concurrent.CancellationException("mezcla cancelada")
             clipOf(c)?.let { gains[c.id] = voiceGain(it) }
         }
         val mixL = FloatArray(minOf(BLOCK, maxOf(frames, 1)))
@@ -189,7 +190,9 @@ object DramaRenderer {
         val gl = gain * min(1f, 1f - pan); val gr = gain * min(1f, 1f + pan)
         val fadeInF = (c.fadeIn * RATE).toInt(); val fadeOutF = (c.fadeOut * RATE).toInt()
         val len = endF - startF
-        val sourceStart = min((c.trimStart * clip.rate).toInt().coerceAtLeast(0), clip.frames - 1)
+        val trimFrames = (c.trimStart.toDouble() * clip.rate).coerceAtLeast(0.0)
+        val sourceStart = min(trimFrames.toInt(), clip.frames - 1)
+        val trimFrac = if (trimFrames.toInt() < clip.frames - 1) trimFrames - trimFrames.toInt() else 0.0
         val sourceFrames = clip.frames - sourceStart
         val first = max(0, from - startF)
         val last = min(len, from + n - startF)
@@ -197,7 +200,7 @@ object DramaRenderer {
         for (i in first until last) {
             var sp = pos
             if (loop) sp %= sourceFrames.toDouble() else if (sp >= sourceFrames - 1) break
-            sp += sourceStart
+            sp += sourceStart + trimFrac
             val i0 = sp.toInt()
             val i1 = if (i0 + 1 < clip.frames) i0 + 1 else if (loop) sourceStart else i0
             val f = (sp - i0).toFloat()

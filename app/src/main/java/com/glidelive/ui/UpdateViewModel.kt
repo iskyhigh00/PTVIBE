@@ -72,6 +72,7 @@ class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
             }
         }
         if (url == null) return UpdateState.Error("Release sin APK")
+        if (build > currentBuild && shaUrl == null) return UpdateState.Error("La actualización no trae su verificación. No se instala.")
         return if (build > currentBuild) UpdateState.Available(build, url, shaUrl) else UpdateState.UpToDate
     }
 
@@ -105,11 +106,11 @@ class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
     /** Comprueba que lo bajado es el APK publicado (SHA-256) y que es esta misma app con el número de versión esperado. */
     private fun verify(file: File, available: UpdateState.Available) {
         val shaUrl = available.shaUrl ?: error("La actualización no trae su verificación. No se instala.")
-        val expected = URL(shaUrl).readText().trim().split(Regex("\\s+")).first().lowercase()
-        val md = java.security.MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { i -> val b = ByteArray(64 * 1024); while (true) { val n = i.read(b); if (n < 0) break; md.update(b, 0, n) } }
-        val actual = md.digest().joinToString("") { "%02x".format(it) }
-        if (actual != expected) { file.delete(); error("La actualización bajada no coincide con la publicada. No se instala.") }
+        val c = URL(shaUrl).openConnection() as HttpURLConnection
+        c.connectTimeout = 15_000; c.readTimeout = 15_000
+        val expected = try { UpdateCheck.parseHash(c.inputStream.bufferedReader().use { it.readText() }) } finally { c.disconnect() }
+        val actual = UpdateCheck.sha256(file)
+        if (!UpdateCheck.matches(expected, actual)) { file.delete(); error("La actualización bajada no coincide con la publicada. No se instala.") }
         val info = app.packageManager.getPackageArchiveInfo(file.path, 0)
         if (info == null || info.packageName != app.packageName || PackageInfoCompat.getLongVersionCode(info) != available.build) {
             file.delete(); error("La actualización no es de esta app. No se instala.")

@@ -12,8 +12,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 
 private val DarkColors = darkColorScheme(
-    primary = Violet,
-    onPrimary = Color.White,
+    primary = VioletLight,
+    onPrimary = Color(0xFF1B0F52),
     primaryContainer = Color(0xFF2A2060),
     onPrimaryContainer = Color(0xFFE4DCFF),
     secondary = Mint,

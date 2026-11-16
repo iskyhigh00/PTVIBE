@@ -106,9 +106,11 @@ object PrincessLibrary {
     }
 
     /** Al arrancar: borra carpetas de cuentos sin project.json y temporales viejos (lo que dejaron borrados o cortes a medias). */
-    fun sweep(ctx: Context) {
-        val old = System.currentTimeMillis() - 60 * 60_000L
-        for (d in root(ctx).listFiles().orEmpty()) {
+    fun sweep(ctx: Context) = sweepDir(root(ctx))
+
+    fun sweepDir(root: File, now: Long = System.currentTimeMillis()) {
+        val old = now - 60 * 60_000L
+        for (d in root.listFiles().orEmpty()) {
             if (!d.isDirectory) continue
             val json = File(d, "project.json")
             if (!json.exists()) { if (d.lastModified() < old) d.deleteRecursively(); continue }
@@ -117,10 +119,11 @@ object PrincessLibrary {
     }
 
     /** Borra lo que sobra en la carpeta del cuento (solo lo que tiene más de 10 minutos, para no tocar lo que se está creando). */
-    fun cleanup(ctx: Context, p: Project) {
-        val folder = dir(ctx, p)
+    fun cleanup(ctx: Context, p: Project) = cleanupDir(dir(ctx, p), p)
+
+    fun cleanupDir(folder: File, p: Project, now: Long = System.currentTimeMillis()) {
         val all = folder.listFiles()?.filter { it.isFile } ?: return
-        val old = System.currentTimeMillis() - 10 * 60_000L
+        val old = now - 10 * 60_000L
         for (name in orphans(all.map { it.name }, p)) File(folder, name).takeIf { it.lastModified() < old }?.delete()
     }
 

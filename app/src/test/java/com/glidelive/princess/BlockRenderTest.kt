@@ -113,4 +113,25 @@ class BlockRenderTest {
         assertTrue("la música debe bajar durante la voz", at(out, 3.0) < 8000 * 0.5)
         assertTrue("antes de la voz suena entera", at(out, 0.5) > 7000)
     }
+
+    @Test fun streamingWavWithZeroDataSizeStillReads() {
+        val f = File.createTempFile("wav-stream", ".wav")
+        val pcm = ShortArray(500) { (it - 250).toShort() }
+        WavIo.write(f, pcm, 1, 22050)
+        val bytes = f.readBytes()
+        for (k in 40..43) bytes[k] = 0   // data size = 0, como dejan algunas apps al grabar en streaming
+        f.writeBytes(bytes)
+        assertArrayEquals(pcm, WavIo.read(f)!!.pcm)
+        f.delete()
+    }
+
+    @Test fun cancelledRenderStopsInsteadOfFinishing() {
+        val p = project(Cue("v", CueType.VOICE, "n", "v", "v.wav", 25f, startSeconds = 0f, durationSeconds = 25f))
+        var blocks = 0
+        try {
+            DramaRenderer.render(p, { Clip(ShortArray(44100 * 25) { 100 }, 1, 44100) }, { blocks++ }, { blocks >= 2 })
+            fail("debía cancelarse")
+        } catch (e: java.util.concurrent.CancellationException) { /* esperado */ }
+        assertTrue(blocks in 2..4)
+    }
 }

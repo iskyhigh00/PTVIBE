@@ -66,6 +66,9 @@ import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.glidelive.princess.Cue
@@ -108,7 +111,7 @@ internal fun SheetBanner(u: PrincessUi) {
     val msg = u.error ?: u.notice
     if (u.busy != null) {
         Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-            Text(u.busy.first, style = MaterialTheme.typography.labelLarge)
+            Text(u.busy.first, style = MaterialTheme.typography.labelLarge, modifier = Modifier.semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite })
             LinearProgressIndicator(progress = { u.busy.second.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
         }
     } else if (msg != null) {
@@ -127,7 +130,7 @@ internal fun DownloadCard(vm: PrincessViewModel, u: PrincessUi, what: String) {
         if (d != null) {
             Text("${d.first}  ${(d.second * 100).toInt()} %", fontWeight = FontWeight.Bold, color = onCard)
             LinearProgressIndicator(progress = { d.second.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-            TextButton(onClick = vm::cancelDownload, modifier = Modifier.height(48.dp)) { Text("Cancelar") }
+            TextButton(onClick = vm::cancelDownload, modifier = Modifier.height(48.dp), colors = ButtonDefaults.textButtonColors(contentColor = onCard)) { Text("Cancelar", fontWeight = FontWeight.Bold) }
         } else {
             Text(if (u.sfxPartial) "La descarga quedó a medias." else "Para tener $what hay que bajar los sonidos y la música una sola vez.", fontWeight = FontWeight.Bold, color = onCard)
             Text("Conviene usar WiFi: son varias decenas de MB. Después quedan guardados en tu teléfono y funcionan sin internet.", style = MaterialTheme.typography.bodyMedium, color = onCard)
@@ -142,11 +145,14 @@ internal fun SoundsSheet(vm: PrincessViewModel, u: PrincessUi, onClose: () -> Un
     val ctx = LocalContext.current
     var group by rememberSaveable { mutableStateOf("Animales") }
     val groups = SoundCatalog.groups.map { it.name } + "Mis sonidos"
-    Sheet("Poner un sonido en la línea roja", onClose, u) {
-        if (!u.hasSfx) DownloadCard(vm, u, "los sonidos")
+    Sheet("Poner un sonido en ${clock(vm.overlayTime())}", onClose, u) {
+        if (!u.hasSfx) Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            DownloadCard(vm, u, "los sonidos")
+            TextButton(onClick = onPickFile, modifier = Modifier.height(48.dp)) { Text("O elegir un sonido de mi teléfono…", fontSize = 15.sp) }
+        }
         else Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                groups.forEach { g -> FilledTonalButton(onClick = { group = g }, modifier = Modifier.height(48.dp), colors = if (group == g) ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors()) { Text(g, fontSize = 15.sp, maxLines = 1) } }
+                groups.forEach { g -> FilledTonalButton(onClick = { group = g }, modifier = Modifier.height(48.dp).semantics { selected = group == g; role = androidx.compose.ui.semantics.Role.Tab }, colors = if (group == g) ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors()) { Text((if (group == g) "✓ " else "") + g, fontSize = 15.sp, maxLines = 1) } }
             }
             Text("Toca un sonido y se pone donde está la línea roja. «▶ Oír» es para escucharlo antes.", style = MaterialTheme.typography.bodyMedium)
             if (group == "Mis sonidos") {
@@ -195,7 +201,7 @@ internal fun SoundRow(icon: String, label: String, onListen: () -> Unit, onAdd: 
 internal fun MusicSheet(vm: PrincessViewModel, u: PrincessUi, onClose: () -> Unit, onPickFile: () -> Unit) {
     val ctx = LocalContext.current
     val have = remember(u.musicCount) { SoundStore.musicFiles(ctx) }
-    Sheet("Poner música de fondo", onClose, u) {
+    Sheet("Poner música de fondo desde ${clock(vm.overlayTime())}", onClose, u) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (have.isEmpty()) DownloadCard(vm, u, "la música")
             else {
@@ -215,8 +221,8 @@ internal fun InlineTone(cue: Cue, onPick: (Int) -> Unit, onListen: () -> Unit, o
     val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
     FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         labels.forEach { (steps, label) ->
-            Button(onClick = { onPick(steps) }, enabled = !busy, modifier = Modifier.height(48.dp).widthIn(min = 84.dp), contentPadding = pad,
-                colors = if (cue.toneSteps == steps) ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors()) { Text(label, fontSize = 15.sp, maxLines = 1) }
+            Button(onClick = { onPick(steps) }, enabled = !busy, modifier = Modifier.height(48.dp).widthIn(min = 84.dp).semantics { selected = cue.toneSteps == steps; role = androidx.compose.ui.semantics.Role.RadioButton }, contentPadding = pad,
+                colors = if (cue.toneSteps == steps) ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors()) { Text((if (cue.toneSteps == steps) "✓ " else "") + label, fontSize = 15.sp, maxLines = 1) }
         }
         FilledTonalButton(onClick = onListen, enabled = !busy, modifier = Modifier.height(48.dp).widthIn(min = 84.dp), contentPadding = pad) { Text("▶ Oír", fontSize = 15.sp, maxLines = 1) }
         Button(onClick = onDone, modifier = Modifier.height(48.dp).widthIn(min = 84.dp), contentPadding = pad,
@@ -233,7 +239,7 @@ internal fun InlineVolume(cue: Cue, onSet: (Float) -> Unit, onListen: () -> Unit
         Text("Fuerte  ${(v * 100).roundToInt()} %", fontSize = 15.sp)
         FilledTonalButton(onClick = onListen, modifier = Modifier.height(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)) { Text("▶ Oír", fontSize = 15.sp) }
         Button(onClick = onDone, modifier = Modifier.height(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D6E), contentColor = Color.White)) { Text("✓ Listo", fontSize = 15.sp, fontWeight = FontWeight.Bold) }
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F6F5F), contentColor = Color.White)) { Text("✓ Listo", fontSize = 15.sp, fontWeight = FontWeight.Bold) }
     }
 }
 
@@ -245,7 +251,7 @@ internal fun InlineMove(cue: Cue, start: Double, onMove: (Double) -> Unit, onDon
         FilledTonalButton(onClick = { onMove(delta) }, modifier = Modifier.height(48.dp).widthIn(min = 84.dp), contentPadding = pad) { Text(label, fontSize = 15.sp, maxLines = 1) }
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Empieza en ${clock(start)}", Modifier.height(48.dp).padding(end = 6.dp).wrapContentHeight(Alignment.CenterVertically), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text("Empieza en ${clock(start)}", Modifier.height(48.dp).padding(end = 6.dp).wrapContentHeight(Alignment.CenterVertically).semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             Step("◀◀ 5 s antes", -5.0); Step("◀ 1 s antes", -1.0); Step("1 s después ▶", 1.0); Step("5 s después ▶▶", 5.0)
             if (onVoice != null) {
                 FilledTonalButton(onClick = { onVoice(-1) }, modifier = Modifier.height(48.dp).widthIn(min = 84.dp), contentPadding = pad) { Text("▲ Voz anterior", fontSize = 15.sp, maxLines = 1) }

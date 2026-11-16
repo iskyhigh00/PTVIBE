@@ -29,10 +29,10 @@ object WavIo {
 
     /** Escribe un WAV por partes (sin tener todo el audio en memoria). Llamar a [close] al terminar. */
     class Writer(file: File, private val channels: Int, private val rate: Int) : java.io.Closeable {
-        private val raf = RandomAccessFile(file, "rw").also { it.setLength(0) }
+        private val raf = RandomAccessFile(file, "rw")
         private var bytes = 0L
         private val buf = ByteArray(1 shl 16)
-        init { try { header(0) } catch (t: Throwable) { raf.close(); throw t } }
+        init { try { raf.setLength(0); header(0) } catch (t: Throwable) { raf.close(); throw t } }
         private fun le32(v: Long) = byteArrayOf(v.toByte(), (v shr 8).toByte(), (v shr 16).toByte(), (v shr 24).toByte())
         private fun le16(v: Int) = byteArrayOf(v.toByte(), (v shr 8).toByte())
         private fun header(dataBytes: Long) {
@@ -66,10 +66,11 @@ object WavIo {
         var channels = 0; var rate = 0; var bits = 0; var format = 0
         while (pos + 8 <= b.size) {
             val id = String(b, pos, 4)
-            val size = u32(pos + 4).toInt().coerceAtLeast(0)
+            val rawSize = u32(pos + 4)
+            val size = if (id == "data" && (rawSize == 0L || rawSize > b.size - pos - 8)) (b.size - pos - 8) else rawSize.toInt().coerceAtLeast(0)   // WAV "en streaming": el tamaño real es lo que queda
             if (id == "fmt ") { format = u16(pos + 8); channels = u16(pos + 10); rate = u32(pos + 12).toInt(); bits = u16(pos + 22) }
             else if (id == "data") {
-                if (format != 1 || bits != 16 || channels !in 1..2) return null
+                if (format != 1 || bits != 16 || channels !in 1..2 || rate <= 0) return null
                 val n = minOf(size, b.size - pos - 8) / 2
                 val out = ShortArray(n)
                 for (i in 0 until n) out[i] = (u16(pos + 8 + 2 * i)).toShort()
