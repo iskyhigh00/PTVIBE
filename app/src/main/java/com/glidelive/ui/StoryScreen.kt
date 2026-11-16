@@ -292,7 +292,7 @@ private fun StoryEditor(
     Box(modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             // ── Barra de arriba (sin deslizar: todo a la vista) ──
-            StoryTopBar(vm, project, u, clk.pos, playing, position, working, onBack, { renaming = true }, onNarrate, { zoom = (zoom * 1.5f).coerceAtMost(120f) }, { zoom = (zoom / 1.5f).coerceAtLeast(8f) }, onUpdate, onOtherMode)
+            StoryTopBar(vm, project, u, clk.pos, playing, clk.playing && u.loaded, position, working, onBack, { renaming = true }, onNarrate, { zoom = (zoom * 1.5f).coerceAtMost(120f) }, { zoom = (zoom / 1.5f).coerceAtLeast(8f) }, onUpdate, onOtherMode)
             u.busy?.let { (label, p) ->
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Column(Modifier.weight(1f)) {
@@ -325,8 +325,8 @@ private fun StoryEditor(
 
         // ── Hojas encima ──
         when (panel) {
-            Panel.SOUNDS -> SoundsSheet(vm, u, onClose = { panel = null }, onPickFile = { panelTypeForImport = CueType.SFX; filePicker.launch(arrayOf("audio/*")) })
-            Panel.MUSIC -> MusicSheet(vm, u, onClose = { panel = null }, onPickFile = { panelTypeForImport = CueType.MUSIC; filePicker.launch(arrayOf("audio/*")) })
+            Panel.SOUNDS -> SoundsSheet(vm, u, onClose = { if (u.previewing) vm.stop(); panel = null }, onPickFile = { panelTypeForImport = CueType.SFX; filePicker.launch(arrayOf("audio/*")) })
+            Panel.MUSIC -> MusicSheet(vm, u, onClose = { if (u.previewing) vm.stop(); panel = null }, onPickFile = { panelTypeForImport = CueType.MUSIC; filePicker.launch(arrayOf("audio/*")) })
             Panel.TONE, Panel.VOLUME, Panel.MOVE -> {}
             null -> {}
         }
@@ -335,7 +335,7 @@ private fun StoryEditor(
 
 @Composable
 private fun StoryTopBar(
-    vm: PrincessViewModel, project: Project, u: PrincessUi, clkPos: Double, playing: Boolean, position: Double, working: Boolean,
+    vm: PrincessViewModel, project: Project, u: PrincessUi, clkPos: Double, playing: Boolean, sounding: Boolean, position: Double, working: Boolean,
     onBack: () -> Unit, onRename: () -> Unit, onNarrate: () -> Unit, onZoomIn: () -> Unit, onZoomOut: () -> Unit,
     onUpdate: (() -> Unit)?, onOtherMode: (() -> Unit)?,
 ) {
@@ -348,11 +348,11 @@ private fun StoryTopBar(
         FilledTonalButton(onClick = { vm.undo() }, enabled = u.canUndo && !working, modifier = Modifier.height(48.dp).widthIn(min = 48.dp).semantics { contentDescription = "Deshacer" }, contentPadding = pad) { Text("↶", fontSize = 20.sp, maxLines = 1) }
         FilledTonalButton(onClick = { vm.redo() }, enabled = u.canRedo && !working, modifier = Modifier.height(48.dp).widthIn(min = 48.dp).semantics { contentDescription = "Rehacer" }, contentPadding = pad) { Text("↷", fontSize = 20.sp, maxLines = 1) }
         Button(
-            onClick = { if (playing) { vm.setCursor(clkPos); vm.stop() } else vm.playFromSeconds(u.cursor) },
-            enabled = project.cues.isNotEmpty() && u.busy == null && u.recordingFor == null,
+            onClick = { if (playing) { vm.setCursor(clkPos); vm.stop() } else if (sounding) vm.stop() else vm.playFromSeconds(u.cursor) },
+            enabled = (project.cues.isNotEmpty() || sounding) && u.busy == null && u.recordingFor == null,
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F6F5F), contentColor = Color.White),
             modifier = Modifier.height(48.dp).widthIn(min = 150.dp), contentPadding = pad,
-        ) { Text(if (playing) "■ Parar" else "▶ Escuchar ${clock(position)}", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
+        ) { Text(if (sounding) "■ Parar" else "▶ Escuchar ${clock(position)}", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
         Button(onClick = { vm.export() }, enabled = project.cues.isNotEmpty() && !working, modifier = Modifier.height(48.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0), contentColor = Color.White), contentPadding = pad) { Text("📤 Enviar", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
         var more by remember { mutableStateOf(false) }
@@ -425,7 +425,7 @@ private fun StoryBottomBar(
             selected != null && panel == Panel.VOLUME -> InlineVolume(selected.cue, onSet = { v -> vm.editTimelineCue(selected.cue.id) { c -> c.copy(volume = v) } }, onListen = { vm.previewCue(selected.cue.id) }, onDone = { setPanel(null) })
             selected != null -> SelectionBar(
                 selected.cue,
-                onCut = { if (playing) { vm.setCursor(clkPos); vm.stop() }; vm.cutAtCursor(selected.cue.id) },
+                onCut = { if (playing) { vm.setCursor(clkPos); vm.stop() } else if (u.previewing) vm.stop(); vm.cutAtCursor(selected.cue.id) },
                 onMove = { setPanel(Panel.MOVE) }, onTone = { setPanel(Panel.TONE) }, onVolume = { setPanel(Panel.VOLUME) },
                 onListen = { vm.previewCue(selected.cue.id) },
                 onRemove = { vm.removeCue(selected.cue.id); select(null); vm.setNotice("Quité ese audio. Si te equivocaste, toca «↶ Deshacer».") },

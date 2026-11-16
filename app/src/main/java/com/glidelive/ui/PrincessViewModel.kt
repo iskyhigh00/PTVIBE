@@ -86,7 +86,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     /** Lo llama la pantalla antes de usar el reproductor, para soltar la canción abierta en Pistas. */
     var beforePlay: () -> Unit = {}
 
-    private val clips = HashMap<String, Clip>()
+    private val clips = LinkedHashMap<String, Clip>(16, 0.75f, true)   // orden de uso: al pasarse de memoria se suelta lo menos usado
     @Volatile private var places: List<Placement> = emptyList()
     @Volatile private var recorder: MicRecorder? = null
     private val prefs = app.getSharedPreferences("ui", android.content.Context.MODE_PRIVATE)
@@ -478,6 +478,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     fun importAudio(uri: Uri, type: CueType, characterId: String?) {
         val p = _ui.value.current ?: return
         if (_ui.value.busy != null) return
+        val at = overlayTime()
         _ui.update { it.copy(busy = "Importando…" to 0f, error = null) }
         launchSafe {
             val r = withContext(Dispatchers.IO) {
@@ -498,7 +499,8 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                 addTo(p.id, Cue(PrincessLibrary.newId(), type, if (type == CueType.VOICE) characterId else null, title, file, sec,
                     if (type == CueType.MUSIC) 0f else 0.5f,
                     if (type == CueType.MUSIC) CueMode.BED else CueMode.SEQ, if (type == CueType.MUSIC) 0.5f else 1f,
-                    0, if (type == CueType.MUSIC) 1.5f else 0f, if (type == CueType.MUSIC) 2f else 0f))
+                    0, if (type == CueType.MUSIC) 1.5f else 0f, if (type == CueType.MUSIC) 2f else 0f,
+                    startSeconds = if (type == CueType.VOICE) null else at.toFloat()))   // música y sonidos van donde está la línea roja
             }
             r.onFailure { e -> _ui.update { it.copy(error = if (noSpace(e)) friendly(e) else "No pude usar ese archivo. Prueba con otro audio (mp3, m4a, wav) de menos de 20 minutos.") } }
             _ui.update { it.copy(busy = null) }
@@ -698,11 +700,12 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
 
     /** Mezcla el cuento por bloques y lo deja en un archivo M4A (si el teléfono no puede, en WAV). */
     suspend fun renderExport(p: Project, label: String = "Preparando tu cuento para enviar…"): File = withContext(Dispatchers.Default) {
+        exportFallback = null
         val safe = "Cuento " + p.title.replace(Regex("[^\\p{L}\\p{N} _-]"), "").trim().take(60).ifBlank { "sin nombre" }
         val dir = PrincessLibrary.dir(app, p)
         val job = kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]
         val progress = { pr: Float -> if (job?.isActive != false) _ui.update { it.copy(busy = label to pr) } }
-        val part = File(dir, "export.part")
+        val part = File(dir, "export_${PrincessLibrary.newId()}.part")
         val cancelled = { job?.isActive == false }
         try {
             val m4a = runCatching {
