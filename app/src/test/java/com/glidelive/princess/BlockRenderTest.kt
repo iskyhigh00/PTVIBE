@@ -46,7 +46,7 @@ class BlockRenderTest {
     }
 
     @Test fun wavWriterRoundTrips() {
-        val f = File.createTempFile("w", ".wav")
+        val f = File.createTempFile("wav-test", ".wav")
         val pcm = ShortArray(1000) { (it * 7 - 3000).toShort() }
         WavIo.Writer(f, 1, 22050).use { w -> w.write(pcm, 600); w.write(pcm.copyOfRange(600, 1000)) }
         val d = WavIo.read(f)!!

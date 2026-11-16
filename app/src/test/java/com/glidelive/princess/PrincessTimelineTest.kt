@@ -34,7 +34,8 @@ class PrincessTimelineTest {
         }
         val moved = anchored.copy(cues = anchored.cues.map { if (it.id == "a") it.copy(startSeconds = 7f) else it })
         assertEquals(before.getValue("b").start, DramaRenderer.layout(moved).first { it.cue.id == "b" }.start, 1e-6)
-        assertEquals(before.getValue("music").end, DramaRenderer.layout(moved).first { it.cue.id == "music" }.end, 1e-6)
+        // La música de fondo "hasta el final" sigue abierta: acompaña hasta donde termine el cuento.
+        assertEquals(DramaRenderer.totalSeconds(moved), DramaRenderer.layout(moved).first { it.cue.id == "music" }.end, 1e-6)
     }
 
     @Test fun trimsSourceAndStopsAtEditedDuration() {
