@@ -53,7 +53,7 @@ class AacWriter(file: File, private val rate: Int = 44100, private val channels:
         while (true) {
             val out = codec.dequeueOutputBuffer(info, if (end) 10_000 else 0)
             when {
-                out == MediaCodec.INFO_TRY_AGAIN_LATER -> { if (!end || ++waits > 500) return }
+                out == MediaCodec.INFO_TRY_AGAIN_LATER -> { if (!end || ++waits > 3000) return }
                 out == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> { track = muxer.addTrack(codec.outputFormat); muxer.start(); started = true }
                 out >= 0 -> {
                     val b = codec.getOutputBuffer(out)!!
