@@ -87,7 +87,7 @@ class StoryScreenTest {
     @Test fun moverManteniendoApretado() {
         val vm = prepare(); story(vm)
         val before = cue(vm, "s1").startSeconds!!
-        rule.onNodeWithText("Gato").performTouchInput {
+        rule.onNodeWithText("Gato", substring = true).performTouchInput {
             down(center); advanceEventTime(700); moveBy(androidx.compose.ui.geometry.Offset(120f, 0f)); advanceEventTime(100); moveBy(androidx.compose.ui.geometry.Offset(120f, 0f)); up()
         }
         rule.waitForIdle()
@@ -98,26 +98,26 @@ class StoryScreenTest {
 
     @Test fun tocarElegeYMuestraControlesSinTaparLaLinea() {
         val vm = prepare(); story(vm)
-        rule.onNodeWithText("Gato").performClick()
+        rule.onNodeWithText("Gato", substring = true).performClick()
         rule.waitForIdle()
         rule.onNodeWithText("Quitar", substring = true).assertIsDisplayed()
-        rule.onNodeWithText("Gato").assertIsDisplayed()           // la línea de tiempo sigue a la vista
+        rule.onNodeWithText("Gato", substring = true).assertIsDisplayed()           // la línea de tiempo sigue a la vista
         shot("4-elegido")
         rule.onNodeWithText("Tono", substring = true).performClick()
         rule.waitForIdle()
         rule.onNodeWithText("Normal").assertIsDisplayed()
-        rule.onNodeWithText("Gato").assertIsDisplayed()
+        rule.onNodeWithText("Gato", substring = true).assertIsDisplayed()
         shot("5-tono")
         rule.onNodeWithText("Listo", substring = true).performClick()
         rule.onNodeWithText("Volumen", substring = true).performClick()
         rule.waitForIdle()
-        rule.onNodeWithText("Gato").assertIsDisplayed()
+        rule.onNodeWithText("Gato", substring = true).assertIsDisplayed()
         shot("6-volumen")
     }
 
     @Test fun quitarYDeshacer() {
         val vm = prepare(); story(vm)
-        rule.onNodeWithText("Gato").performClick()
+        rule.onNodeWithText("Gato", substring = true).performClick()
         rule.onNodeWithText("Quitar", substring = true).performClick()
         waitFor("quitado") { vm.ui.value.current!!.cues.none { it.id == "s1" } }
         rule.onNodeWithContentDescription("Deshacer").performClick()
@@ -127,7 +127,7 @@ class StoryScreenTest {
     @Test fun moverEntreLineasDeVoz() {
         val vm = prepare(); story(vm)
         val h = 56f
-        rule.onNodeWithText("Había una vez").performTouchInput {
+        rule.onNodeWithText("Había una vez", substring = true).performTouchInput {
             down(center); advanceEventTime(700); moveBy(androidx.compose.ui.geometry.Offset(0f, 30f)); advanceEventTime(100)
             moveBy(androidx.compose.ui.geometry.Offset(0f, 90f)); up()
         }
@@ -140,7 +140,7 @@ class StoryScreenTest {
         val vm = prepare(); story(vm)
         vm.setCursor(4.0)
         rule.waitForIdle()
-        rule.onNodeWithText("Había una vez").performClick()
+        rule.onNodeWithText("Había una vez", substring = true).performClick()
         rule.waitForIdle()
         vm.setCursor(4.0)
         rule.onNodeWithText("Cortar", substring = true).performClick()
@@ -157,28 +157,28 @@ class StoryScreenTest {
         val vm = prepare(1.3f); story(vm)
         for (t in listOf("📤 Enviar", "▶ Escuchar", "Más ▾", "● Grabar mi voz", "🔊 Sonido", "🎵 Música")) insideRoot(t)
         for (d in listOf("Deshacer", "Rehacer", "Volver a Mis cuentos")) insideRoot(d, byDescription = true)
-        rule.onNodeWithText("Gato").performClick(); rule.waitForIdle()
+        rule.onNodeWithText("Gato", substring = true).performClick(); rule.waitForIdle()
         for (t in listOf("✂ Cortar", "🎚 Tono", "🔉 Volumen", "▶ Oír", "🗑 Quitar", "✓ Listo")) insideRoot(t)
         shot("8-letra-grande")
     }
 
     @Test fun lineaDeTiempoNoQuedaTapada() {
         val vm = prepare(); story(vm)
-        rule.onNodeWithText("Gato").performClick(); rule.waitForIdle()
-        val gato = rule.onNodeWithText("Gato").fetchSemanticsNode().boundsInRoot
+        rule.onNodeWithText("Gato", substring = true).performClick(); rule.waitForIdle()
+        val gato = rule.onNodeWithText("Gato", substring = true).fetchSemanticsNode().boundsInRoot
         val bar = rule.onNodeWithText("🗑 Quitar").fetchSemanticsNode().boundsInRoot
         val root = rule.onRoot().fetchSemanticsNode().boundsInRoot
         assertTrue("el audio elegido queda tapado por los botones: $gato / $bar", gato.bottom <= bar.top + 1)
         assertTrue("la línea de tiempo es muy chica: ${gato.height}", gato.height > 40f && root.height > 0f)
         rule.onNodeWithText("Tono", substring = true).performClick(); rule.waitForIdle()
-        val gato2 = rule.onNodeWithText("Gato").fetchSemanticsNode().boundsInRoot
+        val gato2 = rule.onNodeWithText("Gato", substring = true).fetchSemanticsNode().boundsInRoot
         val normal = rule.onNodeWithText("Normal").fetchSemanticsNode().boundsInRoot
         assertTrue("el tono tapa el audio: $gato2 / $normal", gato2.bottom <= normal.top + 1)
     }
 
     @Test fun moverDosVeces() {
         val vm = prepare(); story(vm)
-        fun drag() = rule.onNodeWithText("Gato").performTouchInput {
+        fun drag() = rule.onNodeWithText("Gato", substring = true).performTouchInput {
             down(center); advanceEventTime(700); moveBy(androidx.compose.ui.geometry.Offset(100f, 0f)); advanceEventTime(100); moveBy(androidx.compose.ui.geometry.Offset(100f, 0f)); up()
         }
         val a = cue(vm, "s1").startSeconds!!
@@ -209,18 +209,18 @@ class StoryScreenTest {
     @Test fun moverConBotones() {
         val vm = prepare(); story(vm)
         val before = cue(vm, "s1").startSeconds!!
-        rule.onNodeWithText("Gato").performClick(); rule.waitForIdle()
+        rule.onNodeWithText("Gato", substring = true).performClick(); rule.waitForIdle()
         rule.onNodeWithText("↔ Mover").performClick(); rule.waitForIdle()
         rule.onNodeWithText("1 s después", substring = true).performClick()
         waitFor("movió 1 s") { cue(vm, "s1").startSeconds == before + 1f }
         rule.onNodeWithText("5 s antes", substring = true).performClick()
         waitFor("movió -5 s") { cue(vm, "s1").startSeconds == before - 4f }
-        rule.onNodeWithText("Gato").assertIsDisplayed()
+        rule.onNodeWithText("Gato", substring = true).assertIsDisplayed()
     }
 
     @Test fun cambiarDeVozConBotones() {
         val vm = prepare(); story(vm)
-        rule.onNodeWithText("Había una vez").performClick(); rule.waitForIdle()
+        rule.onNodeWithText("Había una vez", substring = true).performClick(); rule.waitForIdle()
         rule.onNodeWithText("↔ Mover").performClick(); rule.waitForIdle()
         rule.onNodeWithText("Voz siguiente", substring = true).performClick()
         waitFor("pasó a la otra voz") { cue(vm, "v1").characterId == "b" }
