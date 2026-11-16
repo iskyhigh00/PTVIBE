@@ -197,7 +197,7 @@ class StoryScreenTest {
         val pcm = ShortArray(44100 * 3) { i -> (6000 * Math.sin(2 * Math.PI * 440 * i / 44100.0)).toInt().toShort() }
         for (n in listOf("x.wav", "y.wav")) com.glidelive.princess.WavIo.write(File(dir, n), pcm, 1, 44100)
         val file = kotlinx.coroutines.runBlocking { vm.renderExport(project.copy(cues = project.cues.filter { it.type != CueType.MUSIC })) }
-        assertTrue("debería ser m4a: ${file.name}", file.extension == "m4a")
+        assertTrue("debería ser m4a: ${file.name}; causa: ${vm.exportFallback?.let { it.toString() + " @ " + it.stackTrace.take(4).joinToString(" < ") }}", file.extension == "m4a")
         assertTrue("archivo vacío", file.length() > 2000)
         val r = android.media.MediaMetadataRetriever().apply { setDataSource(file.path) }
         val ms = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)!!.toLong()

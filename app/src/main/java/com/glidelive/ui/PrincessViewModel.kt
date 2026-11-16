@@ -686,6 +686,9 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun seek(sec: Double) { NativeEngine.stemSeek(sec); _clock.update { it.copy(pos = sec) } }
 
+    /** Por qué el último envío cayó a WAV (para diagnóstico y pruebas). */
+    @Volatile var exportFallback: Throwable? = null
+
     /** Mezcla el cuento por bloques y lo deja en un archivo M4A (si el teléfono no puede, en WAV). */
     suspend fun renderExport(p: Project, label: String = "Preparando tu cuento para enviar…"): File = withContext(Dispatchers.Default) {
         val safe = "Cuento " + p.title.replace(Regex("[^\\p{L}\\p{N} _-]"), "").trim().take(60).ifBlank { "sin nombre" }
@@ -700,7 +703,9 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                 File(dir, "$safe.m4a").also { if (!part.renameTo(it)) part.copyTo(it, overwrite = true) }
             }
             m4a.exceptionOrNull()?.let { if (it is kotlinx.coroutines.CancellationException || it is OutOfMemoryError) throw it }
+            m4a.exceptionOrNull()?.let { exportFallback = it }
             val out = m4a.getOrNull() ?: run {
+                _ui.update { it.copy(notice = "Este teléfono no pudo hacer el audio liviano: sale en un archivo más pesado (WAV).") }
                 WavIo.Writer(part, 2, DramaRenderer.RATE).use { w -> DramaRenderer.renderTo(p, { clipOf(p, it) }, progress, cancelled) { block, _, n -> w.write(block, n * 2) } }
                 File(dir, "$safe.wav").also { if (!part.renameTo(it)) part.copyTo(it, overwrite = true) }
             }
