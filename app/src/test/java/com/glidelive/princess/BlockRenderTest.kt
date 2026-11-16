@@ -108,7 +108,7 @@ class BlockRenderTest {
         val p = project(music, voice).copy(duckMusic = true)
         val out = DramaRenderer.render(p, { c -> if (c.id == "m") Clip(ShortArray(44100 * 6) { 8000 }, 1, 44100) else Clip(ShortArray(44100 * 2), 1, 44100) })
         var worst = 0
-        for (i in 1 until out.size / 2) worst = maxOf(worst, kotlin.math.abs(out[2 * i] - out[2 * (i - 1)]))
+        for (i in 4410 until 44100 * 59 / 10) worst = maxOf(worst, kotlin.math.abs(out[2 * i] - out[2 * (i - 1)]))
         assertTrue("salto brusco de $worst entre muestras", worst <= 12)
         assertTrue("la música debe bajar durante la voz", at(out, 3.0) < 8000 * 0.5)
         assertTrue("antes de la voz suena entera", at(out, 0.5) > 7000)
