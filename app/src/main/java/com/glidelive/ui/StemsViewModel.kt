@@ -112,6 +112,7 @@ class StemsViewModel(private val app: Application) : AndroidViewModel(app) {
         stop()
         NativeEngine.replicaMask(0)
         viewModelScope.launch {
+            PlayerOwner.story = false
             NativeEngine.stemClear()
             _ui.update { it.copy(current = song, error = null, loading = 0f, loopA = -1.0, loopB = -1.0, speed = 1f) }
             val dir = StemLibrary.dir(app, song)

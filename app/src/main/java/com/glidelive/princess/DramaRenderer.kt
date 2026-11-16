@@ -131,7 +131,7 @@ object DramaRenderer {
         val duck = if (p.duckMusic) duckEnvelope(places, total) else null
         val gains = HashMap<String, Float>()
         val clips = HashMap<String, Clip?>()
-        fun clip(c: Cue): Clip? = clips.getOrPut(c.id) { clipOf(c) }
+        fun clip(c: Cue): Clip? { if (!clips.containsKey(c.id)) clips[c.id] = clipOf(c); return clips[c.id] }
         for (pl in places) {
             val c = pl.cue
             if (c.type == CueType.SILENCE || c.muted) continue

@@ -62,6 +62,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.glidelive.princess.Cue
@@ -76,13 +80,13 @@ import java.util.Locale
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-private val RED = Color(0xFFE5334B)
-private fun clock(seconds: Double): String {
+internal val RED = Color(0xFFE5334B)
+internal fun clock(seconds: Double): String {
     val s = seconds.coerceAtLeast(0.0)
     return String.format(Locale.ROOT, "%d:%02d", s.toInt() / 60, s.toInt() % 60)
 }
 
-private val ICON = mapOf(
+internal val ICON = mapOf(
     "dog" to "🐶", "cat" to "🐱", "rooster" to "🐓", "hen" to "🐔", "pig" to "🐷", "cow" to "🐮", "sheep" to "🐑", "frog" to "🐸",
     "crow" to "🐦", "chirping_birds" to "🐤", "insects" to "🦗", "crickets" to "🦗", "rain" to "🌧️", "thunderstorm" to "⛈️",
     "wind" to "💨", "sea_waves" to "🌊", "crackling_fire" to "🔥", "water_drops" to "💧", "pouring_water" to "🚰", "laughing" to "😄",
@@ -94,7 +98,7 @@ private val ICON = mapOf(
     "fireworks" to "🎆", "chainsaw" to "🪚", "hand_saw" to "🪚",
 )
 
-private enum class Panel { SOUNDS, MUSIC, TONE, VOLUME }
+internal enum class Panel { SOUNDS, MUSIC, TONE, VOLUME, MOVE }
 
 /**
  * Cuentos: hacer el audio de un cuento. Pensada para quien la abre por primera vez: un botón rojo para grabar, sonidos y música
@@ -170,7 +174,7 @@ private fun StoryList(vm: PrincessViewModel, u: PrincessUi, onOpen: (Project) ->
 }
 
 @Composable
-private fun BigButton(text: String, color: Color, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+internal fun BigButton(text: String, color: Color, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
     Button(onClick = onClick, enabled = enabled, modifier = modifier.height(56.dp), shape = RoundedCornerShape(28.dp),
         colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = Color.White)) {
         Text(text, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1)
@@ -247,7 +251,7 @@ private fun StoryEditor(
         )
     }
 
-    androidx.compose.runtime.LaunchedEffect(selectedId) { if (panel == Panel.TONE || panel == Panel.VOLUME) panel = null }
+    androidx.compose.runtime.LaunchedEffect(selectedId) { if (panel == Panel.TONE || panel == Panel.VOLUME || panel == Panel.MOVE) panel = null }
     androidx.activity.compose.BackHandler {
         when {
             panel != null -> panel = null
@@ -275,9 +279,9 @@ private fun StoryEditor(
 
             if (project.cues.isNotEmpty() && u.recordingFor == null && u.busy == null)
                 Text(
-                    if (selected == null) "👆 Toca un audio para elegirlo. Mantenlo apretado para moverlo. Toca la regla de arriba para poner la línea roja."
-                    else "↔ Mantén apretado el audio y arrástralo para moverlo. La línea roja marca dónde se corta.",
-                    Modifier.padding(horizontal = 12.dp), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+                    if (selected == null) "Toca un audio para elegirlo. Toca la regla de arriba para poner la línea roja."
+                    else "Mantén apretado el audio y arrástralo para moverlo, o usa «↔ Mover». La línea roja marca dónde se corta.",
+                    Modifier.padding(horizontal = 12.dp), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             // ── Avisos ──
             StoryNotices(vm, u, micDenied, { micPermission.launch(Manifest.permission.RECORD_AUDIO) })
@@ -290,7 +294,7 @@ private fun StoryEditor(
         when (panel) {
             Panel.SOUNDS -> SoundsSheet(vm, u, onClose = { panel = null }, onPickFile = { panelTypeForImport = CueType.SFX; filePicker.launch(arrayOf("audio/*")) })
             Panel.MUSIC -> MusicSheet(vm, u, onClose = { panel = null }, onPickFile = { panelTypeForImport = CueType.MUSIC; filePicker.launch(arrayOf("audio/*")) })
-            Panel.TONE, Panel.VOLUME -> {}
+            Panel.TONE, Panel.VOLUME, Panel.MOVE -> {}
             null -> {}
         }
     }
@@ -306,7 +310,7 @@ private fun StoryTopBar(
                 TextButton(onClick = onBack, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) { Text("← Cuentos", maxLines = 1) }
                 TextButton(onClick = { onRename() }, modifier = Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) { Text(project.title + " ✎", fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1) }
                 FilledTonalButton(onClick = { vm.undo() }, enabled = u.canUndo && !working, modifier = Modifier.height(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp)) { Text("↶ Deshacer", fontSize = 14.sp, maxLines = 1) }
-                FilledTonalButton(onClick = { vm.redo() }, enabled = u.canRedo && !working, modifier = Modifier.height(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp)) { Text("↷", fontSize = 18.sp, maxLines = 1) }
+                FilledTonalButton(onClick = { vm.redo() }, enabled = u.canRedo && !working, modifier = Modifier.height(48.dp).semantics { contentDescription = "Rehacer" }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp)) { Text("↷", fontSize = 18.sp, maxLines = 1) }
                 Button(
                     onClick = { if (playing) { vm.setCursor(clkPos); vm.stop() } else vm.playFromSeconds(u.cursor) },
                     enabled = project.cues.isNotEmpty() && u.busy == null && u.recordingFor == null,
@@ -319,7 +323,7 @@ private fun StoryTopBar(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp)) { Text("📤 Enviar", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
                 var more by remember { mutableStateOf(false) }
                 Box {
-                    TextButton(onClick = { more = true }) { Text("Más ▾", fontSize = 15.sp) }
+                    TextButton(onClick = { more = true }, modifier = Modifier.height(48.dp)) { Text("Más ▾", fontSize = 15.sp) }
                     DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
                         DropdownMenuItem(text = { Text("🗣 Voz de computadora (prueba)") }, onClick = { more = false; onNarrate() })
                         DropdownMenuItem(text = { Text("↷ Rehacer") }, enabled = u.canRedo && !working, onClick = { more = false; vm.redo() })
@@ -376,12 +380,13 @@ private fun StoryBottomBar(
             Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
         when {
             u.recordingFor != null -> RecordingBar(u, onStop = { vm.finishRecording() }, onDiscard = { vm.cancelRecording() })
+            selected != null && panel == Panel.MOVE -> InlineMove(selected.cue, selected.start, onMove = { delta -> vm.moveCueTo(selected.cue.id, (selected.start + delta).coerceAtLeast(0.0)) }, onDone = { setPanel(null) })
             selected != null && panel == Panel.TONE -> InlineTone(selected.cue, onPick = { vm.setTone(selected.cue.id, it) }, onListen = { vm.previewCue(selected.cue.id) }, onDone = { setPanel(null) }, busy = u.busy != null)
             selected != null && panel == Panel.VOLUME -> InlineVolume(selected.cue, onSet = { v -> vm.editTimelineCue(selected.cue.id) { c -> c.copy(volume = v) } }, onListen = { vm.previewCue(selected.cue.id) }, onDone = { setPanel(null) })
             selected != null -> SelectionBar(
                 selected.cue,
                 onCut = { if (playing) { vm.setCursor(clkPos); vm.stop() }; vm.cutAtCursor(selected.cue.id) },
-                onTone = { setPanel(Panel.TONE) }, onVolume = { setPanel(Panel.VOLUME) },
+                onMove = { setPanel(Panel.MOVE) }, onTone = { setPanel(Panel.TONE) }, onVolume = { setPanel(Panel.VOLUME) },
                 onListen = { vm.previewCue(selected.cue.id) },
                 onRemove = { vm.removeCue(selected.cue.id); select(null); vm.setNotice("Quité ese audio. Si te equivocaste, toca «↶ Deshacer».") },
                 onDone = { select(null) },
@@ -434,13 +439,14 @@ private fun RecordingBar(u: PrincessUi, onStop: () -> Unit, onDiscard: () -> Uni
 private fun Modifier.size16() = this.then(Modifier.width(16.dp).height(16.dp))
 
 @Composable
-private fun SelectionBar(cue: Cue, onCut: () -> Unit, onTone: () -> Unit, onVolume: () -> Unit, onListen: () -> Unit, onRemove: () -> Unit, onDone: () -> Unit,
+private fun SelectionBar(cue: Cue, onCut: () -> Unit, onMove: () -> Unit, onTone: () -> Unit, onVolume: () -> Unit, onListen: () -> Unit, onRemove: () -> Unit, onDone: () -> Unit,
                          canTone: Boolean, busy: Boolean) {
     val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
     @Composable fun Btn(text: String, enabled: Boolean, onClick: () -> Unit, modifier: Modifier) =
         FilledTonalButton(onClick = onClick, modifier = modifier.height(48.dp), enabled = enabled, contentPadding = pad) { Text(text, fontSize = 14.sp, maxLines = 1) }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
         Btn("✂ Cortar", !busy && cue.type != CueType.MUSIC, onCut, Modifier.weight(1f))
+        Btn("↔ Mover", !busy, onMove, Modifier.weight(1f))
         Btn("🎚 Tono", !busy && canTone, onTone, Modifier.weight(1f))
         Btn("🔉 Volumen", !busy, onVolume, Modifier.weight(1.1f))
         Btn("▶ Oír", !busy, onListen, Modifier.weight(0.9f))
@@ -488,24 +494,27 @@ private fun StoryTimeline(
     }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f), RoundedCornerShape(14.dp)).padding(6.dp).verticalScroll(rememberScrollState())) {
     Row(Modifier.fillMaxWidth()) {
-        Column(Modifier.width(92.dp)) {
-            Row(Modifier.height(40.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { onZoom(1f / 1.5f) }, modifier = Modifier.width(44.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("➖", fontSize = 14.sp) }
-                TextButton(onClick = { onZoom(1.5f) }, modifier = Modifier.width(44.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("➕", fontSize = 14.sp) }
+        Column(Modifier.width(104.dp)) {
+            Row(Modifier.height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { onZoom(1f / 1.5f) }, modifier = Modifier.size(48.dp).semantics { contentDescription = "Ver más tiempo en pantalla" }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("−", fontSize = 24.sp, fontWeight = FontWeight.Bold) }
+                TextButton(onClick = { onZoom(1.5f) }, modifier = Modifier.size(48.dp).semantics { contentDescription = "Ver menos tiempo en pantalla, más grande" }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("+", fontSize = 24.sp, fontWeight = FontWeight.Bold) }
             }
             Column {
                 lanes.forEach { lane ->
                     val h = (packRows(lane.clips).size.coerceAtLeast(1) * 56).dp
                     Box(Modifier.height(h).padding(end = 6.dp), contentAlignment = Alignment.CenterStart) {
-                        Text(lane.label, color = lane.color, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 2)
+                        Text(androidx.compose.ui.text.buildAnnotatedString {
+                            withStyle(androidx.compose.ui.text.SpanStyle(color = lane.color, fontWeight = FontWeight.Bold)) { append("● ") }
+                            append(lane.label)
+                        }, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 2)
                     }
                 }
             }
         }
         Column(Modifier.weight(1f).horizontalScroll(hScroll)) {
-            Box(Modifier.width(widthDp.dp).height(40.dp).pointerInput(scale, enabled) { detectTapGestures { at -> if (enabled) onCursor((at.x / density / scale).toDouble()) } }) {
+            Box(Modifier.width(widthDp.dp).height(48.dp).pointerInput(scale, enabled) { detectTapGestures { at -> if (enabled) onCursor((at.x / density / scale).toDouble()) } }) {
                 val step = when { scale >= 60 -> 1; scale >= 24 -> 5; else -> 10 }
-                for (s in 0..duration.toInt() step step) Text(clock(s.toDouble()), Modifier.offset(x = (s * scale).dp), fontSize = 13.sp)
+                for (s in 0..duration.toInt() step step) Text(clock(s.toDouble()), Modifier.offset(x = (s * scale).dp).padding(top = 12.dp), fontSize = 15.sp)
             }
             Column {
                 lanes.forEach { lane ->
@@ -564,181 +573,5 @@ private fun StoryTimeline(
             }
         }
     }
-    }
-}
-
-// ───────────────────────────── Hojas ─────────────────────────────
-
-@Composable
-private fun Sheet(title: String, onClose: () -> Unit, content: @Composable () -> Unit) {
-    val scrim = remember { MutableInteractionSource() }
-    val card = remember { MutableInteractionSource() }
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)).clickable(interactionSource = scrim, indication = null) { onClose() }, contentAlignment = Alignment.Center) {
-        Column(
-            Modifier.fillMaxWidth(0.94f).fillMaxHeight(0.96f).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.97f), RoundedCornerShape(20.dp))
-                .clickable(interactionSource = card, indication = null) {}.padding(14.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                BigButton("Listo", Color(0xFF2E7D6E), onClose, Modifier.height(48.dp))
-            }
-            content()
-        }
-    }
-}
-
-@Composable
-private fun DownloadCard(vm: PrincessViewModel, u: PrincessUi, what: String) {
-    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(14.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        val d = u.download
-        if (d != null) {
-            Text("${d.first}  ${(d.second * 100).toInt()} %", fontWeight = FontWeight.Bold)
-            LinearProgressIndicator(progress = { d.second.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-            TextButton(onClick = vm::cancelDownload) { Text("Cancelar") }
-        } else {
-            Text(if (u.sfxPartial) "La descarga quedó a medias." else "Para tener $what hay que descargarlos una sola vez.", fontWeight = FontWeight.Bold)
-            Text("Conviene usar WiFi. Después quedan guardados en tu teléfono y funcionan sin internet.", style = MaterialTheme.typography.bodyMedium)
-            BigButton(if (u.sfxPartial) "Completar la descarga" else "⬇ Descargar", RED, { vm.downloadAll() })
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun SoundsSheet(vm: PrincessViewModel, u: PrincessUi, onClose: () -> Unit, onPickFile: () -> Unit) {
-    val ctx = LocalContext.current
-    var group by rememberSaveable { mutableStateOf("Animales") }
-    val groups = SoundCatalog.groups.map { it.name } + "Mis sonidos"
-    Sheet("Poner un sonido en la línea roja", onClose) {
-        if (!u.hasSfx) DownloadCard(vm, u, "los sonidos")
-        else Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                groups.forEach { g -> FilledTonalButton(onClick = { group = g }, colors = if (group == g) ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors()) { Text(g) } }
-            }
-            Text("Toca un sonido y se pone donde está la línea roja. El altavoz ▶ es para oírlo antes.", style = MaterialTheme.typography.bodyMedium)
-            u.notice?.let { Text(it, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) }
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                if (group == "Mis sonidos") {
-                    if (u.mine.isEmpty()) Text("Aquí aparecen los sonidos que guardes tú.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    u.mine.forEach { m ->
-                        val f = java.io.File(SoundStore.mineDir(ctx), m.file)
-                        SoundRow("🎙", m.name, onListen = { vm.previewFile(f) }, onAdd = { vm.addSoundFile(f, m.name, CueType.SFX, vm.overlayTime()) })
-                    }
-                } else {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SoundCatalog.groups.firstOrNull { it.name == group }?.sounds.orEmpty().forEach { s ->
-                            if (SoundStore.clips(ctx, s.id).isNotEmpty()) SoundTile(ICON[s.id] ?: "🔊", s.label,
-                                onListen = { vm.clipFor(s.id)?.let(vm::previewFile) }, onAdd = { vm.clipFor(s.id)?.let { vm.addSoundFile(it, s.label, CueType.SFX, vm.overlayTime()) } })
-                        }
-                    }
-                }
-            }
-            TextButton(onClick = onPickFile) { Text("Elegir un sonido de mi teléfono…") }
-            Text(SoundCatalog.SFX_CREDIT, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-private fun SoundTile(icon: String, label: String, onListen: () -> Unit, onAdd: () -> Unit) {
-    Column(
-        Modifier.width(108.dp).background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(16.dp)).clickable(onClick = onAdd).padding(8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(icon, fontSize = 34.sp)
-        Text(label, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, textAlign = TextAlign.Center)
-        TextButton(onClick = onListen, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("▶ Oír", fontSize = 13.sp) }
-    }
-}
-
-@Composable
-private fun SoundRow(icon: String, label: String, onListen: () -> Unit, onAdd: () -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("$icon  $label", Modifier.weight(1f), fontSize = 16.sp)
-        TextButton(onClick = onListen) { Text("▶ Oír") }
-        FilledTonalButton(onClick = onAdd) { Text("＋ Poner") }
-    }
-}
-
-@Composable
-private fun MusicSheet(vm: PrincessViewModel, u: PrincessUi, onClose: () -> Unit, onPickFile: () -> Unit) {
-    val ctx = LocalContext.current
-    val have = remember(u.musicCount) { SoundStore.musicFiles(ctx) }
-    Sheet("Poner música de fondo", onClose) {
-        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (have.isEmpty()) DownloadCard(vm, u, "la música")
-            else {
-                Text("La música suena suave por debajo y baja sola cuando alguien habla. Empieza en la línea roja.", style = MaterialTheme.typography.bodyMedium)
-                u.notice?.let { Text(it, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) }
-                Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                    have.forEach { (t, f) -> SoundRow("🎵", t.label, onListen = { vm.previewFile(f) }, onAdd = { vm.addSoundFile(f, t.label.substringBefore(" ·"), CueType.MUSIC, vm.overlayTime()) }) }
-                }
-            }
-            TextButton(onClick = onPickFile) { Text("Elegir una música de mi teléfono…") }
-            Text(SoundCatalog.MUSIC_CREDIT, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ToneSheet(cue: Cue, onPick: (Int) -> Unit, onClose: () -> Unit, onListen: () -> Unit) {
-    val labels = listOf(-2 to "Muy grave", -1 to "Grave", 0 to "Normal", 1 to "Aguda", 2 to "Muy aguda")
-    Sheet("Más grave o más aguda", onClose) {
-        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Elige qué tan grave o aguda suena esta grabación. No cambia la velocidad. Con un paso chico suele bastar.",
-                style = MaterialTheme.typography.bodyLarge)
-            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                labels.forEach { (steps, label) ->
-                    val on = cue.toneSteps == steps
-                    Button(onClick = { onPick(steps) }, modifier = Modifier.height(60.dp), shape = RoundedCornerShape(16.dp),
-                        colors = if (on) ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors()) { Text(label, fontSize = 17.sp, fontWeight = FontWeight.Bold) }
-                }
-            }
-            FilledTonalButton(onClick = onListen, modifier = Modifier.height(52.dp)) { Text("▶ Escuchar cómo suena", fontSize = 16.sp) }
-            Text("Si no te gusta, elige «Normal» y vuelve a como estaba.", style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-private fun VolumeSheet(cue: Cue, onSet: (Float) -> Unit, onClose: () -> Unit) {
-    var v by remember(cue.id) { mutableStateOf(cue.volume) }
-    Sheet("Volumen", onClose) {
-        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("${(v * 100).roundToInt()} %", fontSize = 30.sp, fontWeight = FontWeight.ExtraBold)
-            Slider(v, { v = it }, valueRange = 0f..1.5f, onValueChangeFinished = { onSet(v) })
-            Row { Text("Más bajito", Modifier.weight(1f)); Text("Más fuerte") }
-            Text("Toca «Escuchar» arriba para oír cómo quedó.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-private fun InlineTone(cue: Cue, onPick: (Int) -> Unit, onListen: () -> Unit, onDone: () -> Unit, busy: Boolean) {
-    val labels = listOf(-2 to "Muy grave", -1 to "Grave", 0 to "Normal", 1 to "Aguda", 2 to "Muy aguda")
-    val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-        labels.forEach { (steps, label) ->
-            Button(onClick = { onPick(steps) }, enabled = !busy, modifier = Modifier.height(48.dp).weight(1f), contentPadding = pad,
-                colors = if (cue.toneSteps == steps) ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors()) { Text(label, fontSize = 13.sp, maxLines = 1) }
-        }
-        FilledTonalButton(onClick = onListen, enabled = !busy, modifier = Modifier.height(48.dp).weight(0.9f), contentPadding = pad) { Text("▶ Oír", fontSize = 14.sp, maxLines = 1) }
-        Button(onClick = onDone, modifier = Modifier.height(48.dp).weight(1f), contentPadding = pad,
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D6E), contentColor = Color.White)) { Text("✓ Listo", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
-    }
-}
-
-@Composable
-private fun InlineVolume(cue: Cue, onSet: (Float) -> Unit, onListen: () -> Unit, onDone: () -> Unit) {
-    var v by remember(cue.id) { mutableStateOf(cue.volume) }
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Bajito", fontSize = 13.sp)
-        Slider(v, { v = it }, valueRange = 0f..1.5f, onValueChangeFinished = { onSet(v) }, modifier = Modifier.weight(1f))
-        Text("Fuerte  ${(v * 100).roundToInt()} %", fontSize = 13.sp)
-        FilledTonalButton(onClick = onListen, modifier = Modifier.height(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)) { Text("▶ Oír", fontSize = 14.sp) }
-        Button(onClick = onDone, modifier = Modifier.height(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D6E), contentColor = Color.White)) { Text("✓ Listo", fontSize = 15.sp, fontWeight = FontWeight.Bold) }
     }
 }

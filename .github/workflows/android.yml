@@ -13,6 +13,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+          cache: gradle
       - run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null; "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;26.1.10909125" "cmake;3.22.1" "platforms;android-35" "build-tools;35.0.0"
       - name: Pruebas de host (C++)
         run: cmake -S app/src/test/cpp -B build-host && cmake --build build-host && ctest --test-dir build-host --output-on-failure
@@ -31,6 +32,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+          cache: gradle
       - run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null; "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;26.1.10909125" "cmake;3.22.1" "platforms;android-35" "build-tools;35.0.0"
       - run: chmod +x gradlew scripts/ui-test.sh
       - name: Enable emulator acceleration
@@ -58,6 +60,9 @@ jobs:
     needs: [build, ui]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    concurrency:
+      group: publicar-release
+      cancel-in-progress: false
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -67,6 +72,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release delete latest --cleanup-tag --yes || true
-          gh release create latest GlideLive.apk --target "$GITHUB_SHA" --prerelease \
-            --title "GlideLive build ${{ github.run_number }}" --notes "${{ github.run_number }}"
+          head=$(gh api repos/${{ github.repository }}/commits/main --jq .sha)
+          if [ "$head" != "$GITHUB_SHA" ]; then echo "Hay un commit más nuevo en main: no se publica este."; exit 0; fi
+          if gh release view latest >/dev/null 2>&1; then
+            gh release upload latest GlideLive.apk --clobber
+            gh release edit latest --title "GlideLive build ${{ github.run_number }}" --notes "${{ github.run_number }}" --prerelease
+          else
+            gh release create latest GlideLive.apk --target "$GITHUB_SHA" --prerelease \
+              --title "GlideLive build ${{ github.run_number }}" --notes "${{ github.run_number }}"
+          fi

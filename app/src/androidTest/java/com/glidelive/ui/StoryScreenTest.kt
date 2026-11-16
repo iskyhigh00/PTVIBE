@@ -187,4 +187,21 @@ class StoryScreenTest {
         drag(); waitFor("2.º movimiento") { cue(vm, "s1").startSeconds != b }
         assertTrue(cue(vm, "s1").startSeconds!! > b)
     }
+
+    @Test fun enviarGeneraUnM4aPequenoConLaDuracionCorrecta() {
+        val vm = prepare(); story(vm)
+        val project = vm.ui.value.current!!
+        // audio real: 3 s de un tono, referido por las pistas del cuento
+        val dir = PrincessLibrary.dir(rule.activity, project)
+        val pcm = ShortArray(44100 * 3) { i -> (6000 * Math.sin(2 * Math.PI * 440 * i / 44100.0)).toInt().toShort() }
+        for (n in listOf("x.wav", "y.wav")) com.glidelive.princess.WavIo.write(File(dir, n), pcm, 1, 44100)
+        val file = kotlinx.coroutines.runBlocking { vm.renderExport(project.copy(cues = project.cues.filter { it.type != CueType.MUSIC })) }
+        assertTrue("debería ser m4a: ${file.name}", file.extension == "m4a")
+        assertTrue("archivo vacío", file.length() > 2000)
+        val r = android.media.MediaMetadataRetriever().apply { setDataSource(file.path) }
+        val ms = r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)!!.toLong()
+        // voz 1→7 s y sonido 8→11 s: el cuento dura ~11 s (+ medio segundo de cola)
+        assertTrue("duración inesperada: $ms ms", ms in 10_500..12_500)
+        assertTrue("debería pesar poco: ${file.length()}", file.length() < 11.5 * 44100 * 4 / 4)
+    }
 }
