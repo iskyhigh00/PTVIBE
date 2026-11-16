@@ -86,4 +86,31 @@ class BlockRenderTest {
         }
         for (t in listOf(9.0, 9.9, 10.1, 11.5, 12.5, 13.5)) assertEquals("en $t s", expected(t), at(out, t).toDouble(), 80.0)
     }
+
+    @Test fun trimSilenceNeverSplitsAStereoFrame() {
+        val pcm = shortArrayOf(0, 0, 0, 0, 5000, -5000, 6000, -6000, 0, 0)
+        val out = WavIo.trimSilence(pcm, 44100, threshold = 500, marginSec = 0f, channels = 2)
+        assertArrayEquals(shortArrayOf(5000, -5000, 6000, -6000), out)
+    }
+
+    @Test fun cutLeavesNoGapOrOverlapEvenLateInALongStory() {
+        val c = Cue("v", CueType.VOICE, "n", "v", "v.wav", 40f, startSeconds = 1700.123f, durationSeconds = 40f)
+        val cut = TimelineOps.split(project(c), "v", 1712.337, "w")!!
+        val places = DramaRenderer.layout(cut).associateBy { it.cue.id }
+        assertEquals(places.getValue("v").end, places.getValue("w").start, 1e-9)
+        assertEquals(1700.123f.toDouble(), places.getValue("v").start, 1e-9)
+        assertEquals(1700.123f.toDouble() + 40.0, places.getValue("w").end, 1e-3)
+    }
+
+    @Test fun duckingEntersAndLeavesWithoutJumps() {
+        val music = Cue("m", CueType.MUSIC, seconds = 6f, mode = CueMode.BED, startSeconds = 0f, durationSeconds = 6f)
+        val voice = Cue("v", CueType.VOICE, "n", "v", "v.wav", 2f, startSeconds = 2f, durationSeconds = 2f)
+        val p = project(music, voice).copy(duckMusic = true)
+        val out = DramaRenderer.render(p, { c -> if (c.id == "m") Clip(ShortArray(44100 * 6) { 8000 }, 1, 44100) else Clip(ShortArray(44100 * 2), 1, 44100) })
+        var worst = 0
+        for (i in 1 until out.size / 2) worst = maxOf(worst, kotlin.math.abs(out[2 * i] - out[2 * (i - 1)]))
+        assertTrue("salto brusco de $worst entre muestras", worst <= 12)
+        assertTrue("la música debe bajar durante la voz", at(out, 3.0) < 8000 * 0.5)
+        assertTrue("antes de la voz suena entera", at(out, 0.5) > 7000)
+    }
 }

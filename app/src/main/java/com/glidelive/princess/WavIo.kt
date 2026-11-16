@@ -32,7 +32,7 @@ object WavIo {
         private val raf = RandomAccessFile(file, "rw").also { it.setLength(0) }
         private var bytes = 0L
         private val buf = ByteArray(1 shl 16)
-        init { header(0) }
+        init { try { header(0) } catch (t: Throwable) { raf.close(); throw t } }
         private fun le32(v: Long) = byteArrayOf(v.toByte(), (v shr 8).toByte(), (v shr 16).toByte(), (v shr 24).toByte())
         private fun le16(v: Int) = byteArrayOf(v.toByte(), (v shr 8).toByte())
         private fun header(dataBytes: Long) {
@@ -80,14 +80,17 @@ object WavIo {
         null
     }.getOrNull()
 
-    /** Recorta el silencio del principio y del final (con un margen), para que las voces entren justo. */
-    fun trimSilence(pcm: ShortArray, rate: Int, threshold: Int = 500, marginSec: Float = 0.12f): ShortArray {
+    /** Recorta el silencio del principio y del final (con un margen), para que las voces entren justo. [channels] evita cortar a mitad de un cuadro estéreo. */
+    fun trimSilence(pcm: ShortArray, rate: Int, threshold: Int = 500, marginSec: Float = 0.12f, channels: Int = 1): ShortArray {
+        val ch = channels.coerceAtLeast(1)
+        val frames = pcm.size / ch
+        fun loud(f: Int): Boolean { for (c in 0 until ch) if (kotlin.math.abs(pcm[f * ch + c].toInt()) >= threshold) return true; return false }
         var a = 0
-        while (a < pcm.size && kotlin.math.abs(pcm[a].toInt()) < threshold) a++
-        if (a >= pcm.size) return pcm
-        var b = pcm.size - 1
-        while (b > a && kotlin.math.abs(pcm[b].toInt()) < threshold) b--
+        while (a < frames && !loud(a)) a++
+        if (a >= frames) return pcm
+        var b = frames - 1
+        while (b > a && !loud(b)) b--
         val m = (marginSec * rate).toInt()
-        return pcm.copyOfRange(maxOf(0, a - m), minOf(pcm.size, b + m + 1))
+        return pcm.copyOfRange(maxOf(0, a - m) * ch, minOf(frames, b + m + 1) * ch)
     }
 }

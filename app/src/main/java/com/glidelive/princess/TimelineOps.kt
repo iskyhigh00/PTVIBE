@@ -24,10 +24,14 @@ object TimelineOps {
         val place = DramaRenderer.layout(anchored).first { it.cue.id == cueId }
         val cue = place.cue
         val pf = DramaRenderer.pitchFactor(DramaRenderer.pitchOf(anchored, cue))
-        val head = at - place.start
-        val left = cue.copy(startSeconds = place.start.toFloat(), durationSeconds = head.toFloat(), fadeOut = 0f)
+        // Los tiempos se guardan en Float: el corte se fija en Float y el pedazo izquierdo termina exactamente donde empieza el derecho.
+        val leftStart = place.start.toFloat()
+        val cutAt = at.toFloat()
+        val headF = cutAt - leftStart
+        val head = headF.toDouble()
+        val left = cue.copy(startSeconds = leftStart, durationSeconds = headF, fadeOut = 0f)
         val right = cue.copy(
-            id = newId, startSeconds = at.toFloat(), durationSeconds = (place.end - at).toFloat(),
+            id = newId, startSeconds = cutAt, durationSeconds = (place.end - cutAt.toDouble()).toFloat(),
             trimStart = (cue.trimStart + head * pf).toFloat(), fadeIn = 0f,
         )
         val out = ArrayList<Cue>(anchored.cues.size + 1)

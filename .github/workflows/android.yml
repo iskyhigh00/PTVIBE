@@ -3,10 +3,14 @@ on:
   push:
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -26,6 +30,7 @@ jobs:
           path: GlideLive.apk
   ui:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -60,6 +65,9 @@ jobs:
     needs: [build, ui]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
     concurrency:
       group: publicar-release
       cancel-in-progress: false
@@ -74,11 +82,12 @@ jobs:
         run: |
           head=$(gh api repos/${{ github.repository }}/commits/main --jq .sha)
           if [ "$head" != "$GITHUB_SHA" ]; then echo "Hay un commit más nuevo en main: no se publica este."; exit 0; fi
+          sha256sum GlideLive.apk | awk '{print $1"  GlideLive.apk"}' > GlideLive.apk.sha256
           if gh release view latest >/dev/null 2>&1; then
-            gh release upload latest GlideLive.apk --clobber
+            gh release upload latest GlideLive.apk GlideLive.apk.sha256 --clobber
             gh release edit latest --title "GlideLive build ${{ github.run_number }}" --notes "${{ github.run_number }}" --prerelease
             [ "$(gh release view latest --json body --jq .body)" = "${{ github.run_number }}" ]
           else
-            gh release create latest GlideLive.apk --target "$GITHUB_SHA" --prerelease \
+            gh release create latest GlideLive.apk GlideLive.apk.sha256 --target "$GITHUB_SHA" --prerelease \
               --title "GlideLive build ${{ github.run_number }}" --notes "${{ github.run_number }}"
           fi

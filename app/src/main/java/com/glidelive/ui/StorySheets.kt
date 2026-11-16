@@ -62,6 +62,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.glidelive.princess.Cue
@@ -79,20 +83,39 @@ import kotlin.math.roundToInt
 // ───────────────────────────── Hojas ─────────────────────────────
 
 @Composable
-internal fun Sheet(title: String, onClose: () -> Unit, content: @Composable () -> Unit) {
+internal fun Sheet(title: String, onClose: () -> Unit, u: PrincessUi? = null, content: @Composable () -> Unit) {
     val scrim = remember { MutableInteractionSource() }
     val card = remember { MutableInteractionSource() }
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)).clickable(interactionSource = scrim, indication = null) { onClose() }, contentAlignment = Alignment.Center) {
         Column(
-            Modifier.fillMaxWidth(0.94f).fillMaxHeight(0.96f).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.97f), RoundedCornerShape(20.dp))
+            Modifier.fillMaxWidth(0.96f).fillMaxHeight(0.98f).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(20.dp))
+                .semantics { paneTitle = title }
                 .clickable(interactionSource = card, indication = null) {}.padding(14.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                BigButton("Listo", Color(0xFF2E7D6E), onClose, Modifier.height(48.dp))
+                BigButton("Listo", Color(0xFF1F6F5F), onClose, Modifier.height(48.dp))
             }
+            if (u != null) SheetBanner(u)
             content()
         }
+    }
+}
+
+/** Lo que pasa mientras la hoja está abierta (errores, avisos, importando…), para que no quede escondido detrás. */
+@Composable
+internal fun SheetBanner(u: PrincessUi) {
+    val msg = u.error ?: u.notice
+    if (u.busy != null) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+            Text(u.busy.first, style = MaterialTheme.typography.labelLarge)
+            LinearProgressIndicator(progress = { u.busy.second.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+        }
+    } else if (msg != null) {
+        Text(msg, Modifier.fillMaxWidth().padding(vertical = 4.dp).background(
+            if (u.error != null) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(10.dp)).padding(10.dp),
+            style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold,
+            color = if (u.error != null) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer)
     }
 }
 
@@ -100,13 +123,14 @@ internal fun Sheet(title: String, onClose: () -> Unit, content: @Composable () -
 internal fun DownloadCard(vm: PrincessViewModel, u: PrincessUi, what: String) {
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(14.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         val d = u.download
+        val onCard = MaterialTheme.colorScheme.onSecondaryContainer
         if (d != null) {
-            Text("${d.first}  ${(d.second * 100).toInt()} %", fontWeight = FontWeight.Bold)
+            Text("${d.first}  ${(d.second * 100).toInt()} %", fontWeight = FontWeight.Bold, color = onCard)
             LinearProgressIndicator(progress = { d.second.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-            TextButton(onClick = vm::cancelDownload) { Text("Cancelar") }
+            TextButton(onClick = vm::cancelDownload, modifier = Modifier.height(48.dp)) { Text("Cancelar") }
         } else {
-            Text(if (u.sfxPartial) "La descarga quedó a medias." else "Para tener $what hay que descargarlos una sola vez.", fontWeight = FontWeight.Bold)
-            Text("Conviene usar WiFi. Después quedan guardados en tu teléfono y funcionan sin internet.", style = MaterialTheme.typography.bodyMedium)
+            Text(if (u.sfxPartial) "La descarga quedó a medias." else "Para tener $what hay que bajar los sonidos y la música una sola vez.", fontWeight = FontWeight.Bold, color = onCard)
+            Text("Conviene usar WiFi: son varias decenas de MB. Después quedan guardados en tu teléfono y funcionan sin internet.", style = MaterialTheme.typography.bodyMedium, color = onCard)
             BigButton(if (u.sfxPartial) "Completar la descarga" else "⬇ Descargar", RED, { vm.downloadAll() })
         }
     }
@@ -118,31 +142,29 @@ internal fun SoundsSheet(vm: PrincessViewModel, u: PrincessUi, onClose: () -> Un
     val ctx = LocalContext.current
     var group by rememberSaveable { mutableStateOf("Animales") }
     val groups = SoundCatalog.groups.map { it.name } + "Mis sonidos"
-    Sheet("Poner un sonido en la línea roja", onClose) {
+    Sheet("Poner un sonido en la línea roja", onClose, u) {
         if (!u.hasSfx) DownloadCard(vm, u, "los sonidos")
-        else Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                groups.forEach { g -> FilledTonalButton(onClick = { group = g }, colors = if (group == g) ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors()) { Text(g) } }
+        else Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                groups.forEach { g -> FilledTonalButton(onClick = { group = g }, modifier = Modifier.height(48.dp), colors = if (group == g) ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors()) { Text(g, fontSize = 15.sp, maxLines = 1) } }
             }
-            Text("Toca un sonido y se pone donde está la línea roja. El altavoz ▶ es para oírlo antes.", style = MaterialTheme.typography.bodyMedium)
-            u.notice?.let { Text(it, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) }
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                if (group == "Mis sonidos") {
-                    if (u.mine.isEmpty()) Text("Aquí aparecen los sonidos que guardes tú.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    u.mine.forEach { m ->
-                        val f = java.io.File(SoundStore.mineDir(ctx), m.file)
-                        SoundRow("🎙", m.name, onListen = { vm.previewFile(f) }, onAdd = { vm.addSoundFile(f, m.name, CueType.SFX, vm.overlayTime()) })
-                    }
-                } else {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SoundCatalog.groups.firstOrNull { it.name == group }?.sounds.orEmpty().forEach { s ->
-                            if (SoundStore.clips(ctx, s.id).isNotEmpty()) SoundTile(ICON[s.id] ?: "🔊", s.label,
-                                onListen = { vm.clipFor(s.id)?.let(vm::previewFile) }, onAdd = { vm.clipFor(s.id)?.let { vm.addSoundFile(it, s.label, CueType.SFX, vm.overlayTime()) } })
-                        }
+            Text("Toca un sonido y se pone donde está la línea roja. «▶ Oír» es para escucharlo antes.", style = MaterialTheme.typography.bodyMedium)
+            if (group == "Mis sonidos") {
+                if (u.mine.isEmpty()) Text("Aquí aparecen los sonidos que guardes tú.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                u.mine.forEach { m ->
+                    val f = java.io.File(SoundStore.mineDir(ctx), m.file)
+                    SoundRow("🎙", m.name, onListen = { vm.previewFile(f) }, onAdd = { vm.addSoundFile(f, m.name, CueType.SFX, vm.overlayTime()) })
+                }
+            } else {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val available = remember(group, u.hasSfx) { SoundCatalog.groups.firstOrNull { it.name == group }?.sounds.orEmpty().filter { SoundStore.clips(ctx, it.id).isNotEmpty() } }
+                    available.forEach { s ->
+                        SoundTile(ICON[s.id] ?: "🔊", s.label,
+                            onListen = { vm.clipFor(s.id)?.let(vm::previewFile) }, onAdd = { vm.clipFor(s.id)?.let { vm.addSoundFile(it, s.label, CueType.SFX, vm.overlayTime()) } })
                     }
                 }
             }
-            TextButton(onClick = onPickFile) { Text("Elegir un sonido de mi teléfono…") }
+            TextButton(onClick = onPickFile, modifier = Modifier.height(48.dp)) { Text("Elegir un sonido de mi teléfono…", fontSize = 15.sp) }
             Text(SoundCatalog.SFX_CREDIT, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -151,11 +173,11 @@ internal fun SoundsSheet(vm: PrincessViewModel, u: PrincessUi, onClose: () -> Un
 @Composable
 internal fun SoundTile(icon: String, label: String, onListen: () -> Unit, onAdd: () -> Unit) {
     Column(
-        Modifier.width(108.dp).background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(16.dp)).clickable(onClick = onAdd).padding(8.dp),
+        Modifier.width(120.dp).background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(16.dp)).clickable(onClick = onAdd).padding(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(icon, fontSize = 34.sp)
-        Text(label, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, textAlign = TextAlign.Center)
+        Text(label, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 2, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSecondaryContainer)
         TextButton(onClick = onListen, modifier = Modifier.height(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("▶ Oír", fontSize = 16.sp) }
     }
 }
@@ -173,17 +195,14 @@ internal fun SoundRow(icon: String, label: String, onListen: () -> Unit, onAdd: 
 internal fun MusicSheet(vm: PrincessViewModel, u: PrincessUi, onClose: () -> Unit, onPickFile: () -> Unit) {
     val ctx = LocalContext.current
     val have = remember(u.musicCount) { SoundStore.musicFiles(ctx) }
-    Sheet("Poner música de fondo", onClose) {
-        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Sheet("Poner música de fondo", onClose, u) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (have.isEmpty()) DownloadCard(vm, u, "la música")
             else {
                 Text("La música suena suave por debajo y baja sola cuando alguien habla. Empieza en la línea roja.", style = MaterialTheme.typography.bodyMedium)
-                u.notice?.let { Text(it, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) }
-                Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                    have.forEach { (t, f) -> SoundRow("🎵", t.label, onListen = { vm.previewFile(f) }, onAdd = { vm.addSoundFile(f, t.label.substringBefore(" ·"), CueType.MUSIC, vm.overlayTime()) }) }
-                }
+                have.forEach { (t, f) -> SoundRow("🎵", t.label, onListen = { vm.previewFile(f) }, onAdd = { vm.addSoundFile(f, t.label.substringBefore(" ·"), CueType.MUSIC, vm.overlayTime()) }) }
             }
-            TextButton(onClick = onPickFile) { Text("Elegir una música de mi teléfono…") }
+            TextButton(onClick = onPickFile, modifier = Modifier.height(48.dp)) { Text("Elegir una música de mi teléfono…", fontSize = 15.sp) }
             Text(SoundCatalog.MUSIC_CREDIT, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -193,15 +212,15 @@ internal fun MusicSheet(vm: PrincessViewModel, u: PrincessUi, onClose: () -> Uni
 @Composable
 internal fun InlineTone(cue: Cue, onPick: (Int) -> Unit, onListen: () -> Unit, onDone: () -> Unit, busy: Boolean) {
     val labels = listOf(-2 to "Muy grave", -1 to "Grave", 0 to "Normal", 1 to "Aguda", 2 to "Muy aguda")
-    val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+    val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
+    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         labels.forEach { (steps, label) ->
-            Button(onClick = { onPick(steps) }, enabled = !busy, modifier = Modifier.height(48.dp).weight(1f), contentPadding = pad,
+            Button(onClick = { onPick(steps) }, enabled = !busy, modifier = Modifier.height(48.dp).widthIn(min = 84.dp), contentPadding = pad,
                 colors = if (cue.toneSteps == steps) ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors()) { Text(label, fontSize = 15.sp, maxLines = 1) }
         }
-        FilledTonalButton(onClick = onListen, enabled = !busy, modifier = Modifier.height(48.dp).weight(0.9f), contentPadding = pad) { Text("▶ Oír", fontSize = 15.sp, maxLines = 1) }
-        Button(onClick = onDone, modifier = Modifier.height(48.dp).weight(1f), contentPadding = pad,
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D6E), contentColor = Color.White)) { Text("✓ Listo", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
+        FilledTonalButton(onClick = onListen, enabled = !busy, modifier = Modifier.height(48.dp).widthIn(min = 84.dp), contentPadding = pad) { Text("▶ Oír", fontSize = 15.sp, maxLines = 1) }
+        Button(onClick = onDone, modifier = Modifier.height(48.dp).widthIn(min = 84.dp), contentPadding = pad,
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F6F5F), contentColor = Color.White)) { Text("✓ Listo", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
     }
 }
 
@@ -218,22 +237,22 @@ internal fun InlineVolume(cue: Cue, onSet: (Float) -> Unit, onListen: () -> Unit
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun InlineMove(cue: Cue, start: Double, onMove: (Double) -> Unit, onDone: () -> Unit, onVoice: ((Int) -> Unit)? = null) {
-    val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
-    @Composable fun Step(label: String, delta: Double, modifier: Modifier) =
-        FilledTonalButton(onClick = { onMove(delta) }, modifier = modifier.height(48.dp), contentPadding = pad) { Text(label, fontSize = 16.sp, maxLines = 1) }
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-        Step("◀◀ 5 s", -5.0, Modifier.weight(1f))
-        Step("◀ 1 s", -1.0, Modifier.weight(1f))
-        Text("Empieza en ${clock(start)}", Modifier.weight(1.3f), fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, textAlign = TextAlign.Center)
-        Step("1 s ▶", 1.0, Modifier.weight(1f))
-        Step("5 s ▶▶", 5.0, Modifier.weight(1f))
-        if (onVoice != null) {
-            FilledTonalButton(onClick = { onVoice(-1) }, modifier = Modifier.height(48.dp).weight(0.8f), contentPadding = pad) { Text("▲ Voz", fontSize = 15.sp, maxLines = 1) }
-            FilledTonalButton(onClick = { onVoice(1) }, modifier = Modifier.height(48.dp).weight(0.8f), contentPadding = pad) { Text("▼ Voz", fontSize = 15.sp, maxLines = 1) }
+    val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
+    @Composable fun Step(label: String, delta: Double) =
+        FilledTonalButton(onClick = { onMove(delta) }, modifier = Modifier.height(48.dp).widthIn(min = 84.dp), contentPadding = pad) { Text(label, fontSize = 15.sp, maxLines = 1) }
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Empieza en ${clock(start)}", Modifier.height(48.dp).padding(end = 6.dp).wrapContentHeight(Alignment.CenterVertically), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Step("◀◀ 5 s antes", -5.0); Step("◀ 1 s antes", -1.0); Step("1 s después ▶", 1.0); Step("5 s después ▶▶", 5.0)
+            if (onVoice != null) {
+                FilledTonalButton(onClick = { onVoice(-1) }, modifier = Modifier.height(48.dp).widthIn(min = 84.dp), contentPadding = pad) { Text("▲ Voz anterior", fontSize = 15.sp, maxLines = 1) }
+                FilledTonalButton(onClick = { onVoice(1) }, modifier = Modifier.height(48.dp).widthIn(min = 84.dp), contentPadding = pad) { Text("▼ Voz siguiente", fontSize = 15.sp, maxLines = 1) }
+            }
+            Button(onClick = onDone, modifier = Modifier.height(48.dp).widthIn(min = 84.dp), contentPadding = pad,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F6F5F), contentColor = Color.White)) { Text("✓ Listo", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
         }
-        Button(onClick = onDone, modifier = Modifier.height(48.dp).weight(1f), contentPadding = pad,
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D6E), contentColor = Color.White)) { Text("✓ Listo", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
     }
 }

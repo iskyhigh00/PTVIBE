@@ -79,7 +79,7 @@ class StoryScreenTest {
         story(vm)
         shot("2-cuento")
         rule.onNodeWithText("📤 Enviar").assertIsDisplayed()
-        rule.onNodeWithText("Escuchar", substring = true).assertIsDisplayed()
+        rule.onNodeWithText("▶ Escuchar", substring = true).assertIsDisplayed()
         rule.onNodeWithText("Grabar mi voz", substring = true).assertIsDisplayed()
         rule.onNodeWithText("🎵 Música").assertIsDisplayed()
     }
@@ -120,7 +120,7 @@ class StoryScreenTest {
         rule.onNodeWithText("Gato").performClick()
         rule.onNodeWithText("Quitar", substring = true).performClick()
         waitFor("quitado") { vm.ui.value.current!!.cues.none { it.id == "s1" } }
-        rule.onNodeWithText("↶ Deshacer").performClick()
+        rule.onNodeWithContentDescription("Deshacer").performClick()
         waitFor("deshecho") { vm.ui.value.current!!.cues.any { it.id == "s1" } }
     }
 
@@ -147,15 +147,16 @@ class StoryScreenTest {
         waitFor("se cortó") { vm.ui.value.current!!.cues.count { it.type == CueType.VOICE } == 2 }
     }
 
-    private fun insideRoot(label: String) {
+    private fun insideRoot(label: String, byDescription: Boolean = false) {
         val root = rule.onRoot().fetchSemanticsNode().boundsInRoot
-        val b = rule.onNodeWithText(label).fetchSemanticsNode().boundsInRoot
+        val b = (if (byDescription) rule.onNodeWithContentDescription(label) else rule.onNodeWithText(label, substring = true)).fetchSemanticsNode().boundsInRoot
         assertTrue("$label se sale de la pantalla: $b vs $root", b.left >= root.left - 1 && b.right <= root.right + 1 && b.top >= root.top - 1 && b.bottom <= root.bottom + 1)
     }
 
     @Test fun nadaSeSaleConLetraGrande() {
         val vm = prepare(1.3f); story(vm)
-        for (t in listOf("📤 Enviar", "▶ Escuchar", "↶ Deshacer", "Más ▾", "● Grabar mi voz", "🔊 Sonido", "🎵 Música")) insideRoot(t)
+        for (t in listOf("📤 Enviar", "▶ Escuchar", "Más ▾", "● Grabar mi voz", "🔊 Sonido", "🎵 Música")) insideRoot(t)
+        for (d in listOf("Deshacer", "Rehacer", "Volver a Mis cuentos")) insideRoot(d, byDescription = true)
         rule.onNodeWithText("Gato").performClick(); rule.waitForIdle()
         for (t in listOf("✂ Cortar", "🎚 Tono", "🔉 Volumen", "▶ Oír", "🗑 Quitar", "✓ Listo")) insideRoot(t)
         shot("8-letra-grande")
@@ -203,5 +204,30 @@ class StoryScreenTest {
         // voz 1→7 s y sonido 8→11 s: el cuento dura ~11 s (+ medio segundo de cola)
         assertTrue("duración inesperada: $ms ms", ms in 10_500..12_500)
         assertTrue("debería pesar poco: ${file.length()}", file.length() < 11.5 * 44100 * 4 / 4)
+    }
+
+    @Test fun moverConBotones() {
+        val vm = prepare(); story(vm)
+        val before = cue(vm, "s1").startSeconds!!
+        rule.onNodeWithText("Gato").performClick(); rule.waitForIdle()
+        rule.onNodeWithText("↔ Mover").performClick(); rule.waitForIdle()
+        rule.onNodeWithText("1 s después", substring = true).performClick()
+        waitFor("movió 1 s") { cue(vm, "s1").startSeconds == before + 1f }
+        rule.onNodeWithText("5 s antes", substring = true).performClick()
+        waitFor("movió -5 s") { cue(vm, "s1").startSeconds == before - 4f }
+        rule.onNodeWithText("Gato").assertIsDisplayed()
+    }
+
+    @Test fun cambiarDeVozConBotones() {
+        val vm = prepare(); story(vm)
+        rule.onNodeWithText("Había una vez").performClick(); rule.waitForIdle()
+        rule.onNodeWithText("↔ Mover").performClick(); rule.waitForIdle()
+        rule.onNodeWithText("Voz siguiente", substring = true).performClick()
+        waitFor("pasó a la otra voz") { cue(vm, "v1").characterId == "b" }
+    }
+
+    @Test fun elClipTieneDescripcionParaTalkBack() {
+        val vm = prepare(); story(vm)
+        rule.onNode(hasContentDescription("Efecto Gato", substring = true)).assertExists()
     }
 }

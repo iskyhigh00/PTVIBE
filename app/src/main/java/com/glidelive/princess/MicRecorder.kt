@@ -11,8 +11,8 @@ class MicRecorder(private val onLevel: (Float) -> Unit) {
     private var rec: AudioRecord? = null
     @Volatile private var running = false
     private var thread: Thread? = null
-    private var data = ShortArray(RATE * 30)
-    private var n = 0
+    @Volatile private var data = ShortArray(RATE * 30)
+    @Volatile private var n = 0
 
     /** Pico más alto que se oyó (0..32767): si es muy bajo, el micrófono estaba tapado, silenciado u ocupado. */
     @Volatile var peak = 0
@@ -33,7 +33,7 @@ class MicRecorder(private val onLevel: (Float) -> Unit) {
             if (min <= 0) return false
             val r = AudioRecord(MediaRecorder.AudioSource.MIC, RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(min, RATE / 2))
             if (r.state != AudioRecord.STATE_INITIALIZED) { r.release(); return false }
-            r.startRecording()
+            try { r.startRecording() } catch (t: Throwable) { r.release(); throw t }
             if (r.recordingState != AudioRecord.RECORDSTATE_RECORDING) { r.release(); return false }
             rec = r
             n = 0; peak = 0; failed = false; full = false

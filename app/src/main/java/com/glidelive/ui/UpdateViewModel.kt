@@ -22,7 +22,7 @@ sealed interface UpdateState {
     data object Idle : UpdateState
     data object Checking : UpdateState
     data object UpToDate : UpdateState
-    data class Available(val build: Long, val url: String) : UpdateState
+    data class Available(val build: Long, val url: String, val shaUrl: String?) : UpdateState
     data class Downloading(val percent: Int) : UpdateState
     data object NeedsPermission : UpdateState
     data class Error(val message: String) : UpdateState
@@ -62,8 +62,17 @@ class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
             ?: return UpdateState.Error("Release sin número de build")
         val assets = json.getJSONArray("assets")
         if (assets.length() == 0) return UpdateState.Error("Release sin APK")
-        val url = assets.getJSONObject(0).getString("browser_download_url")
-        return if (build > currentBuild) UpdateState.Available(build, url) else UpdateState.UpToDate
+        var url: String? = null
+        var shaUrl: String? = null
+        for (i in 0 until assets.length()) {
+            val a = assets.getJSONObject(i)
+            when (a.optString("name")) {
+                "GlideLive.apk" -> url = a.getString("browser_download_url")
+                "GlideLive.apk.sha256" -> shaUrl = a.getString("browser_download_url")
+            }
+        }
+        if (url == null) return UpdateState.Error("Release sin APK")
+        return if (build > currentBuild) UpdateState.Available(build, url, shaUrl) else UpdateState.UpToDate
     }
 
     fun downloadAndInstall() {
@@ -79,7 +88,7 @@ class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
         _state.value = UpdateState.Downloading(0)
         viewModelScope.launch {
             try {
-                val file = withContext(Dispatchers.IO) { download(available.url) }
+                val file = withContext(Dispatchers.IO) { download(available.url).also { verify(it, available) } }
                 val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
                 app.startActivity(
                     Intent(Intent.ACTION_VIEW)
@@ -90,6 +99,20 @@ class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
             } catch (e: Exception) {
                 _state.value = UpdateState.Error(e.message ?: "Error al descargar")
             }
+        }
+    }
+
+    /** Comprueba que lo bajado es el APK publicado (SHA-256) y que es esta misma app con el número de versión esperado. */
+    private fun verify(file: File, available: UpdateState.Available) {
+        val shaUrl = available.shaUrl ?: error("La actualización no trae su verificación. No se instala.")
+        val expected = URL(shaUrl).readText().trim().split(Regex("\\s+")).first().lowercase()
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { i -> val b = ByteArray(64 * 1024); while (true) { val n = i.read(b); if (n < 0) break; md.update(b, 0, n) } }
+        val actual = md.digest().joinToString("") { "%02x".format(it) }
+        if (actual != expected) { file.delete(); error("La actualización bajada no coincide con la publicada. No se instala.") }
+        val info = app.packageManager.getPackageArchiveInfo(file.path, 0)
+        if (info == null || info.packageName != app.packageName || PackageInfoCompat.getLongVersionCode(info) != available.build) {
+            file.delete(); error("La actualización no es de esta app. No se instala.")
         }
     }
 

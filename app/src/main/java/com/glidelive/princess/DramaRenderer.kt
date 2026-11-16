@@ -68,7 +68,7 @@ object DramaRenderer {
             val start = bedStarts[i] ?: 0.0
             val followers = (i + 1 until p.cues.size).filter { p.cues[it].mode != CueMode.BED && out[it] != null }
             val end = when {
-                followers.isEmpty() && total <= start -> start + playedSeconds(c, pitchOf(p, c))
+                (followers.isEmpty() && total <= start) || start >= total -> start + playedSeconds(c, pitchOf(p, c))
                 c.span <= 0 || followers.isEmpty() -> total
                 else -> out[followers[min(c.span, followers.size) - 1]]!!.end
             }
@@ -94,7 +94,7 @@ object DramaRenderer {
         val n = (total * 100).toInt() + 2
         val voice = BooleanArray(n)
         for (pl in places) if (pl.cue.type == CueType.VOICE && !pl.cue.muted) {
-            val a = (pl.start * 100).toInt().coerceIn(0, n - 1); val b = (pl.end * 100).toInt().coerceIn(0, n - 1)
+            val a = (pl.start * 100).toInt().minus(4).coerceIn(0, n - 1); val b = (pl.end * 100).toInt().coerceIn(0, n - 1)
             for (i in a..b) voice[i] = true
         }
         val env = FloatArray(n)
@@ -124,7 +124,7 @@ object DramaRenderer {
     }
 
     /** Igual que [render], pero entrega la mezcla por bloques (intercalado L/R, [count] cuadros desde [from]) sin juntarla toda en memoria. */
-    fun renderTo(p: Project, clipOf: (Cue) -> Clip?, progress: (Float) -> Unit = {}, sink: (ShortArray, Int, Int) -> Unit) {
+    fun renderTo(p: Project, clipOf: (Cue) -> Clip?, progress: (Float) -> Unit = {}, cancelled: () -> Boolean = { false }, sink: (ShortArray, Int, Int) -> Unit) {
         val places = layout(p)
         val total = places.maxOfOrNull { it.end } ?: 0.0
         val frames = (total * RATE).toInt() + RATE / 2
@@ -132,11 +132,10 @@ object DramaRenderer {
         val gains = HashMap<String, Float>()
         val clips = HashMap<String, Clip?>()
         fun clip(c: Cue): Clip? { if (!clips.containsKey(c.id)) clips[c.id] = clipOf(c); return clips[c.id] }
-        for (pl in places) {
+        if (p.normalizeVoices) for (pl in places) {   // las ganancias se miden sin guardar el audio (se decodifica de nuevo al mezclar)
             val c = pl.cue
-            if (c.type == CueType.SILENCE || c.muted) continue
-            val clip = clip(c) ?: continue
-            if (c.type == CueType.VOICE && p.normalizeVoices) gains[c.id] = voiceGain(clip)
+            if (c.type != CueType.VOICE || c.muted) continue
+            clipOf(c)?.let { gains[c.id] = voiceGain(it) }
         }
         val mixL = FloatArray(minOf(BLOCK, maxOf(frames, 1)))
         val mixR = FloatArray(mixL.size)
@@ -146,7 +145,9 @@ object DramaRenderer {
         for (pass in 0..1) {
             val scale = if (pass == 1 && peak > 0.98f) 0.98f / peak else 1f
             var from = 0
+            clips.clear()
             while (from < frames) {
+                if (cancelled()) throw java.util.concurrent.CancellationException("mezcla cancelada")
                 val n = minOf(mixL.size, frames - from)
                 java.util.Arrays.fill(mixL, 0, n, 0f); java.util.Arrays.fill(mixR, 0, n, 0f)
                 for (pl in places) {
@@ -163,12 +164,13 @@ object DramaRenderer {
                     for (i in 0 until n) peak = max(peak, max(abs(mixL[i]), abs(mixR[i])))
                 } else {
                     for (i in 0 until n) {
-                        pcm[2 * i] = (mixL[i] * scale * 32767f).toInt().coerceIn(-32768, 32767).toShort()
-                        pcm[2 * i + 1] = (mixR[i] * scale * 32767f).toInt().coerceIn(-32768, 32767).toShort()
+                        pcm[2 * i] = Math.round(mixL[i] * scale * 32767f).coerceIn(-32768, 32767).toShort()
+                        pcm[2 * i + 1] = Math.round(mixR[i] * scale * 32767f).coerceIn(-32768, 32767).toShort()
                     }
                     sink(pcm, from, n)
                 }
                 from += n
+                for (pl in places) if ((pl.end * RATE) <= from) clips.remove(pl.cue.id)   // lo que ya terminó se suelta
                 progress(((pass * frames + from).toFloat() / (2f * frames)).coerceIn(0f, 1f))
             }
         }
@@ -209,7 +211,11 @@ object DramaRenderer {
             var e = 1f
             if (fadeInF > 0 && i < fadeInF) e = i.toFloat() / fadeInF
             if (fadeOutF > 0 && len - i < fadeOutF) e = min(e, (len - i).toFloat() / fadeOutF)
-            if (c.type == CueType.MUSIC && duck != null) e *= duck[min(duck.size - 1, (startF + i) / (RATE / 100))]
+            if (c.type == CueType.MUSIC && duck != null) {
+                val pos100 = (startF + i) / (RATE / 100.0)
+                val k = min(duck.size - 1, pos100.toInt()); val k2 = min(duck.size - 1, k + 1)
+                e *= duck[k] + (duck[k2] - duck[k]) * (pos100 - k).toFloat()
+            }
             val o = startF + i - from
             mixL[o] += l * (1f / 32768f) * gl * e
             mixR[o] += r * (1f / 32768f) * gr * e

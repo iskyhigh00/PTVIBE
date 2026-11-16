@@ -2,5 +2,5 @@
 <paths>
     <cache-path name="updates" path="updates/" />
     <external-files-path name="music" path="Music/" />
-    <files-path name="files" path="." />
+    <files-path name="princess" path="princess/" />
 </paths>

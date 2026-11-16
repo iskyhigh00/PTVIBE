@@ -29,16 +29,20 @@ class AacWriter(file: File, private val rate: Int = 44100, private val channels:
     /** Agrega [count] muestras (no cuadros) intercaladas de [pcm]. */
     fun write(pcm: ShortArray, count: Int = pcm.size) {
         var off = 0
+        var waits = 0
         while (off < count) {
             val idx = codec.dequeueInputBuffer(10_000)
+            if (idx < 0 && ++waits > 1000) throw java.io.IOException("El codificador no responde")
             if (idx >= 0) {
                 val buf = codec.getInputBuffer(idx)!!
                 buf.clear()
-                val n = minOf(buf.capacity() / 2, count - off)
+                val n = minOf(buf.capacity() / 2, count - off) / channels * channels
+                if (n <= 0) throw java.io.IOException("Audio con muestras incompletas")
                 buf.order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().put(pcm, off, n)
                 codec.queueInputBuffer(idx, 0, n * 2, frames * 1_000_000L / rate, 0)
                 frames += n / channels
                 off += n
+                waits = 0
             }
             drain(false)
         }

@@ -105,6 +105,17 @@ object PrincessLibrary {
         return files.filter { it !in used && it != "project.json" && !it.startsWith("project-") }
     }
 
+    /** Al arrancar: borra carpetas de cuentos sin project.json y temporales viejos (lo que dejaron borrados o cortes a medias). */
+    fun sweep(ctx: Context) {
+        val old = System.currentTimeMillis() - 60 * 60_000L
+        for (d in root(ctx).listFiles().orEmpty()) {
+            if (!d.isDirectory) continue
+            val json = File(d, "project.json")
+            if (!json.exists()) { if (d.lastModified() < old) d.deleteRecursively(); continue }
+            for (f in d.listFiles().orEmpty()) if ((f.name.startsWith("project-") || f.name.endsWith(".part")) && f.lastModified() < old) f.delete()
+        }
+    }
+
     /** Borra lo que sobra en la carpeta del cuento (solo lo que tiene más de 10 minutos, para no tocar lo que se está creando). */
     fun cleanup(ctx: Context, p: Project) {
         val folder = dir(ctx, p)

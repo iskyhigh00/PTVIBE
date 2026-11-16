@@ -107,11 +107,14 @@ class StemsViewModel(private val app: Application) : AndroidViewModel(app) {
         _ui.value.songs.firstOrNull { it.id == id }?.let { open(it) }
     }
 
+    private var openJob: kotlinx.coroutines.Job? = null
+
     fun open(song: StemSong) {
         prefs.edit().putString("stems_last", song.id).apply()
         stop()
         NativeEngine.replicaMask(0)
-        viewModelScope.launch {
+        openJob?.cancel()
+        openJob = viewModelScope.launch {
             PlayerOwner.story = false
             NativeEngine.stemClear()
             _ui.update { it.copy(current = song, error = null, loading = 0f, loopA = -1.0, loopB = -1.0, speed = 1f) }
@@ -127,6 +130,7 @@ class StemsViewModel(private val app: Application) : AndroidViewModel(app) {
                         }
                     }
                 }
+                if (!isActive) return@launch   // se cerró o se abrió otra: no pisar el reproductor
                 r.onSuccess { d ->
                     PlayerOwner.story = false
                     NativeEngine.stemLoad(i, d.pcm, d.channels, d.rate)
@@ -213,6 +217,7 @@ class StemsViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun close() {
+        openJob?.cancel()
         stop()
         if (!PlayerOwner.story) { NativeEngine.replicaMask(0); NativeEngine.stemClear() }
         _ui.update { it.copy(current = null, loading = null) }

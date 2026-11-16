@@ -111,8 +111,10 @@ class MainActivity : ComponentActivity() {
                     var firstChoice by remember { mutableStateOf(appPrefs.getString("start", null)) }
                     var mode by rememberSaveable { mutableStateOf(if (firstChoice == "music") Mode.ACORDES else Mode.PRINCESS) }
                     val princessUi by princessVm.ui.collectAsState()
-                    var voiceStudio by androidx.compose.runtime.saveable.rememberSaveable(princessUi.current?.id) { mutableStateOf(false) }
-                    var voiceDocument by androidx.compose.runtime.saveable.rememberSaveable(princessUi.current?.id, stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
+                    var stableId by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+                    LaunchedEffect(princessUi.current?.id) { princessUi.current?.id?.let { stableId = it } }
+                    var voiceStudio by androidx.compose.runtime.saveable.rememberSaveable(stableId) { mutableStateOf(false) }
+                    var voiceDocument by androidx.compose.runtime.saveable.rememberSaveable(stableId, stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
                     val cfg = LocalConfiguration.current
                     // Los ajustes de cada pestaña se abren en una ventana encima (semitransparente, con X para cerrar).
                     var settingsOpen by rememberSaveable { mutableStateOf(false) }
@@ -162,7 +164,7 @@ class MainActivity : ComponentActivity() {
                     }
                     Box(Modifier.fillMaxSize()) {
                         if (firstChoice == null) {
-                            Column(Modifier.fillMaxSize().windowInsetsPadding(playInsets).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                            Column(Modifier.fillMaxSize().windowInsetsPadding(playInsets).verticalScroll(rememberScrollState()).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically)) {
                                 Text("¡Bienvenido a GlideLive!", fontSize = 26.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold)
                                 Text("¿Qué quieres hacer?", fontSize = 18.sp)
@@ -172,7 +174,7 @@ class MainActivity : ComponentActivity() {
                                 Button(onClick = { appPrefs.edit().putString("start", "music").apply(); firstChoice = "music"; mode = Mode.ACORDES }, modifier = Modifier.fillMaxWidth(0.8f).height(64.dp)) {
                                     Text("🎸 Tocar música (acordes, batería…)", fontSize = 17.sp)
                                 }
-                                Text("Después puedes cambiar desde el menú ⋮.", fontSize = 13.sp)
+                                Text("Después puedes cambiar con «Más ▾» en el cuento, o con el selector de arriba en música.", fontSize = 15.sp)
                             }
                             return@Box
                         }
@@ -282,6 +284,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        princessVm.beforePlay = {}   // el reproductor no debe retener esta pantalla
+        super.onDestroy()
     }
 
     override fun onPause() {

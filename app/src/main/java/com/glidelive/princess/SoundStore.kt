@@ -133,7 +133,7 @@ object SoundStore {
                 } }
                 conn.disconnect()
                 require(total <= 0 || got == total) { "descarga incompleta" }
-                part.renameTo(dest)
+                if (!part.renameTo(dest)) { part.copyTo(dest, overwrite = true); part.delete() }
                 return
             } catch (e: java.util.concurrent.CancellationException) { throw e }
             catch (e: Exception) { lastError = e; part.delete(); if (attempt < 2) Thread.sleep(800L * (attempt + 1)) }
@@ -149,7 +149,12 @@ object SoundStore {
     /** Baja [perSound] clips de cada sonido (cada uno ~440 kB). Se puede repetir: salta lo que ya está. */
     suspend fun downloadSfx(ctx: Context, perSound: Int, progress: (Float) -> Unit, cancelled: () -> Boolean) = withContext(Dispatchers.IO) {
         val csv = File(root(ctx), "esc50.csv")
-        if (!csv.exists() || csv.length() < 1000) csv.writeText(fetchText(ESC_BASE + "meta/esc50.csv", cancelled))
+        if (!csv.exists() || csv.length() < 20_000) {
+            val text = fetchText(ESC_BASE + "meta/esc50.csv", cancelled)
+            check(text.lines().size >= 2000) { "Lista de sonidos incompleta" }
+            val tmp = File(csv.path + ".part"); tmp.writeText(text)
+            check(tmp.renameTo(csv)) { "No se pudo guardar la lista de sonidos" }
+        }
         val wanted = SoundCatalog.groups.flatMap { it.sounds }.map { it.id }.toSet()
         val byCat = HashMap<String, MutableList<String>>()
         csv.readLines().drop(1).forEach { line ->
@@ -199,7 +204,7 @@ object SoundStore {
     /** Guarda una grabación (WAV 16 bit) como sonido propio, recortándole el silencio de los extremos. */
     @Synchronized fun addMine(ctx: Context, wav: File, name: String): MySound? {
         val d = WavIo.read(wav) ?: return null
-        val trimmed = WavIo.trimSilence(d.pcm, d.rate, threshold = 300, marginSec = 0.05f)
+        val trimmed = WavIo.trimSilence(d.pcm, d.rate, threshold = 300, marginSec = 0.05f, channels = d.channels)
         val id = UUID.randomUUID().toString().take(8)
         val out = File(mineDir(ctx), "$id.wav")
         WavIo.write(out, trimmed, d.channels, d.rate)
