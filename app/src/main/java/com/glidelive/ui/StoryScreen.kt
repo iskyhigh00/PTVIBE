@@ -309,7 +309,7 @@ private fun StoryEditor(
                 if (project.cues.isEmpty()) StoryEmptyHint(Modifier.align(Alignment.Center))
             }
 
-            if (project.cues.isNotEmpty() && u.recordingFor == null && u.busy == null)
+            if (project.cues.isNotEmpty() && u.recordingFor == null && u.busy == null && panel == null)
                 Text(
                     if (selected == null) "Toca un audio para elegirlo. Toca la regla de arriba para poner la línea roja."
                     else if (selected.cue.type == CueType.MUSIC) "La música de fondo no se corta: puedes moverla, bajarle el volumen o quitarla."
@@ -529,6 +529,7 @@ private fun StoryTimeline(
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     var draggingId by remember { mutableStateOf<String?>(null) }
     var viewportPx by remember { mutableStateOf(0) }
+    val vScroll = rememberScrollState()
     androidx.compose.runtime.LaunchedEffect((position * 5).toInt(), playing, viewportPx) {
         if (viewportPx > 0 && playing) {   // la línea roja no se sale de la pantalla mientras suena
             val x = (position * scale * density).toInt()
@@ -539,7 +540,12 @@ private fun StoryTimeline(
         var y = 0f
         lanes.map { l -> y.also { y += max(1, packRows(l.clips).size) * 64f } }
     }
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f), RoundedCornerShape(14.dp)).padding(6.dp).verticalScroll(rememberScrollState())) {
+    // Al elegir un audio, su línea se sube a la vista (con poca altura quedaría escondida debajo de los botones).
+    androidx.compose.runtime.LaunchedEffect(selectedId) {
+        val idx = lanes.indexOfFirst { l -> l.clips.any { it.cue.id == selectedId } }
+        if (selectedId != null && idx >= 0) vScroll.animateScrollTo(((laneTops[idx] + 48f) * density).toInt() - 8)
+    }
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f), RoundedCornerShape(14.dp)).padding(6.dp).verticalScroll(vScroll)) {
     Row(Modifier.fillMaxWidth()) {
         Column(Modifier.width(104.dp)) {
             Row(Modifier.height(48.dp), verticalAlignment = Alignment.CenterVertically) {
