@@ -71,4 +71,19 @@ class BlockRenderTest {
         val music = DramaRenderer.layout(grown).first { it.cue.id == "m" }
         assertEquals(13.0, music.end, 1e-6)
     }
+
+    @Test fun fadesAndTrimAcrossABlockBoundaryMatchTheFormula() {
+        // voz de 6 s que empieza en 8 s (cruza los 10 s), con entrada de 2 s, salida de 2 s y 1 s recortado al inicio
+        val ramp = ShortArray(44100 * 8) { i -> (i / 44100 * 1000).toShort() }   // 0, 1000, 2000… por segundo
+        val cue = Cue("v", CueType.VOICE, "n", "v", "v.wav", 8f, startSeconds = 8f, durationSeconds = 6f, trimStart = 1f, fadeIn = 2f, fadeOut = 2f)
+        val out = DramaRenderer.render(project(cue), { Clip(ramp, 1, 44100) })
+        fun expected(t: Double): Double {           // t en segundos de la mezcla
+            val local = t - 8.0
+            val source = 1.0 + local                // trimStart
+            val value = (source.toInt()) * 1000.0
+            val fade = minOf(1.0, local / 2.0, (6.0 - local) / 2.0)
+            return value * fade
+        }
+        for (t in listOf(9.0, 9.9, 10.1, 11.5, 12.5, 13.5)) assertEquals("en $t s", expected(t), at(out, t).toDouble(), 80.0)
+    }
 }

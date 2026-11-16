@@ -93,14 +93,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     /** Cualquier error inesperado se convierte en un aviso en español; nunca cierra la app. */
     private val safety = CoroutineExceptionHandler { _, t -> report(t) }
 
-    private fun friendly(t: Throwable): String = when {
-        t is OutOfMemoryError -> "El cuento es muy largo para escucharlo entero de una vez. Escucha por partes con «Desde aquí»."
-        t is java.net.UnknownHostException || t is java.net.SocketTimeoutException || t is java.net.ConnectException ->
-            "No hay conexión a internet. Revisa el WiFi y vuelve a intentar."
-        t is java.io.IOException && (t.message ?: "").contains("ENOSPC", true) -> "No queda espacio en el teléfono. Borra algo y vuelve a intentar."
-        t is SecurityException -> "La app no tiene permiso para hacer eso."
-        else -> "Algo salió mal. Vuelve a intentarlo; tu cuento está guardado."
-    }
+    private fun friendly(t: Throwable): String = Friendly.message(t)
 
     private fun report(t: Throwable) {
         if (t is java.util.concurrent.CancellationException) return
@@ -698,18 +691,18 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
 
     /** Mezcla el cuento por bloques y lo deja en un archivo M4A (si el teléfono no puede, en WAV). */
     suspend fun renderExport(p: Project, label: String = "Preparando tu cuento para enviar…"): File = withContext(Dispatchers.Default) {
-        val safe = p.title.replace(Regex("[^\\p{L}\\p{N} _-]"), "").trim().ifBlank { "cuento" }
+        val safe = "Cuento " + p.title.replace(Regex("[^\\p{L}\\p{N} _-]"), "").trim().ifBlank { "sin nombre" }
         val dir = PrincessLibrary.dir(app, p)
         val progress = { pr: Float -> _ui.update { it.copy(busy = label to pr) } }
         val part = File(dir, "export.part")
         try {
             val m4a = runCatching {
                 AacWriter(part).use { w -> DramaRenderer.renderTo(p, { clipOf(p, it) }, progress) { block, _, n -> w.write(block, n * 2) } }
-                File(dir, "$safe.m4a").also { part.copyTo(it, overwrite = true) }
+                File(dir, "$safe.m4a").also { if (!part.renameTo(it)) part.copyTo(it, overwrite = true) }
             }
             m4a.getOrNull() ?: run {
                 WavIo.Writer(part, 2, DramaRenderer.RATE).use { w -> DramaRenderer.renderTo(p, { clipOf(p, it) }, progress) { block, _, n -> w.write(block, n * 2) } }
-                File(dir, "$safe.wav").also { part.copyTo(it, overwrite = true) }
+                File(dir, "$safe.wav").also { if (!part.renameTo(it)) part.copyTo(it, overwrite = true) }
             }
         } finally { part.delete() }
     }
