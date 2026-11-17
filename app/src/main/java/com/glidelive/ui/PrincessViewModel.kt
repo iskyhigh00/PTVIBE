@@ -120,7 +120,12 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
 
     /** Lanza trabajo en segundo plano sin que un fallo pueda cerrar la app. */
     private fun launchSafe(block: suspend () -> Unit) = viewModelScope.launch(safety) {
-        try { block() } catch (c: java.util.concurrent.CancellationException) { _ui.update { it.copy(busy = null) }; throw c } catch (t: Throwable) { report(t) }
+        try { block() } catch (c: java.util.concurrent.CancellationException) {
+            // Solo el trabajo vigente limpia «ocupado»: uno viejo que termina tarde no debe borrar el del trabajo nuevo.
+            val me = kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]
+            if (workJob == null || workJob === me) _ui.update { it.copy(busy = null) }
+            throw c
+        } catch (t: Throwable) { report(t) }
     }
     @OptIn(ExperimentalCoroutinesApi::class)
     private val projectWrites = Dispatchers.IO.limitedParallelism(1)
@@ -326,6 +331,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun open(p: Project) {
+        openEpoch++
         if (recorder != null) finishRecording()   // una grabación en curso se guarda en el cuento donde empezó
         stop(); synchronized(clips) { clips.clear() }; places = emptyList(); history.clear(); previewing = false
         viewModelScope.launch(projectWrites + safety) { PrincessLibrary.cleanup(app, p) }
@@ -336,15 +342,19 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     fun deleteProject(p: Project) {
         if (_ui.value.current?.id == p.id) { workJob?.cancel(); lastExport = null; stop(); _ui.update { it.copy(current = null, loaded = false) } }
         viewModelScope.launch(projectWrites + safety) {
-            PrincessLibrary.delete(app, p)
+            projectEdits.withLock { PrincessLibrary.delete(app, p) }
             _ui.update { u -> u.copy(projects = u.projects.filter { it.id != p.id }) }
             if (_ui.value.current == null) projectEdits.withLock { history.clear(); _ui.update { it.copy(canUndo = false, canRedo = false) } }
         }
     }
 
+    @Volatile private var openEpoch = 0
+
     fun edit(f: (Project) -> Project) {
+        val epoch = openEpoch
         viewModelScope.launch(safety) {
             projectEdits.withLock {
+                if (epoch != openEpoch) return@withLock   // se abrió otro cuento mientras esperaba: este cambio ya no corresponde
                 val cur = _ui.value.current ?: return@withLock
                 val p = try { f(cur) } catch (e: Exception) { report(e); return@withLock }
                 if (p != cur) { history.record(cur); _ui.update { it.copy(canUndo = history.canUndo, canRedo = history.canRedo) } }
@@ -712,6 +722,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                 AacWriter(part).use { w -> DramaRenderer.renderTo(p, { clipOf(p, it) }, progress, cancelled) { block, _, n -> w.write(block, n * 2) } }
                 File(dir, "$safe.m4a").also { if (!part.renameTo(it)) part.copyTo(it, overwrite = true) }
             }
+            if (job?.isActive == false) throw java.util.concurrent.CancellationException("envío cancelado")
             m4a.exceptionOrNull()?.let { if (it is kotlinx.coroutines.CancellationException || it is OutOfMemoryError) throw it }
             m4a.exceptionOrNull()?.let { exportFallback = it }
             val out = m4a.getOrNull() ?: run {

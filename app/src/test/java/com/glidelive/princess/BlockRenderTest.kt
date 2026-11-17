@@ -134,4 +134,20 @@ class BlockRenderTest {
         } catch (e: java.util.concurrent.CancellationException) { /* esperado */ }
         assertTrue(blocks in 2..4)
     }
+
+    @Test fun loopedClipWithFractionalTrimNeverReadsPastTheEnd() {
+        // 48 kHz → 44,1 kHz y recorte fraccionario: antes podía salirse del arreglo al dar la vuelta
+        val clip = Clip(ShortArray(48000) { (it % 1000).toShort() }, 1, 48000)
+        val c = Cue("m", CueType.MUSIC, seconds = 1f, mode = CueMode.BED, startSeconds = 0f, durationSeconds = 6f, trimStart = 0.0123f)
+        val out = DramaRenderer.render(project(c), { clip })
+        assertTrue(out.size > 44100 * 6 * 2 - 10)
+    }
+
+    @Test fun dataChunkOfSizeZeroFollowedByMetadataIsNotReadAsAudio() {
+        val f = File.createTempFile("wav-meta", ".wav")
+        WavIo.write(f, ShortArray(0), 1, 22050)
+        f.appendBytes("LIST".toByteArray() + byteArrayOf(4, 0, 0, 0) + "abcd".toByteArray())
+        assertEquals(0, WavIo.read(f)!!.pcm.size)
+        f.delete()
+    }
 }

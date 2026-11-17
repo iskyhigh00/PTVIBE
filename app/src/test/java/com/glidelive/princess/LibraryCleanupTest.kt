@@ -29,4 +29,22 @@ class LibraryCleanupTest {
         assertFalse("los .part viejos se borran", File(alive, "export.part").exists())
         root.deleteRecursively()
     }
+
+    @Test fun aLateSaveDoesNotResurrectADeletedStory() {
+        val d = tmp()
+        val p = project("a.wav")
+        PrincessLibrary.saveInto(d, p, createIfMissing = true)
+        assertTrue(File(d, "project.json").exists())
+        d.deleteRecursively()
+        PrincessLibrary.saveInto(d, p, createIfMissing = false)   // guardado tardío después de borrar
+        assertFalse("el cuento borrado no debe reaparecer", File(d, "project.json").exists())
+    }
+
+    @Test fun savingAnExistingStoryRewritesIt() {
+        val d = tmp()
+        PrincessLibrary.saveInto(d, project("a.wav"), createIfMissing = true)
+        PrincessLibrary.saveInto(d, project("a.wav", "b.wav"), createIfMissing = false)
+        assertTrue(File(d, "project.json").readText().contains("b.wav"))
+        d.deleteRecursively()
+    }
 }

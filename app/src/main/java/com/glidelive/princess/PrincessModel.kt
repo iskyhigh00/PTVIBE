@@ -78,15 +78,19 @@ object PrincessLibrary {
 
     fun create(ctx: Context, title: String): Project {
         val p = Project(newId(), title.ifBlank { "Mi obra" }, listOf(Character(newId(), "Narrador", PALETTE[0])), emptyList())
-        save(ctx, p)
+        saveInto(dir(ctx, p), p, createIfMissing = true)
         return p
     }
 
     fun list(ctx: Context): List<Project> = root(ctx).listFiles()?.mapNotNull { d -> runCatching { parse(File(d, "project.json").readText()) }.getOrNull() }
         ?.sortedByDescending { File(dir(ctx, it), "project.json").lastModified() } ?: emptyList()
 
-    @Synchronized fun save(ctx: Context, p: Project) {
-        val folder = dir(ctx, p)
+    /** Guarda el cuento. Si ya no tiene su project.json (se borró mientras tanto), no lo vuelve a crear. */
+    fun save(ctx: Context, p: Project) = saveInto(dir(ctx, p), p, createIfMissing = false)
+
+    @Synchronized fun saveInto(folder: File, p: Project, createIfMissing: Boolean) {
+        if (!createIfMissing && !File(folder, "project.json").exists()) return
+        folder.mkdirs()
         val next = File.createTempFile("project-", ".tmp", folder)
         try {
             next.writeText(toJson(p).toString())

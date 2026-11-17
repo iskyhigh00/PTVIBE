@@ -52,6 +52,10 @@ class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private fun fetchLatest(): UpdateState {
         val c = URL(RELEASE_API).openConnection() as HttpURLConnection
+        try { return fetchLatestWith(c) } finally { c.disconnect() }
+    }
+
+    private fun fetchLatestWith(c: HttpURLConnection): UpdateState {
         c.connectTimeout = 10_000
         c.readTimeout = 10_000
         c.setRequestProperty("Accept", "application/vnd.github+json")
@@ -108,12 +112,15 @@ class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
         val shaUrl = available.shaUrl ?: error("La actualización no trae su verificación. No se instala.")
         val c = URL(shaUrl).openConnection() as HttpURLConnection
         c.connectTimeout = 15_000; c.readTimeout = 15_000
-        val expected = try { UpdateCheck.parseHash(c.inputStream.bufferedReader().use { it.readText() }) } finally { c.disconnect() }
+        val expected = try {
+            if (c.responseCode != 200) error("No se pudo comprobar la actualización (${c.responseCode}). Reintenta en un minuto.")
+            UpdateCheck.parseHash(c.inputStream.bufferedReader().use { it.readText() })
+        } finally { c.disconnect() }
         val actual = UpdateCheck.sha256(file)
         if (!UpdateCheck.matches(expected, actual)) { file.delete(); error("La actualización bajada no coincide con la publicada. No se instala.") }
         val info = app.packageManager.getPackageArchiveInfo(file.path, 0)
-        if (info == null || info.packageName != app.packageName || PackageInfoCompat.getLongVersionCode(info) != available.build) {
-            file.delete(); error("La actualización no es de esta app. No se instala.")
+        if (info == null || info.packageName != app.packageName || PackageInfoCompat.getLongVersionCode(info) <= currentBuild) {
+            file.delete(); error("La actualización bajada no es de esta app o no es más nueva. No se instala. Si acaban de publicarla, reintenta en un minuto.")
         }
     }
 
@@ -121,6 +128,7 @@ class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
         val dir = File(app.cacheDir, "updates").apply { mkdirs() }
         val out = File(dir, "GlideLive.apk")
         val c = URL(url).openConnection() as HttpURLConnection
+        try {
         c.connectTimeout = 15_000
         c.readTimeout = 30_000
         if (c.responseCode != 200) error("Descarga falló (${c.responseCode})")
@@ -138,6 +146,7 @@ class UpdateViewModel(private val app: Application) : AndroidViewModel(app) {
                 }
             }
         }
+        } finally { c.disconnect() }
         return out
     }
 

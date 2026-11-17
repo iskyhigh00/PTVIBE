@@ -199,7 +199,7 @@ object DramaRenderer {
         var pos = first * step
         for (i in first until last) {
             var sp = pos
-            if (loop) sp %= sourceFrames.toDouble() else if (sp >= sourceFrames - 1) break
+            if (loop) sp %= (sourceFrames - trimFrac).coerceAtLeast(1.0) else if (sp >= sourceFrames - 1) break
             sp += sourceStart + trimFrac
             val i0 = sp.toInt()
             val i1 = if (i0 + 1 < clip.frames) i0 + 1 else if (loop) sourceStart else i0

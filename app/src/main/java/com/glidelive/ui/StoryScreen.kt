@@ -532,7 +532,7 @@ private fun StoryTimeline(
     var viewportPx by remember { mutableStateOf(0) }
     val vScroll = rememberScrollState()
     var manualUntil by remember { mutableStateOf(0L) }
-    androidx.compose.runtime.LaunchedEffect(hScroll.isScrollInProgress) { if (hScroll.isScrollInProgress && !playing.not()) manualUntil = System.currentTimeMillis() + 4000 }
+    androidx.compose.runtime.LaunchedEffect(hScroll.isScrollInProgress) { if (hScroll.isScrollInProgress && playing) manualUntil = System.currentTimeMillis() + 4000 }
     androidx.compose.runtime.LaunchedEffect((position * 5).toInt(), playing, viewportPx) {
         if (viewportPx > 0 && playing && System.currentTimeMillis() > manualUntil) {   // la línea roja no se sale de la pantalla mientras suena
             val x = (position * scale * density).toInt()
