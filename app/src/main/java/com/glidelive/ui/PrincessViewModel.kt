@@ -145,7 +145,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                 val merged = u.projects + list.filter { p -> u.projects.none { it.id == p.id } }
                 u.copy(projects = merged, current = u.current ?: list.firstOrNull { p -> p.id == last } ?: list.firstOrNull())
             }
-            _ui.value.current?.let { runCatching { recoverTakes(it) } }   // una toma que quedó a medias al cerrarse la app
+            _ui.value.current?.let { c -> withContext(projectWrites) { runCatching { recoverTakes(c) } } }   // una toma que quedó a medias al cerrarse la app
         }
         viewModelScope.launch(Dispatchers.Default) {
             while (isActive) {
@@ -156,7 +156,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                 }
                 if (_ui.value.loaded) {
                     val s = NativeEngine.stemStatus()
-                    if (serviceOn && s[2] <= 0.5) {   // terminó de sonar
+                    if (serviceOn && s[2] <= 0.5 && System.currentTimeMillis() - playStartedAt > 800) {   // terminó de sonar (se espera un momento tras empezar)
                         PlaybackService.stop(app); serviceOn = false; abandonAudioFocus()
                         if (inBackground) NativeEngine.stop()   // con la app atrás no se deja el audio abierto gastando batería
                     }
@@ -353,9 +353,9 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         lastMix = null
         if (recorder != null) finishRecording()   // una grabación en curso se guarda en el cuento donde empezó
         stop(); synchronized(clips) { clips.clear() }; places = emptyList(); history.clear(); previewing = false
-        viewModelScope.launch(projectWrites + safety) { runCatching { recoverTakes(p) }; PrincessLibrary.cleanup(app, p) }
         prefs.edit().putString("princess_last", p.id).apply()
         _ui.update { it.copy(current = p, loaded = false, playingCue = -1, error = null, cursor = 0.0, canUndo = false, canRedo = false) }
+        viewModelScope.launch(projectWrites + safety) { runCatching { recoverTakes(p) }; PrincessLibrary.cleanup(app, _ui.value.current?.takeIf { it.id == p.id } ?: p) }
     }
 
     /** Hace una copia del cuento (con sus audios) para reutilizarlo. */
@@ -382,15 +382,20 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(safety) {
             projectEdits.withLock {
                 if (epoch != openEpoch) return@withLock   // se abrió otro cuento mientras esperaba: este cambio ya no corresponde
-                val cur = _ui.value.current ?: return@withLock
-                val p = try { f(cur) } catch (e: Exception) { report(e); return@withLock }
-                if (p != cur) { history.record(cur); _ui.update { it.copy(canUndo = history.canUndo, canRedo = history.canRedo) } }
-                updateProject(p)
-                viewModelScope.launch(projectWrites) {
-                    runCatching { PrincessLibrary.save(app, p) }.onFailure {
-                        _ui.update { u -> u.copy(error = "No se pudo guardar el cuento. Revisa que quede espacio en el teléfono.") }
-                    }
-                }
+                applyLocked(f)
+            }
+        }
+    }
+
+    /** Aplica un cambio al cuento abierto. Solo se llama con [projectEdits] tomado. */
+    private fun applyLocked(f: (Project) -> Project) {
+        val cur = _ui.value.current ?: return
+        val p = try { f(cur) } catch (e: Exception) { report(e); return }
+        if (p != cur) { history.record(cur); _ui.update { it.copy(canUndo = history.canUndo, canRedo = history.canRedo) } }
+        updateProject(p)
+        viewModelScope.launch(projectWrites) {
+            runCatching { PrincessLibrary.save(app, p) }.onFailure {
+                _ui.update { u -> u.copy(error = "No se pudo guardar el cuento. Revisa que quede espacio en el teléfono.") }
             }
         }
     }
@@ -493,19 +498,21 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     private fun add(cue: Cue) = edit { p -> p.copy(cues = p.cues + cue) }
 
     /** Agrega al cuento [projectId]; si mientras tanto se abrió otro, no se mezcla (el audio no queda en el cuento equivocado). */
+    /** Agrega el audio al cuento [projectId]: si está abierto, como una edición normal; si ya no lo está, directo en su carpeta. La decisión se toma con el candado tomado, así no se pierde nada si se vuelve a abrir. */
     private fun addTo(projectId: String, cue: Cue) {
-        if (_ui.value.current?.id != projectId) { addToOtherProject(projectId, cue); return }   // se abrió otro cuento mientras tanto: el audio va al suyo
-        _ui.update { it.copy(lastAddedId = cue.id) }
-        edit { p -> if (p.id != projectId) p else p.copy(cues = p.cues + cue) }
-    }
-
-    private fun addToOtherProject(projectId: String, cue: Cue) {
-        viewModelScope.launch(projectWrites + safety) {
+        viewModelScope.launch(safety) {
             projectEdits.withLock {
-                val p = PrincessLibrary.load(app, projectId) ?: return@withLock   // el cuento se borró
-                val next = p.copy(cues = p.cues + cue)
-                PrincessLibrary.saveInto(PrincessLibrary.dirOf(app, projectId), next, createIfMissing = false)
-                _ui.update { u -> u.copy(projects = u.projects.map { if (it.id == projectId) next else it }) }
+                if (_ui.value.current?.id == projectId) {
+                    _ui.update { it.copy(lastAddedId = cue.id) }
+                    applyLocked { p -> p.copy(cues = p.cues + cue) }
+                } else {
+                    withContext(projectWrites) {
+                        val p = PrincessLibrary.load(app, projectId) ?: return@withContext   // el cuento se borró
+                        val next = p.copy(cues = p.cues + cue)
+                        PrincessLibrary.saveInto(PrincessLibrary.dirOf(app, projectId), next, createIfMissing = false)
+                        _ui.update { u -> u.copy(projects = u.projects.map { if (it.id == projectId) next else it }) }
+                    }
+                }
             }
         }
     }
@@ -578,6 +585,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     private var recordAt: Double? = null
 
     private var recordingFile: File? = null
+    private val finishing: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()   // tomas que se están guardando ahora (la recuperación no las toca)
 
     fun startRecording(characterId: String, atSeconds: Double? = null): Boolean {
         if (recorder != null) return false
@@ -631,12 +639,13 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         if (peak < 150) {
             file.delete(); _ui.update { it.copy(error = "No se oyó nada. Revisa que el micrófono no esté tapado ni silenciado y habla más cerca.") }; return
         }
+        finishing += file.name
         launchSafe {
-            val take = withContext(Dispatchers.IO) { takeFrom(file, p.id) }
+            val take = try { withContext(Dispatchers.IO) { takeFrom(file, p.id) } } finally { finishing -= file.name }
             if (take == null) { _ui.update { it.copy(error = "No pude guardar la grabación ahora, pero no se perdió: se recuperará al abrir el cuento otra vez.") }; return@launchSafe }
             val number = nextTakeNumber(_ui.value.current)
             val startAt = at ?: ((_ui.value.current?.let { DramaRenderer.totalSeconds(it) } ?: 0.0) + 0.6)   // 0,6 s es el espacio con que entra una voz «a continuación»
-            _ui.update { it.copy(cursor = startAt + take.length, notice = if (interrupted) "Se detuvo la grabación porque saliste de la app. Tu voz hasta ahí quedó guardada." else if (peak < 3000) "Tu voz quedó guardada, pero se oyó muy bajito: la próxima vez acércate al micrófono. Toca ▶ Escuchar para oírla." else "¡Listo! Tu voz quedó guardada y se oyó bien. Toca ▶ Escuchar para oírla.") }
+            _ui.update { it.copy(cursor = startAt + take.length, notice = if (interrupted) "Se detuvo la grabación porque saliste de la app. Tu voz hasta ahí quedó guardada." else if (peak < 3000) "Tu voz quedó guardada, pero se oyó muy bajito. Puedes grabar otra vez acercándote al micrófono, o tocar ▶ Escuchar para oírla." else "¡Listo! Tu voz quedó guardada y se oyó bien. Toca ▶ Escuchar para oírla.") }
             interrupted = false
             addTo(p.id, takeCue(who, "Mi voz $number", take, at))
             if (full) _ui.update { it.copy(notice = "Llegaste al máximo de 10 minutos seguidos. Lo grabado quedó guardado.") }
@@ -672,6 +681,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         val first = p.characters.firstOrNull()?.id ?: return
         val files = dir.listFiles { f -> f.isFile && f.name.startsWith("grabando_") && f.name.endsWith(".wav") }.orEmpty()
         for (f in files) {
+            if (f.name in finishing) continue
             if (f.length() < 44 + MicRecorder.RATE / 5 * 2) { f.delete(); continue }   // menos de 0,2 s: no hay nada que recuperar
             val who = f.name.removePrefix("grabando_").substringBeforeLast("_").takeIf { id -> p.characters.any { it.id == id } } ?: first
             val take = withContext(Dispatchers.IO) { runCatching { takeFrom(f, p.id) }.getOrNull() }
@@ -704,6 +714,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     private fun load(pcm: ShortArray, from: Double) {
+        if (!requestAudioFocus()) { _ui.update { it.copy(notice = "Ahora no se puede reproducir: otra app está usando el sonido (¿una llamada?). Inténtalo de nuevo en un momento.") }; return }
         beforePlay()
         PlayerOwner.story = true
         NativeEngine.replicaMask(0)
@@ -716,12 +727,13 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         NativeEngine.stemPlay(true)
         playToken++
         if (!serviceOn) serviceOn = PlaybackService.start(app)   // sigue sonando con la pantalla apagada
-        requestAudioFocus()
+        playStartedAt = System.currentTimeMillis()
         _ui.update { it.copy(loaded = true) }
     }
 
     private var lastMix: Pair<Project, ShortArray>? = null
     @Volatile private var serviceOn = false
+    @Volatile private var playStartedAt = 0L
     @Volatile private var playToken = 0
 
     /** Escucha solo una pista, con el tono y volumen de su personaje. */
@@ -894,17 +906,21 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private var focusRequest: android.media.AudioFocusRequest? = null
 
-    private fun requestAudioFocus() {
-        if (android.os.Build.VERSION.SDK_INT < 26) return
-        val am = app.getSystemService(android.media.AudioManager::class.java) ?: return
+    private fun requestAudioFocus(): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < 26) return true
+        val am = app.getSystemService(android.media.AudioManager::class.java) ?: return true
         val req = focusRequest ?: android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN)
             .setAudioAttributes(android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_MEDIA).setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC).build())
             .setOnAudioFocusChangeListener { change ->
                 // Una llamada u otra app con sonido: el cuento se pausa (no sigue sonando encima).
                 if (change == android.media.AudioManager.AUDIOFOCUS_LOSS || change == android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
-                    viewModelScope.launch(Dispatchers.Main) { stop() }
+                    viewModelScope.launch(Dispatchers.Main) {
+                        if (isStoryPlaying()) _ui.update { it.copy(notice = "El cuento se detuvo porque entró una llamada o otro sonido. Toca ▶ Escuchar para seguir.") }
+                        stop()
+                        if (inBackground) NativeEngine.stop()   // con la app atrás no se deja el audio abierto
+                    }
             }.build().also { focusRequest = it }
-        runCatching { am.requestAudioFocus(req) }
+        return runCatching { am.requestAudioFocus(req) }.getOrDefault(android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) != android.media.AudioManager.AUDIOFOCUS_REQUEST_FAILED
     }
 
     private fun abandonAudioFocus() {
@@ -977,7 +993,10 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
             values.clear(); values.put(android.provider.MediaStore.Audio.Media.IS_PENDING, 0)
             resolver.update(uri, values, null, null)
         } catch (t: Throwable) { runCatching { resolver.delete(uri, null, null) }; throw t }
-        _ui.update { it.copy(notice = "Guardé tu cuento «${f.nameWithoutExtension}». Ábrelo con la app Música o Archivos (carpeta Música › Cuentos).") }
+        val real = runCatching {
+            resolver.query(uri, arrayOf(android.provider.MediaStore.Audio.Media.DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+        }.getOrNull() ?: f.name
+        _ui.update { it.copy(notice = "Guardé tu cuento «${real.substringBeforeLast('.')}». Ábrelo con la app Música o Archivos (carpeta Música › Cuentos).") }
     }
 
     private fun exportThen(doneNotice: String?, action: (File) -> Unit) {

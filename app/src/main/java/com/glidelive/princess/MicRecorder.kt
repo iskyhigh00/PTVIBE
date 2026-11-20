@@ -70,8 +70,8 @@ class MicRecorder(private val file: File, private val onLevel: (Float) -> Unit) 
     /** Termina de grabar. El audio ya está en el archivo (se va escribiendo mientras se graba); devuelve cuántos cuadros quedaron. */
     fun stop(): Int {
         running = false
+        runCatching { rec?.stop() }   // primero se detiene el micrófono: así una lectura trabada se libera y el hilo puede terminar
         thread?.join(3000)
-        runCatching { rec?.stop() }
         runCatching { rec?.release() }; rec = null
         writer = null
         return n

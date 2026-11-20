@@ -78,7 +78,7 @@ class StoryScreenTest {
         shot("1-inicio")
         story(vm)
         shot("2-cuento")
-        rule.onNodeWithText("📤 Enviar").assertIsDisplayed()
+        rule.onNodeWithText("📤 Enviar", substring = true).assertIsDisplayed()
         rule.onNodeWithText("▶ Escuchar", substring = true).assertIsDisplayed()
         rule.onNodeWithText("Grabar mi voz", substring = true).assertIsDisplayed()
         rule.onNodeWithText("🎵 Música").assertIsDisplayed()
