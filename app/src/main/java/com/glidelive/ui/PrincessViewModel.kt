@@ -267,6 +267,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         addingSound = true
         launchSafe {
             try {
+            var sfxVolume = 1f
             val r = withContext(Dispatchers.IO) {
                 runCatching {
                     val id = PrincessLibrary.newId()
@@ -279,6 +280,9 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                         val pcm = WavIo.trimSilence(d.pcm, d.rate, threshold = 350, marginSec = 0.06f, channels = d.channels)
                         val f = File(PrincessLibrary.dir(app, p), "$id.wav")
                         WavIo.write(f, pcm, d.channels, d.rate)
+                        // Los efectos se igualan: su pico queda cerca de la mitad, para que un ladrido no tape la voz.
+                        val peak = pcm.maxOfOrNull { kotlin.math.abs(it.toInt()) } ?: 0
+                        sfxVolume = if (peak > 200) (0.5f * 32768f / peak).coerceIn(0.25f, 1.2f) else 1f
                         Pair(f.name, pcm.size.toFloat() / d.channels / d.rate)
                     }
                 }
@@ -288,7 +292,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                 val over = atSeconds != null && !bed
                 // "Encima": posición absoluta en el timeline; el resto de las pistas no se mueve.
                 addTo(p.id, Cue(PrincessLibrary.newId(), type, null, label, name, sec, if (bed) 0f else 0.5f,
-                    if (bed) CueMode.BED else CueMode.SEQ, if (bed) 0.5f else 1f, 0, if (bed) 1.5f else 0f, if (bed) 2f else 0f,
+                    if (bed) CueMode.BED else CueMode.SEQ, if (bed) 0.5f else sfxVolume, 0, if (bed) 1.5f else 0f, if (bed) 2f else 0f,
                     startSeconds = if (bed) (atSeconds ?: 0.0).toFloat() else if (over) atSeconds!!.toFloat() else null))
                 val where = atSeconds ?: 0.0
                 _ui.update { it.copy(notice = if (bed) "Puse «$label» de fondo, suave, desde el minuto ${"%d:%02d".format(where.toInt() / 60, where.toInt() % 60)}. Se oye bajito mientras hablas." else "Agregué «$label» donde está la línea roja.") }
@@ -342,6 +346,14 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(projectWrites + safety) { PrincessLibrary.cleanup(app, p) }
         prefs.edit().putString("princess_last", p.id).apply()
         _ui.update { it.copy(current = p, loaded = false, playingCue = -1, error = null, cursor = 0.0, canUndo = false, canRedo = false) }
+    }
+
+    /** Hace una copia del cuento (con sus audios) para reutilizarlo. */
+    fun duplicateProject(p: Project) {
+        viewModelScope.launch(projectWrites + safety) {
+            val copy = PrincessLibrary.duplicate(app, p)
+            _ui.update { it.copy(projects = listOf(copy) + it.projects, notice = "Hice una copia: «${copy.title}».") }
+        }
     }
 
     fun deleteProject(p: Project) {
@@ -580,6 +592,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                 f.name to trimmed.size.toFloat() / MicRecorder.RATE
             }
             val cueCount = _ui.value.current?.cues?.count { it.type == CueType.VOICE } ?: 0
+            _ui.update { it.copy(notice = "¡Listo! Tu voz quedó guardada. Toca ▶ Escuchar para oírla.") }
             val startAt = at ?: ((_ui.value.current?.let { DramaRenderer.totalSeconds(it) } ?: 0.0) + 0.6)   // 0,6 s es el espacio con que entra una voz «a continuación»
             _ui.update { it.copy(cursor = startAt + saved.second) }   // la línea roja queda al final de lo grabado
             addTo(p.id, Cue(PrincessLibrary.newId(), CueType.VOICE, who, "Mi voz ${cueCount + 1}", saved.first, saved.second, 0.6f,
@@ -718,8 +731,8 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     /** Mezcla el cuento por bloques y lo deja en un archivo M4A (si el teléfono no puede, en WAV). */
     suspend fun renderExport(p: Project, label: String = "Preparando tu cuento para enviar…"): File = withContext(Dispatchers.Default) {
         exportFallback = null
-        val safe = "Cuento " + p.title.replace(Regex("[^\\p{L}\\p{N} _-]"), "").trim().take(60).ifBlank { "sin nombre" }
-        val dir = PrincessLibrary.dir(app, p)
+        val safe = p.title.replace(Regex("[^\\p{L}\\p{N} _-]"), "").trim().take(60).ifBlank { "Mi cuento" }
+        val dir = File(PrincessLibrary.dir(app, p), "enviar").also { it.mkdirs() }
         val job = kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]
         val progress = { pr: Float -> if (job?.isActive != false) _ui.update { it.copy(busy = label to pr) } }
         val part = File(dir, "export_${PrincessLibrary.newId()}.part")
@@ -737,25 +750,52 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                 WavIo.Writer(part, 2, DramaRenderer.RATE).use { w -> DramaRenderer.renderTo(p, { clipOf(p, it) }, progress, cancelled) { block, _, n -> w.write(block, n * 2) } }
                 File(dir, "$safe.wav").also { if (!part.renameTo(it)) part.copyTo(it, overwrite = true) }
             }
-            dir.listFiles()?.filter { it.isFile && it.name.startsWith("Cuento ") && (it.extension == "m4a" || it.extension == "wav") && it != out }?.forEach { it.delete() }   // envíos anteriores
+            dir.listFiles()?.filter { it.isFile && (it.extension == "m4a" || it.extension == "wav") && it != out }?.forEach { it.delete() }   // envíos anteriores
             out
         } finally { part.delete() }
     }
 
     /** Mezcla el cuento a un audio y abre el menú de compartir (WhatsApp, guardar, etc.). */
-    fun export() {
+    fun export() = exportThen("Listo. Elige WhatsApp u otra app para enviarlo.", ::share)
+
+    /** Guarda el cuento en el teléfono (Música › Cuentos) para usarlo sin internet, por ejemplo en el aula. */
+    fun saveToPhone() = exportThen(null) { f -> saveToMediaStore(f) }
+
+    private fun saveToMediaStore(f: File) {
+        if (android.os.Build.VERSION.SDK_INT < 29) {
+            _ui.update { it.copy(notice = "En este teléfono toca «📤 Enviar» y elige «Guardar» o tu administrador de archivos.") }; return
+        }
+        val resolver = app.contentResolver
+        val values = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.Audio.Media.DISPLAY_NAME, f.name)
+            put(android.provider.MediaStore.Audio.Media.MIME_TYPE, if (f.extension == "m4a") "audio/mp4" else "audio/x-wav")
+            put(android.provider.MediaStore.Audio.Media.RELATIVE_PATH, "Music/Cuentos")
+            put(android.provider.MediaStore.Audio.Media.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(android.provider.MediaStore.Audio.Media.getContentUri(android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY), values)
+            ?: error("No se pudo crear el archivo en el teléfono")
+        try {
+            resolver.openOutputStream(uri)!!.use { o -> f.inputStream().use { it.copyTo(o) } }
+            values.clear(); values.put(android.provider.MediaStore.Audio.Media.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+        } catch (t: Throwable) { runCatching { resolver.delete(uri, null, null) }; throw t }
+        _ui.update { it.copy(notice = "Guardé tu cuento en tu teléfono: carpeta Música › Cuentos › ${f.name}") }
+    }
+
+    private fun exportThen(doneNotice: String?, action: (File) -> Unit) {
         val p = _ui.value.current ?: return
         if (p.cues.isEmpty()) { _ui.update { it.copy(notice = "Todavía no hay nada que enviar. Graba tu voz o agrega un sonido primero.") }; return }
         if (_ui.value.busy != null) return
-        lastExport?.let { (q, file) -> if (q == p && file.exists()) { share(file); return } }
+        lastExport?.let { (q, file) -> if (q == p && file.exists()) { runCatching { action(file) }.onFailure { report(it) }; return } }
         _ui.update { it.copy(busy = "Preparando tu cuento para enviar…" to 0f, error = null) }
         val gen = leaveGen
         workJob = launchSafe {
             val f = renderExport(p)
             lastExport = p to f
-            if (gen != leaveGen) { _ui.update { it.copy(busy = null, notice = "Tu cuento está listo: toca «📤 Enviar» para mandarlo.") }; return@launchSafe }
-            _ui.update { it.copy(busy = null, notice = "Listo. Elige dónde enviarlo, por ejemplo WhatsApp.") }
-            share(f)
+            if (gen != leaveGen) { _ui.update { it.copy(busy = null, notice = "Tu cuento está listo: vuelve a tocar el botón para usarlo.") }; return@launchSafe }
+            _ui.update { it.copy(busy = null, notice = doneNotice ?: it.notice) }
+            withContext(Dispatchers.IO) { if (doneNotice == null) action(f) }
+            if (doneNotice != null) action(f)
         }
     }
 

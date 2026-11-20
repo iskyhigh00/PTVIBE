@@ -175,10 +175,11 @@ private fun StoryList(vm: PrincessViewModel, u: PrincessUi, onOpen: (Project) ->
                     ) {
                         Column(Modifier.weight(1f)) {
                             Text(p.title, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                            Text("${p.cues.size} ${if (p.cues.size == 1) "audio" else "audios"} · ${clock(DramaRenderer.totalSeconds(p))}", style = MaterialTheme.typography.bodySmall,
+                            Text("${p.cues.size} ${if (p.cues.size == 1) "audio" else "audios"} · ${clock(DramaRenderer.totalSeconds(p))} · se guarda solo", style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         FilledTonalButton(onClick = { onOpen(p) }, modifier = Modifier.height(48.dp).semantics { contentDescription = "Abrir ${p.title}" }) { Text("Abrir") }
+                        TextButton(onClick = { vm.duplicateProject(p) }, modifier = Modifier.height(48.dp).semantics { contentDescription = "Hacer una copia de ${p.title}" }) { Text("Copiar") }
                         TextButton(onClick = { deleting = p }, modifier = Modifier.height(48.dp).semantics { contentDescription = "Borrar ${p.title}" }) { Text("Borrar") }
                     }
                 }
@@ -203,7 +204,7 @@ private fun MoreMenu(onOtherMode: (() -> Unit)?, onUpdate: (() -> Unit)?) {
         TextButton(onClick = { open = true }, modifier = Modifier.height(48.dp).semantics { contentDescription = "Más opciones" }) { Text("⋮", fontSize = 22.sp) }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             onUpdate?.let { DropdownMenuItem(text = { Text("Buscar una versión nueva de la app") }, onClick = { open = false; it() }) }
-            onOtherMode?.let { DropdownMenuItem(text = { Text("Cambiar a música (acordes, batería…)") }, onClick = { open = false; it() }) }
+            onOtherMode?.let { DropdownMenuItem(text = { Text("🎸 Ir a la pantalla de hacer música") }, onClick = { open = false; it() }) }
         }
     }
 }
@@ -233,6 +234,10 @@ private fun StoryEditor(
     val working = u.busy != null || u.recordingFor != null
     val playing = clk.playing && u.loaded && !u.previewing
     val position = if (playing) clk.pos else u.cursor
+    val keepOn = (clk.playing && u.loaded) || u.recordingFor != null
+    val screen = androidx.compose.ui.platform.LocalView.current
+    androidx.compose.runtime.SideEffect { screen.keepScreenOn = keepOn }   // la pantalla no se apaga mientras suena o graba
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { screen.keepScreenOn = false } }
 
     fun recordPoint(): Double? = if (u.cursor > 0.05) u.cursor else null
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -259,7 +264,7 @@ private fun StoryEditor(
     if (newCharacter) {
         var name by remember { mutableStateOf("") }
         AlertDialog(
-            onDismissRequest = { newCharacter = false }, title = { Text("¿Quién habla?") },
+            onDismissRequest = { newCharacter = false }, title = { Text("Nuevo personaje: ¿cómo se llama?") },
             text = { OutlinedTextField(name, { name = it }, label = { Text("Nombre (la bruja, el lobo, mamá…)") }, singleLine = true) },
             confirmButton = { TextButton(onClick = { speaker = vm.addCharacter(name); newCharacter = false }, enabled = name.isNotBlank()) { Text("Agregar") } },
             dismissButton = { TextButton(onClick = { newCharacter = false }) { Text("Cancelar") } },
@@ -315,7 +320,7 @@ private fun StoryEditor(
 
             if (project.cues.isNotEmpty() && androidx.compose.ui.platform.LocalDensity.current.fontScale <= 1.15f && u.recordingFor == null && u.busy == null && panel == null && u.notice == null && u.error == null && (selected == null || selected.cue.type == CueType.MUSIC))
                 Text(
-                    if (selected == null) "Toca un audio para elegirlo. Toca un espacio vacío de la línea de tiempo para poner la línea roja."
+                    if (selected == null) "Toca un audio para elegirlo. Toca la tira de colores para mover la línea roja: ahí se graba, se corta y se pone todo."
                     else "La música de fondo no se corta: puedes moverla, bajarle el volumen o quitarla.",
                     Modifier.padding(horizontal = 12.dp), fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
@@ -346,7 +351,7 @@ private fun StoryTopBar(
         TextButton(onClick = { onRename() }, modifier = Modifier.weight(1f).height(48.dp).semantics { contentDescription = "Cambiar el nombre del cuento: ${project.title}" }, contentPadding = pad) {
             Text(project.title + " ✎", fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         }
-        FilledTonalButton(onClick = { vm.undo() }, enabled = u.canUndo && !working, modifier = Modifier.height(48.dp).widthIn(min = 48.dp).semantics { contentDescription = "Deshacer" }, contentPadding = pad) { Text("↶", fontSize = 20.sp, maxLines = 1) }
+        FilledTonalButton(onClick = { vm.undo() }, enabled = u.canUndo && !working, modifier = Modifier.height(48.dp).widthIn(min = 48.dp).semantics { contentDescription = "Deshacer" }, contentPadding = pad) { Text(if (androidx.compose.ui.platform.LocalDensity.current.fontScale <= 1.15f) "↶ Deshacer" else "↶", fontSize = if (androidx.compose.ui.platform.LocalDensity.current.fontScale <= 1.15f) 15.sp else 20.sp, maxLines = 1) }
         FilledTonalButton(onClick = { vm.redo() }, enabled = u.canRedo && !working, modifier = Modifier.height(48.dp).widthIn(min = 48.dp).semantics { contentDescription = "Rehacer" }, contentPadding = pad) { Text("↷", fontSize = 20.sp, maxLines = 1) }
         Button(
             onClick = { if (playing) { vm.setCursor(clkPos); vm.stop() } else if (sounding) vm.stop() else vm.playFromSeconds(u.cursor) },
@@ -360,12 +365,13 @@ private fun StoryTopBar(
         Box {
             TextButton(onClick = { more = true }, modifier = Modifier.height(48.dp).semantics { contentDescription = "Más opciones" }, contentPadding = pad) { Text("Más ▾", fontSize = 15.sp) }
             DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
+                DropdownMenuItem(text = { Text("💾 Guardar en mi teléfono (Música › Cuentos)") }, enabled = project.cues.isNotEmpty() && !working, onClick = { more = false; vm.saveToPhone() })
                 DropdownMenuItem(text = { Text("⏮ Escuchar desde el principio") }, enabled = project.cues.isNotEmpty() && !working, onClick = { more = false; vm.playFromSeconds(0.0) })
-                DropdownMenuItem(text = { Text("🗣 Narrador de computadora (prueba)") }, onClick = { more = false; onNarrate() })
+                DropdownMenuItem(text = { Text("🗣 Que una voz de computadora lea mi texto (prueba)") }, onClick = { more = false; onNarrate() })
                 DropdownMenuItem(text = { Text("Ver más tiempo en pantalla") }, onClick = { more = false; onZoomIn() })
                 DropdownMenuItem(text = { Text("Ver menos tiempo en pantalla") }, onClick = { more = false; onZoomOut() })
                 onUpdate?.let { DropdownMenuItem(text = { Text("Buscar una versión nueva de la app") }, onClick = { more = false; it() }) }
-                onOtherMode?.let { DropdownMenuItem(text = { Text("Cambiar a música (acordes, batería…)") }, onClick = { more = false; it() }) }
+                onOtherMode?.let { DropdownMenuItem(text = { Text("🎸 Ir a la pantalla de hacer música") }, onClick = { more = false; it() }) }
             }
         }
     }
@@ -376,10 +382,12 @@ private fun StoryEmptyHint(modifier: Modifier) {
                     Column(modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState()).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f), RoundedCornerShape(16.dp)).padding(18.dp),
                         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("Tu cuento empieza aquí", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                        Text("1. Toca el botón rojo y cuenta una frase.", style = MaterialTheme.typography.bodyLarge)
-                        Text("2. Agrega sonidos y música con los botones de abajo.", style = MaterialTheme.typography.bodyLarge)
-                        Text("3. Toca «📤 Enviar» para mandarlo por WhatsApp.", style = MaterialTheme.typography.bodyLarge)
-                        Text("Si te equivocas, toca «↶ Deshacer».", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("1. Toca el botón rojo y cuenta una parte del cuento.", style = MaterialTheme.typography.bodyLarge)
+                        Text("2. Con 👤 elige quién habla (el lobo, mamá…) y graba otra parte.", style = MaterialTheme.typography.bodyLarge)
+                        Text("3. Toca 🔊 Sonido o 🎵 Música para decorarlo.", style = MaterialTheme.typography.bodyLarge)
+                        Text("4. Toca un audio para cortarlo o moverlo.", style = MaterialTheme.typography.bodyLarge)
+                        Text("5. Toca ▶ Escuchar y después 📤 Enviar.", style = MaterialTheme.typography.bodyLarge)
+                        Text("Si te equivocas, toca ↶ para volver atrás. Tu cuento se guarda solo.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
 }
 
@@ -392,7 +400,7 @@ private fun StoryNotices(vm: PrincessViewModel, u: PrincessUi, micDenied: Boolea
                     if (u.error != null) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     Text(msg, Modifier.weight(1f).padding(vertical = 8.dp).semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }, style = MaterialTheme.typography.bodyMedium, color = if (u.error != null) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer)
-                    TextButton(onClick = vm::dismissError, modifier = Modifier.height(48.dp), colors = ButtonDefaults.textButtonColors(contentColor = if (u.error != null) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer)) { Text("OK", fontWeight = FontWeight.Bold) }
+                    TextButton(onClick = vm::dismissError, modifier = Modifier.height(48.dp), colors = ButtonDefaults.textButtonColors(contentColor = if (u.error != null) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer)) { Text("Entendido", fontWeight = FontWeight.Bold) }
                 }
             }
             if (micDenied) {
@@ -429,7 +437,7 @@ private fun StoryBottomBar(
                 onCut = { if (playing) { vm.setCursor(clkPos); vm.stop() } else if (u.previewing) vm.stop(); vm.cutAtCursor(selected.cue.id) },
                 onMove = { setPanel(Panel.MOVE) }, onTone = { setPanel(Panel.TONE) }, onVolume = { setPanel(Panel.VOLUME) },
                 onListen = { vm.previewCue(selected.cue.id) },
-                onRemove = { vm.removeCue(selected.cue.id); select(null); vm.setNotice("Quité ese audio. Si te equivocaste, toca «↶ Deshacer».") },
+                onRemove = { vm.removeCue(selected.cue.id); select(null); vm.setNotice("Quité ese audio. Si fue sin querer, toca ↶ para recuperarlo.") },
                 onDone = { select(null) },
                 canTone = selected.cue.type != CueType.SILENCE && selected.cue.file != null,
                 busy = u.busy != null,
@@ -457,7 +465,7 @@ private fun SpeakerMenu(project: Project, current: String, onPick: (String) -> U
         FilledTonalButton(onClick = { open = true }, modifier = Modifier.height(52.dp).fillMaxWidth().semantics { contentDescription = "Quién habla: $name. Toca para cambiar" }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) { Text("👤 $name ▾", fontSize = 15.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             project.characters.forEach { c -> DropdownMenuItem(text = { Text((if (c.id == current) "✓ " else "") + c.name) }, onClick = { open = false; onPick(c.id) }) }
-            DropdownMenuItem(text = { Text("＋ Otra voz (la bruja, el lobo…)") }, onClick = { open = false; onNew() })
+            DropdownMenuItem(text = { Text("＋ Crear un personaje nuevo") }, onClick = { open = false; onNew() })
         }
     }
 }
@@ -470,7 +478,7 @@ private fun RecordingBar(u: PrincessUi, onStop: () -> Unit, onDiscard: () -> Uni
         Column(Modifier.weight(1f)) {
             Text("Grabando…  ${"%.0f".format(u.recSeconds)} s", fontWeight = FontWeight.Bold, fontSize = 18.sp)
             LinearProgressIndicator(progress = { (u.recLevel * 2.5f).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
-            Text("Habla cerca del teléfono. Si no se mueve la barra, el micrófono no te oye.", style = MaterialTheme.typography.bodySmall)
+            Text("Cuenta tu parte y toca ■ Terminar cuando acabes la frase. Si la barra no se mueve, el micrófono no te oye.", style = MaterialTheme.typography.bodySmall)
         }
         BigButton("■ Terminar", RED, onStop)
         TextButton(onClick = onDiscard, modifier = Modifier.height(48.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)) { Text("Descartar", fontWeight = FontWeight.Bold) }
@@ -489,7 +497,7 @@ private fun SelectionBar(cue: Cue, onCut: () -> Unit, onMove: () -> Unit, onTone
     FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Btn("✂ Cortar", !busy && cue.type != CueType.MUSIC, onCut)
         Btn("↔ Mover", !busy, onMove)
-        Btn("🎚 Tono", !busy && canTone, onTone)
+        Btn("🎚 Voz graciosa", !busy && canTone, onTone)
         Btn("🔉 Volumen", !busy, onVolume)
         Btn("▶ Oír este", !busy, onListen)
         Btn("🗑 Quitar", !busy, onRemove)

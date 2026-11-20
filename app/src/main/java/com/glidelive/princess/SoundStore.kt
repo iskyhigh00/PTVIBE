@@ -26,42 +26,35 @@ object SoundCatalog {
     val groups = listOf(
         Group("Animales", listOf(
             Sound("dog", "Perro"), Sound("cat", "Gato"), Sound("rooster", "Gallo"), Sound("hen", "Gallina"), Sound("pig", "Cerdo"),
-            Sound("cow", "Vaca"), Sound("sheep", "Oveja"), Sound("frog", "Rana"), Sound("crow", "Cuervo"),
-            Sound("chirping_birds", "Pájaros"), Sound("insects", "Insectos"), Sound("crickets", "Grillos"),
+            Sound("cow", "Vaca"), Sound("sheep", "Oveja"), Sound("frog", "Rana"),
+            Sound("chirping_birds", "Pajaritos"), Sound("insects", "Insectos"), Sound("crickets", "Grillos"),
         )),
         Group("Naturaleza", listOf(
-            Sound("rain", "Lluvia"), Sound("thunderstorm", "Tormenta"), Sound("wind", "Viento"), Sound("sea_waves", "Olas"),
-            Sound("crackling_fire", "Fuego"), Sound("water_drops", "Gotas"), Sound("pouring_water", "Agua"),
+            Sound("rain", "Lluvia"), Sound("thunderstorm", "Tormenta"), Sound("wind", "Viento"), Sound("sea_waves", "Olas del mar"),
+            Sound("crackling_fire", "Fogata"), Sound("water_drops", "Gotitas"), Sound("pouring_water", "Agua"),
         )),
         Group("Personas", listOf(
-            Sound("laughing", "Risa"), Sound("crying_baby", "Bebé llora"), Sound("clapping", "Aplausos"), Sound("footsteps", "Pasos"),
-            Sound("coughing", "Tos"), Sound("sneezing", "Estornudo"), Sound("breathing", "Respiración"), Sound("snoring", "Ronquido"),
-            Sound("drinking_sipping", "Sorbo"), Sound("brushing_teeth", "Cepillado"),
+            Sound("laughing", "Risas"), Sound("crying_baby", "Bebé llora"), Sound("clapping", "Aplausos"), Sound("footsteps", "Pasos"),
+            Sound("breathing", "Respiración"), Sound("brushing_teeth", "Cepillado"), Sound("drinking_sipping", "Sorbito"),
         )),
         Group("Casa", listOf(
-            Sound("door_wood_knock", "Golpe a la puerta"), Sound("door_wood_creaks", "Puerta que cruje"), Sound("glass_breaking", "Vidrio roto"),
-            Sound("clock_alarm", "Despertador"), Sound("clock_tick", "Reloj"), Sound("can_opening", "Abrir lata"),
-            Sound("keyboard_typing", "Teclado"), Sound("mouse_click", "Clic"), Sound("washing_machine", "Lavadora"),
-            Sound("vacuum_cleaner", "Aspiradora"), Sound("toilet_flush", "Cisterna"),
+            Sound("door_wood_knock", "Toc toc en la puerta"), Sound("door_wood_creaks", "Puerta que cruje"),
+            Sound("clock_alarm", "Despertador"), Sound("clock_tick", "Reloj"),
         )),
-        Group("Ciudad", listOf(
-            Sound("church_bells", "Campanas"), Sound("siren", "Sirena"), Sound("car_horn", "Bocina"), Sound("engine", "Motor"),
-            Sound("train", "Tren"), Sound("airplane", "Avión"), Sound("helicopter", "Helicóptero"), Sound("fireworks", "Fuegos artificiales"),
-            Sound("chainsaw", "Motosierra"), Sound("hand_saw", "Serrucho"),
+        Group("Cosas que suenan", listOf(
+            Sound("church_bells", "Campanas"), Sound("car_horn", "Bocina"), Sound("engine", "Motor"),
+            Sound("train", "Tren"), Sound("airplane", "Avión"), Sound("helicopter", "Helicóptero"),
         )),
     )
 
     /** Temas de Kevin MacLeod (incompetech.com), licencia Creative Commons Atribución 3.0. */
     val music = listOf(
-        Track("amazing_plan.m4a", "Amazing Plan · misterio"), Track("sneaky_snitch.mp3", "Sneaky Snitch · sigiloso"),
-        Track("scheming_weasel.mp3", "Scheming Weasel · travieso"), Track("fluffing_a_duck.mp3", "Fluffing a Duck · cómico"),
-        Track("plucky_daisy.webm", "Plucky Daisy · alegre"), Track("merry_go_slower.webm", "Merry Go Slower · carrusel"),
-        Track("thatched_villagers.mp3", "Thatched Villagers · aldea"), Track("the_cannery.mp3", "The Cannery · tenso"),
-        Track("hyperfun.mp3", "Hyperfun · animado"), Track("monkeys_spinning_monkeys.mp3", "Monkeys Spinning Monkeys · juguetón"),
-        Track("the_builder.mp3", "The Builder"), Track("hand_trolley.webm", "Hand Trolley"), Track("look_busy.webm", "Look Busy"),
-        Track("meatball_parade.webm", "Meatball Parade"), Track("hustle.mp3", "Hustle"), Track("show_must_be_go.mp3", "Show Must Be Go"),
-        Track("if_i_had_a_chicken.mp3", "If I Had a Chicken"), Track("batty_mcfaddlin.mp3", "Batty McFaddlin"),
-        Track("four_beers_polka.mp3", "Four Beers Polka"), Track("spazzmatica_polka.mp3", "Spazzmatica Polka"),
+        Track("plucky_daisy.webm", "Margarita alegre · alegre"), Track("merry_go_slower.webm", "Carrusel lento · tranquila"),
+        Track("thatched_villagers.mp3", "Aldea tranquila · tranquila"), Track("fluffing_a_duck.mp3", "Patito travieso · cómica"),
+        Track("hyperfun.mp3", "Mucha diversión · animada"), Track("monkeys_spinning_monkeys.mp3", "Monitos que giran · juguetona"),
+        Track("if_i_had_a_chicken.mp3", "Si yo tuviera una gallina · campestre"), Track("amazing_plan.m4a", "Un plan increíble · misterio suave"),
+        Track("scheming_weasel.mp3", "Comadreja traviesa · travieso"), Track("meatball_parade.webm", "Desfile alegre · desfile"),
+        Track("the_builder.mp3", "El constructor · animada"), Track("batty_mcfaddlin.mp3", "Aventura · aventura"),
     )
 
     const val MUSIC_CREDIT = "Música: Kevin MacLeod (incompetech.com), licencia Creative Commons Atribución 3.0."

@@ -135,8 +135,8 @@ internal fun DownloadCard(vm: PrincessViewModel, u: PrincessUi, what: String) {
             LinearProgressIndicator(progress = { d.second.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
             TextButton(onClick = vm::cancelDownload, modifier = Modifier.height(48.dp), colors = ButtonDefaults.textButtonColors(contentColor = onCard)) { Text("Cancelar", fontWeight = FontWeight.Bold) }
         } else {
-            Text(if (u.sfxPartial) "La descarga quedó a medias." else "Para tener $what hay que bajar los sonidos y la música una sola vez.", fontWeight = FontWeight.Bold, color = onCard)
-            Text("Conviene usar WiFi: son varias decenas de MB. Después quedan guardados en tu teléfono y funcionan sin internet.", style = MaterialTheme.typography.bodyMedium, color = onCard)
+            Text(if (u.sfxPartial) "La descarga quedó a medias." else "Para tener $what hay que bajarlos una sola vez.", fontWeight = FontWeight.Bold, color = onCard)
+            Text("Pide a un adulto que conecte el WiFi. Después quedan guardados en tu teléfono y funcionan sin internet.", style = MaterialTheme.typography.bodyMedium, color = onCard)
             BigButton(if (u.sfxPartial) "Completar la descarga" else "⬇ Descargar", RED, { vm.downloadAll() })
         }
     }
@@ -160,7 +160,7 @@ internal fun SoundsSheet(vm: PrincessViewModel, u: PrincessUi, onClose: () -> Un
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Toca «＋ Poner» y el sonido se pone donde está la línea roja. «▶ Oír» es para escucharlo antes.", style = MaterialTheme.typography.bodyMedium)
             if (group == "Mis sonidos") {
-                if (u.mine.isEmpty()) Text("Todavía no tienes sonidos propios. Aquí aparecen los que guardes desde las otras pantallas de la app.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (u.mine.isEmpty()) Text("Aquí salen los sonidos que tú grabes o elijas de tu teléfono.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 u.mine.forEach { m ->
                     val f = java.io.File(SoundStore.mineDir(ctx), m.file)
                     SoundRow("🎙", m.name, onListen = { vm.previewFile(f) }, onAdd = { vm.addSoundFile(f, m.name, CueType.SFX, vm.overlayTime()) })
@@ -223,7 +223,7 @@ internal fun MusicSheet(vm: PrincessViewModel, u: PrincessUi, onClose: () -> Uni
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun InlineTone(cue: Cue, onPick: (Int) -> Unit, onListen: () -> Unit, onDone: () -> Unit, busy: Boolean) {
-    val labels = listOf(-2 to "Muy grave", -1 to "Grave", 0 to "Normal", 1 to "Aguda", 2 to "Muy aguda")
+    val labels = listOf(-2 to "Voz de monstruo", -1 to "Gruesa", 0 to "Normal", 1 to "Finita", 2 to "Voz de ardilla")
     val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
     FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         labels.forEach { (steps, label) ->
@@ -241,7 +241,7 @@ internal fun InlineVolume(cue: Cue, onSet: (Float) -> Unit, onListen: () -> Unit
     var v by remember(cue.id) { mutableStateOf(cue.volume) }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Bajito", fontSize = 15.sp)
-        Slider(v, { v = it }, valueRange = 0f..1.5f, onValueChangeFinished = { onSet(v) }, modifier = Modifier.weight(1f).semantics { contentDescription = "Volumen"; stateDescription = "${(v * 100).roundToInt()} por ciento" })
+        Slider(v, { v = it }, valueRange = 0f..(if (cue.type == CueType.MUSIC) 1f else 1.5f), onValueChangeFinished = { onSet(v) }, modifier = Modifier.weight(1f).semantics { contentDescription = "Volumen"; stateDescription = "${(v * 100).roundToInt()} por ciento" })
         Text("Fuerte  ${(v * 100).roundToInt()} %", fontSize = 15.sp)
         FilledTonalButton(onClick = onListen, modifier = Modifier.height(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)) { Text("▶ Oír", fontSize = 15.sp) }
         Button(onClick = onDone, modifier = Modifier.height(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp),

@@ -102,6 +102,22 @@ object PrincessLibrary {
 
     @Synchronized fun delete(ctx: Context, p: Project) { dir(ctx, p).deleteRecursively() }
 
+    fun duplicate(ctx: Context, p: Project): Project {
+        val copy = p.copy(id = newId(), title = "${p.title} (copia)")
+        duplicateDirs(dir(ctx, p), dir(ctx, copy))
+        saveInto(dir(ctx, copy), copy, createIfMissing = true)
+        return copy
+    }
+
+    /** Copia los audios de un cuento a otra carpeta (sin su project.json, temporales ni envíos anteriores). */
+    fun duplicateDirs(src: File, dst: File) {
+        dst.mkdirs()
+        for (f in src.listFiles().orEmpty()) {
+            if (!f.isFile || f.name == "project.json" || f.name.startsWith("project-") || f.name.endsWith(".part")) continue
+            f.copyTo(File(dst, f.name), overwrite = true)
+        }
+    }
+
     /** Nombres de archivo de la carpeta de un cuento que ningún audio usa (tonos viejos, audios quitados, envíos anteriores). */
     fun orphans(files: List<String>, p: Project): List<String> {
         val used = HashSet<String>()

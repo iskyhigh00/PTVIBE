@@ -103,7 +103,7 @@ class StoryScreenTest {
         rule.onNodeWithText("Quitar", substring = true).assertIsDisplayed()
         rule.onNodeWithText("Gato", substring = true).assertIsDisplayed()           // la línea de tiempo sigue a la vista
         shot("4-elegido")
-        rule.onNodeWithText("Tono", substring = true).performClick()
+        rule.onNodeWithText("Voz graciosa", substring = true).performClick()
         rule.waitForIdle()
         rule.onNodeWithText("Normal", substring = true).assertIsDisplayed()
         rule.onNodeWithText("Gato", substring = true).assertIsDisplayed()
@@ -158,7 +158,7 @@ class StoryScreenTest {
         for (t in listOf("📤 Enviar", "▶ Escuchar", "Más ▾", "● Grabar", "🔊 Sonido", "🎵 Música")) insideRoot(t)
         for (d in listOf("Deshacer", "Rehacer", "Volver a Mis cuentos")) insideRoot(d, byDescription = true)
         rule.onNodeWithText("Gato", substring = true).performClick(); rule.waitForIdle()
-        for (t in listOf("✂ Cortar", "🎚 Tono", "🔉 Volumen", "▶ Oír", "🗑 Quitar", "✓ Listo")) insideRoot(t)
+        for (t in listOf("✂ Cortar", "🎚 Voz graciosa", "🔉 Volumen", "▶ Oír", "🗑 Quitar", "✓ Listo")) insideRoot(t)
         shot("8-letra-grande")
     }
 
@@ -170,7 +170,7 @@ class StoryScreenTest {
         val root = rule.onRoot().fetchSemanticsNode().boundsInRoot
         assertTrue("el audio elegido queda tapado por los botones: $gato / $bar", gato.bottom <= bar.top + 1)
         assertTrue("la línea de tiempo es muy chica: ${gato.height}", gato.height > 40f && root.height > 0f)
-        rule.onNodeWithText("Tono", substring = true).performClick(); rule.waitForIdle()
+        rule.onNodeWithText("Voz graciosa", substring = true).performClick(); rule.waitForIdle()
         val gato2 = rule.onNodeWithText("Gato", substring = true).fetchSemanticsNode().boundsInRoot
         val normal = rule.onNodeWithText("Normal", substring = true).fetchSemanticsNode().boundsInRoot
         assertTrue("el tono tapa el audio: $gato2 / $normal", gato2.bottom <= normal.top + 1)

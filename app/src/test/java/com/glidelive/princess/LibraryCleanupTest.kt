@@ -47,4 +47,13 @@ class LibraryCleanupTest {
         assertTrue(File(d, "project.json").readText().contains("b.wav"))
         d.deleteRecursively()
     }
+
+    @Test fun duplicateCopiesAudiosButNotProjectFileTempsOrParts() {
+        val src = tmp(); val dst = File(tmp(), "copia")
+        file(src, "voz.wav", 5); file(src, "project.json", 5); file(src, "project-1.tmp", 5); file(src, "x.part", 5)
+        PrincessLibrary.duplicateDirs(src, dst)
+        assertTrue(File(dst, "voz.wav").exists())
+        assertFalse(File(dst, "project.json").exists()); assertFalse(File(dst, "project-1.tmp").exists()); assertFalse(File(dst, "x.part").exists())
+        src.deleteRecursively(); dst.deleteRecursively()
+    }
 }
