@@ -68,7 +68,8 @@ object WavIo {
             val id = String(b, pos, 4)
             val rawSize = u32(pos + 4)
             val remaining = b.size - pos - 8
-            val nextIsChunk = remaining >= 8 && (0 until 4).all { k -> b[pos + 8 + k].toInt().toChar().isLetter() }
+            val nextIsChunk = remaining >= 8 && (0 until 4).all { k -> (b[pos + 8 + k].toInt() and 0xFF) in 0x20..0x7E } &&
+                u32(pos + 12).let { it >= 0 && it <= remaining - 8 }
             val size = if (id == "data" && ((rawSize == 0L && !nextIsChunk) || rawSize > remaining)) remaining else rawSize.toInt().coerceAtLeast(0)   // WAV "en streaming": el tamaño real es lo que queda
             if (id == "fmt ") { format = u16(pos + 8); channels = u16(pos + 10); rate = u32(pos + 12).toInt(); bits = u16(pos + 22) }
             else if (id == "data") {

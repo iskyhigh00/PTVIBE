@@ -150,4 +150,17 @@ class BlockRenderTest {
         assertEquals(0, WavIo.read(f)!!.pcm.size)
         f.delete()
     }
+
+    @Test fun loopedTwoSampleClipAndPcmThatLooksLikeLettersAreSafe() {
+        val tiny = Clip(shortArrayOf(1000, -1000), 1, 44100)
+        val c = Cue("m", CueType.MUSIC, seconds = 1f, mode = CueMode.BED, startSeconds = 0f, durationSeconds = 1f, trimStart = 0.5f / 44100f)
+        assertTrue(DramaRenderer.render(project(c), { tiny }).isNotEmpty())
+        // PCM negativo cuyos bytes parecen letras: no debe confundirse con un chunk ni perder el audio
+        val f = File.createTempFile("wav-pcm", ".wav")
+        val pcm = ShortArray(400) { 0xC2C2.toShort() }
+        WavIo.write(f, pcm, 1, 22050)
+        val bytes = f.readBytes(); for (k in 40..43) bytes[k] = 0; f.writeBytes(bytes)
+        assertEquals(400, WavIo.read(f)!!.pcm.size)
+        f.delete()
+    }
 }

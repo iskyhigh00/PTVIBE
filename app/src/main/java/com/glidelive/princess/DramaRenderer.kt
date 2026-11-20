@@ -201,7 +201,7 @@ object DramaRenderer {
             var sp = pos
             if (loop) sp %= (sourceFrames - trimFrac).coerceAtLeast(1.0) else if (sp >= sourceFrames - 1) break
             sp += sourceStart + trimFrac
-            val i0 = sp.toInt()
+            val i0 = min(sp.toInt(), clip.frames - 1)   // el redondeo de Double no debe dejar pasar al índice del final
             val i1 = if (i0 + 1 < clip.frames) i0 + 1 else if (loop) sourceStart else i0
             val f = (sp - i0).toFloat()
             val l: Float; val r: Float
