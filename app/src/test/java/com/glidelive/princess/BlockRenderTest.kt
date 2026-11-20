@@ -26,13 +26,25 @@ class BlockRenderTest {
         }
     }
 
-    @Test fun peakLimiterAppliesToTheWholeStoryNotJustABlock() {
+    @Test fun softLimiterKeepsQuietPartsUntouchedAndNeverClips() {
         val loud = Cue("a", CueType.SFX, seconds = 1f, startSeconds = 15f, durationSeconds = 1f, volume = 1.5f)
         val quiet = Cue("b", CueType.SFX, seconds = 1f, startSeconds = 1f, durationSeconds = 1f)
         val out = DramaRenderer.render(project(loud, quiet), { c -> Clip(ShortArray(44100) { if (c.id == "a") 30000 else 10000 }, 1, 44100) })
         val peak = out.maxOf { kotlin.math.abs(it.toInt()) }
-        assertTrue("el pico debe quedar bajo el techo: $peak", peak <= 32767 * 0.981)
-        assertTrue("lo bajito se baja parejo", at(out, 1.5) < 10000)
+        assertTrue("sin recortar: $peak", peak < 32767)
+        assertEquals("lo bajito no se toca aunque haya un golpe fuerte en otro momento", 10000.0, at(out, 1.5).toDouble(), 40.0)
+        assertTrue("el golpe fuerte queda comprimido pero sigue siendo el más fuerte", at(out, 15.5) in 26000..32766)
+    }
+
+    @Test fun softLimitIsContinuousMonotonicAndBounded() {
+        var last = -1f
+        for (i in 0..400) {
+            val x = i / 100f
+            val y = DramaRenderer.softLimit(x)
+            assertTrue(y >= last - 1e-6f); assertTrue(y < 1f); last = y
+        }
+        assertEquals(0.5f, DramaRenderer.softLimit(0.5f), 1e-6f)
+        assertEquals(-DramaRenderer.softLimit(0.9f), DramaRenderer.softLimit(-0.9f), 1e-6f)
     }
 
     @Test fun streamedOutputEqualsTheFullRender() {
