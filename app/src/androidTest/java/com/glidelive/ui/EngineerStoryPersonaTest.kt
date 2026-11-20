@@ -35,6 +35,7 @@ import kotlin.math.sin
 class EngineerStoryPersonaTest {
     @get:Rule val rule = createAndroidComposeRule<ComponentActivity>()
 
+    @OptIn(ExperimentalTestApi::class)
     @Test fun editsTwoCharactersAndSavesTheMixedStory() {
         val vm = ViewModelProvider(rule.activity)[PrincessViewModel::class.java]
         val ctx = rule.activity
