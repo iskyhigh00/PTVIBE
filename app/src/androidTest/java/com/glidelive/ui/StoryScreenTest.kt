@@ -155,7 +155,7 @@ class StoryScreenTest {
 
     @Test fun nadaSeSaleConLetraGrande() {
         val vm = prepare(1.3f); story(vm)
-        for (t in listOf("📤 Enviar", "▶ Escuchar", "Más ▾", "● Grabar mi voz", "🔊 Sonido", "🎵 Música")) insideRoot(t)
+        for (t in listOf("📤 Enviar", "▶ Escuchar", "Más ▾", "● Grabar", "🔊 Sonido", "🎵 Música")) insideRoot(t)
         for (d in listOf("Deshacer", "Rehacer", "Volver a Mis cuentos")) insideRoot(d, byDescription = true)
         rule.onNodeWithText("Gato", substring = true).performClick(); rule.waitForIdle()
         for (t in listOf("✂ Cortar", "🎚 Tono", "🔉 Volumen", "▶ Oír", "🗑 Quitar", "✓ Listo")) insideRoot(t)

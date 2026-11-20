@@ -236,8 +236,13 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         if (list.isEmpty()) return null
         val n = (sfxCounter[category] ?: -1) + 1
         sfxCounter[category] = n
-        return list[n % list.size]
+        return list[n % list.size].also { lastHeard[category] = it }
     }
+
+    private val lastHeard = HashMap<String, File>()
+
+    /** El clip que se acaba de escuchar de [category] (para agregar exactamente ese); si no hay, uno nuevo. */
+    fun heardOrNext(category: String): File? = lastHeard[category]?.takeIf { it.exists() } ?: clipFor(category)
     private val sfxCounter = HashMap<String, Int>()
 
     /** Agrega a la obra un sonido del pack o propio: efectos sin el silencio sobrante, música de fondo entera. */
@@ -575,7 +580,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                 f.name to trimmed.size.toFloat() / MicRecorder.RATE
             }
             val cueCount = _ui.value.current?.cues?.count { it.type == CueType.VOICE } ?: 0
-            val startAt = at ?: _ui.value.current?.let { DramaRenderer.totalSeconds(it) } ?: 0.0
+            val startAt = at ?: ((_ui.value.current?.let { DramaRenderer.totalSeconds(it) } ?: 0.0) + 0.6)   // 0,6 s es el espacio con que entra una voz «a continuación»
             _ui.update { it.copy(cursor = startAt + saved.second) }   // la línea roja queda al final de lo grabado
             addTo(p.id, Cue(PrincessLibrary.newId(), CueType.VOICE, who, "Mi voz ${cueCount + 1}", saved.first, saved.second, 0.6f,
                 startSeconds = at?.toFloat()))
@@ -624,6 +629,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         val p = _ui.value.current ?: return
         val c = p.cues.getOrNull(index) ?: return
         if (_ui.value.busy != null) return
+        if (c.seconds > 15 * 60) { _ui.update { it.copy(notice = "Este audio dura más de 15 minutos: es demasiado largo para escucharlo aquí.") }; return }
         _ui.update { it.copy(busy = "Preparando…" to 0f, error = null) }
         val gen = leaveGen
         workJob = launchSafe {

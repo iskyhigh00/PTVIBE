@@ -170,7 +170,7 @@ internal fun SoundsSheet(vm: PrincessViewModel, u: PrincessUi, onClose: () -> Un
                     val available = remember(group, u.hasSfx) { SoundCatalog.groups.firstOrNull { it.name == group }?.sounds.orEmpty().filter { SoundStore.clips(ctx, it.id).isNotEmpty() } }
                     available.forEach { s ->
                         SoundTile(ICON[s.id] ?: "🔊", s.label,
-                            onListen = { vm.clipFor(s.id)?.let(vm::previewFile) }, onAdd = { vm.clipFor(s.id)?.let { vm.addSoundFile(it, s.label, CueType.SFX, vm.overlayTime()) } })
+                            onListen = { vm.clipFor(s.id)?.let(vm::previewFile) }, onAdd = { vm.heardOrNext(s.id)?.let { vm.addSoundFile(it, s.label, CueType.SFX, vm.overlayTime()) } })
                     }
                 }
             }

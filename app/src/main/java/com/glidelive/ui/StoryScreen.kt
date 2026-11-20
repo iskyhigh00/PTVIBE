@@ -284,7 +284,7 @@ private fun StoryEditor(
     androidx.compose.runtime.LaunchedEffect(selectedId) { if (panel == Panel.TONE || panel == Panel.VOLUME || panel == Panel.MOVE) panel = null }
     androidx.activity.compose.BackHandler {
         when {
-            panel != null -> panel = null
+            panel != null -> { if (u.previewing) vm.stop(); panel = null }
             selectedId != null -> selectedId = null
             u.recordingFor != null -> vm.finishRecording()   // Atrás no debe tirar una grabación: se guarda
             else -> onBack()
