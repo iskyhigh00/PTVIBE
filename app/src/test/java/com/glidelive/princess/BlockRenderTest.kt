@@ -245,7 +245,7 @@ class BlockRenderTest {
     @Test fun stereoPeaksUseBothChannels() {
         val frames = 44100
         val st = ShortArray(frames * 2) { i -> if (i % 2 == 1 && i > frames) 20000 else 100 }   // solo el canal derecho tiene la parte fuerte
-        val f = File.createTempFile("st", ".wav"); WavIo.write(f, st, 2, 44100)
+        val f = File.createTempFile("stereo", ".wav"); WavIo.write(f, st, 2, 44100)
         val peaks = WavIo.peaksOfFile(f, perSecond = 100)!!
         assertEquals(1f, peaks.max(), 1e-6f)
         assertTrue("la parte fuerte del canal derecho debe verse", peaks.count { it > 0.9f } > 10)
