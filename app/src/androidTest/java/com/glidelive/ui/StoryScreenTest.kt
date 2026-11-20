@@ -262,7 +262,7 @@ class StoryScreenTest {
         rule.onNodeWithText("Gato", substring = true).performClick(); rule.waitForIdle()
         openMore(); rule.onNodeWithText("Hacer una copia", substring = true).performClick()
         waitFor("hay dos efectos") { vm.ui.value.current!!.cues.count { it.type == CueType.SFX } == 2 }
-        rule.onNodeWithText("Gato", substring = true).performClick(); rule.waitForIdle()
+        rule.onAllNodesWithText("Gato", substring = true)[0].performClick(); rule.waitForIdle()
         openMore(); rule.onNodeWithText("Silenciar este audio", substring = true).performClick()
         waitFor("silenciado") { cue(vm, "s1").muted }
         openMore(); rule.onNodeWithText("Entrada suave", substring = true).performClick()
