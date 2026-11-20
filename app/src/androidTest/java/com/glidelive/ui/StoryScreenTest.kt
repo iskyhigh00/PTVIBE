@@ -230,4 +230,53 @@ class StoryScreenTest {
         val vm = prepare(); story(vm)
         rule.onNode(hasContentDescription("Efecto Gato", substring = true)).assertExists()
     }
+
+    private fun openMore() {
+        rule.onNodeWithText("⋯ Más").performClick(); rule.waitForIdle()
+    }
+
+    @Test fun quitarYJuntarCierraElHueco() {
+        val vm = prepare(); story(vm)
+        vm.edit { p -> p.copy(cues = p.cues + Cue("s2", CueType.SFX, null, "Trueno", "y.wav", 2f, 0f, CueMode.SEQ, startSeconds = 12f, durationSeconds = 2f)) }
+        waitFor("se agregó el segundo") { vm.ui.value.current?.cues?.any { it.id == "s2" } == true }
+        rule.onNodeWithText("Gato", substring = true).performClick(); rule.waitForIdle()
+        openMore()
+        rule.onNodeWithText("Quitar y juntar", substring = true).performClick()
+        waitFor("se quitó Gato") { vm.ui.value.current!!.cues.none { it.id == "s1" } }
+        waitFor("el siguiente se corrió 3 s") { cue(vm, "s2").startSeconds == 9f }
+    }
+
+    @Test fun recortarElPrincipioHastaLaLineaRoja() {
+        val vm = prepare(); story(vm)
+        rule.onNodeWithText("Había una vez", substring = true).performClick(); rule.waitForIdle()
+        vm.setCursor(3.0); rule.waitForIdle()
+        openMore()
+        rule.onNodeWithText("Empezar en la línea roja", substring = true).performClick()
+        waitFor("recortó") { cue(vm, "v1").startSeconds == 3f }
+        assertEquals(2f, cue(vm, "v1").trimStart, 0.01f)
+        assertEquals(4f, cue(vm, "v1").durationSeconds!!, 0.01f)
+    }
+
+    @Test fun copiarSilenciarYFundidos() {
+        val vm = prepare(); story(vm)
+        rule.onNodeWithText("Gato", substring = true).performClick(); rule.waitForIdle()
+        openMore(); rule.onNodeWithText("Hacer una copia", substring = true).performClick()
+        waitFor("hay dos efectos") { vm.ui.value.current!!.cues.count { it.type == CueType.SFX } == 2 }
+        rule.onNodeWithText("Gato", substring = true).performClick(); rule.waitForIdle()
+        openMore(); rule.onNodeWithText("Silenciar este audio", substring = true).performClick()
+        waitFor("silenciado") { cue(vm, "s1").muted }
+        openMore(); rule.onNodeWithText("Entrada suave", substring = true).performClick()
+        waitFor("entrada suave") { cue(vm, "s1").fadeIn > 0f }
+    }
+
+    @Test fun recuperaUnaTomaQueQuedoAMedias() {
+        val vm = prepare(); story(vm)
+        val project = vm.ui.value.current!!
+        val dir = PrincessLibrary.dir(rule.activity, project)
+        val pcm = ShortArray(44100 * 2) { i -> (6000 * Math.sin(2 * Math.PI * 330 * i / 44100.0)).toInt().toShort() }
+        com.glidelive.princess.WavIo.write(File(dir, "grabando_prueba.wav"), pcm, 1, 44100)
+        rule.runOnUiThread { vm.open(project) }
+        waitFor("toma recuperada") { vm.ui.value.current?.cues?.any { it.text == "Toma recuperada" } == true }
+        assertTrue(File(dir, "grabando_prueba.wav").exists().not())
+    }
 }
