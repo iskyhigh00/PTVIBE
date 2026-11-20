@@ -111,7 +111,10 @@ internal val ICON = mapOf(
     "fireworks" to "🎆", "chainsaw" to "🪚", "hand_saw" to "🪚",
 )
 
-internal enum class Panel { SOUNDS, MUSIC, TONE, VOLUME, MOVE }
+internal enum class Panel { SOUNDS, MUSIC, TONE, VOLUME, MOVE, CURSOR }
+
+/** Lo que se puede hacer con un audio elegido, además de los botones principales. */
+internal enum class CueAction { TRIM_START, TRIM_END, CURSOR, REMOVE_CLOSE, DUPLICATE, MUTE, FADE_IN, FADE_OUT, RENAME }
 
 /**
  * Cuentos: hacer el audio de un cuento. Pensada para quien la abre por primera vez: un botón rojo para grabar, sonidos y música
@@ -226,6 +229,8 @@ private fun StoryEditor(
     var renaming by remember { mutableStateOf(false) }
     var speaker by rememberSaveable(project.id) { mutableStateOf<String?>(null) }
     var newCharacter by remember { mutableStateOf(false) }
+    var renamingCue by remember { mutableStateOf<String?>(null) }
+    androidx.compose.runtime.LaunchedEffect(project.cues.map { it.file }) { vm.loadPeaks(project) }
     var micDenied by remember { mutableStateOf(false) }
     val placements = remember(project) { DramaRenderer.layout(project) }
     val selected = placements.firstOrNull { it.cue.id == selectedId }
@@ -261,6 +266,15 @@ private fun StoryEditor(
             dismissButton = { TextButton(onClick = { renaming = false }) { Text("Cancelar") } },
         )
     }
+    renamingCue?.let { id ->
+        var name by remember(id) { mutableStateOf(project.cues.firstOrNull { it.id == id }?.text ?: "") }
+        AlertDialog(
+            onDismissRequest = { renamingCue = null }, title = { Text("Nombre de este audio") },
+            text = { OutlinedTextField(name, { name = it }, singleLine = true) },
+            confirmButton = { TextButton(onClick = { vm.renameCue(id, name); renamingCue = null }, enabled = name.isNotBlank()) { Text("Guardar") } },
+            dismissButton = { TextButton(onClick = { renamingCue = null }) { Text("Cancelar") } },
+        )
+    }
     if (newCharacter) {
         var name by remember { mutableStateOf("") }
         AlertDialog(
@@ -286,7 +300,7 @@ private fun StoryEditor(
         confirmButton = { TextButton(onClick = { vm.cancelRecording(); confirmDiscard = false }) { Text("Sí, tirarla") } },
         dismissButton = { TextButton(onClick = { confirmDiscard = false }) { Text("No, seguir") } },
     )
-    androidx.compose.runtime.LaunchedEffect(selectedId) { if (panel == Panel.TONE || panel == Panel.VOLUME || panel == Panel.MOVE) panel = null }
+    androidx.compose.runtime.LaunchedEffect(selectedId) { if (panel == Panel.TONE || panel == Panel.VOLUME || panel == Panel.MOVE || panel == Panel.CURSOR) panel = null }
     androidx.activity.compose.BackHandler {
         when {
             panel != null -> { if (u.previewing) vm.stop(); panel = null }
@@ -313,7 +327,7 @@ private fun StoryEditor(
             Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp)) {
                 StoryTimeline(project, placements, position, playing, selectedId, zoom, enabled = u.busy == null && u.recordingFor == null,
                     onSelect = { selectedId = it }, onCursor = { vm.setCursor(it) }, onMove = { id, s, who -> vm.moveCueTo(id, s, who) },
-                    onZoom = { f -> zoom = (zoom * f).coerceIn(8f, 120f) }, focusId = u.lastAddedId)
+                    onZoom = { f -> zoom = (zoom * f).coerceIn(8f, 120f) }, focusId = u.lastAddedId, peaks = u.peaks)
                 if (project.cues.isEmpty()) StoryEmptyHint(Modifier.align(Alignment.Center))
                 Column(Modifier.align(Alignment.BottomCenter)) { StoryNotices(vm, u, micDenied, { micPermission.launch(Manifest.permission.RECORD_AUDIO) }) }
             }
@@ -326,14 +340,14 @@ private fun StoryEditor(
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             // ── Avisos ──
             // ── Barra de abajo: cambia según lo que se esté haciendo ──
-            StoryBottomBar(vm, project, u, selected, panel, { panel = it }, { selectedId = it }, playing, clk.pos, speakerId, { speaker = it }, { newCharacter = true }, { record() }, { confirmDiscard = true })
+            StoryBottomBar(vm, project, u, selected, panel, { panel = it }, { selectedId = it }, playing, clk.pos, speakerId, { speaker = it }, { newCharacter = true }, { record() }, { confirmDiscard = true }, { renamingCue = it })
         }
 
         // ── Hojas encima ──
         when (panel) {
             Panel.SOUNDS -> SoundsSheet(vm, u, onClose = { if (u.previewing) vm.stop(); panel = null }, onPickFile = { panelTypeForImport = CueType.SFX; filePicker.launch(arrayOf("audio/*")) })
             Panel.MUSIC -> MusicSheet(vm, u, onClose = { if (u.previewing) vm.stop(); panel = null }, onPickFile = { panelTypeForImport = CueType.MUSIC; filePicker.launch(arrayOf("audio/*")) })
-            Panel.TONE, Panel.VOLUME, Panel.MOVE -> {}
+            Panel.TONE, Panel.VOLUME, Panel.MOVE, Panel.CURSOR -> {}
             null -> {}
         }
     }
@@ -418,7 +432,7 @@ private fun StoryNotices(vm: PrincessViewModel, u: PrincessUi, micDenied: Boolea
 @Composable
 private fun StoryBottomBar(
     vm: PrincessViewModel, project: Project, u: PrincessUi, selected: Placement?, panel: Panel?, setPanel: (Panel?) -> Unit, select: (String?) -> Unit,
-    playing: Boolean, clkPos: Double, speakerId: String, setSpeaker: (String) -> Unit, newCharacter: () -> Unit, record: () -> Unit, discard: () -> Unit,
+    playing: Boolean, clkPos: Double, speakerId: String, setSpeaker: (String) -> Unit, newCharacter: () -> Unit, record: () -> Unit, discard: () -> Unit, rename: (String) -> Unit,
 ) {
     val pos = if (playing) clkPos else u.cursor
             Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
@@ -430,6 +444,7 @@ private fun StoryBottomBar(
                     val i = ids.indexOf(selected.cue.characterId).let { if (it < 0) 0 else it }
                     vm.moveCueTo(selected.cue.id, selected.start, ids[(i + dir + ids.size) % ids.size])
                 } else null)
+            selected != null && panel == Panel.CURSOR -> InlineCursor(position = pos, onNudge = { vm.nudgeCursor(it) }, onListen = { vm.listenAround() }, onDone = { setPanel(null) })
             selected != null && panel == Panel.TONE -> InlineTone(selected.cue, onPick = { vm.setTone(selected.cue.id, it) }, onListen = { vm.previewCue(selected.cue.id) }, onDone = { setPanel(null) }, busy = u.busy != null)
             selected != null && panel == Panel.VOLUME -> InlineVolume(selected.cue, onSet = { v -> vm.editTimelineCue(selected.cue.id) { c -> c.copy(volume = v) } }, onListen = { vm.previewCue(selected.cue.id) }, onDone = { setPanel(null) })
             selected != null -> SelectionBar(
@@ -439,6 +454,20 @@ private fun StoryBottomBar(
                 onListen = { vm.previewCue(selected.cue.id) },
                 onRemove = { vm.removeCue(selected.cue.id); select(null); vm.setNotice("Quité ese audio. Si fue sin querer, toca ↶ para recuperarlo.") },
                 onDone = { select(null) },
+                onAction = { a ->
+                    val id = selected.cue.id
+                    when (a) {
+                        CueAction.TRIM_START -> vm.trimStartAtCursor(id)
+                        CueAction.TRIM_END -> vm.trimEndAtCursor(id)
+                        CueAction.CURSOR -> setPanel(Panel.CURSOR)
+                        CueAction.REMOVE_CLOSE -> { vm.removeAndClose(id); select(null); vm.setNotice("Quité ese audio y junté lo que seguía. Si fue sin querer, toca ↶.") }
+                        CueAction.DUPLICATE -> vm.duplicateCue(id)
+                        CueAction.MUTE -> vm.toggleMute(id)
+                        CueAction.FADE_IN -> vm.toggleFade(id, true)
+                        CueAction.FADE_OUT -> vm.toggleFade(id, false)
+                        CueAction.RENAME -> rename(id)
+                    }
+                },
                 canTone = selected.cue.type != CueType.SILENCE && selected.cue.file != null,
                 busy = u.busy != null,
             )
@@ -490,7 +519,7 @@ private fun Modifier.size16() = this.then(Modifier.width(16.dp).height(16.dp))
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SelectionBar(cue: Cue, onCut: () -> Unit, onMove: () -> Unit, onTone: () -> Unit, onVolume: () -> Unit, onListen: () -> Unit, onRemove: () -> Unit, onDone: () -> Unit,
-                         canTone: Boolean, busy: Boolean) {
+                         onAction: (CueAction) -> Unit, canTone: Boolean, busy: Boolean) {
     val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
     @Composable fun Btn(text: String, enabled: Boolean, onClick: () -> Unit) =
         FilledTonalButton(onClick = onClick, modifier = Modifier.height(48.dp).widthIn(min = 84.dp), enabled = enabled, contentPadding = pad) { Text(text, fontSize = 15.sp, maxLines = 1) }
@@ -501,6 +530,24 @@ private fun SelectionBar(cue: Cue, onCut: () -> Unit, onMove: () -> Unit, onTone
         Btn("🔉 Volumen", !busy, onVolume)
         Btn("▶ Oír este", !busy, onListen)
         Btn("🗑 Quitar", !busy, onRemove)
+        var more by remember { mutableStateOf(false) }
+        Box {
+            Btn("⋯ Más", !busy) { more = true }
+            DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
+                val cuttable = cue.type != CueType.MUSIC
+                fun item(text: String, action: CueAction, enabled: Boolean = true) =
+                    @Composable { DropdownMenuItem(text = { Text(text) }, enabled = enabled, onClick = { more = false; onAction(action) }) }
+                item("⇤ Empezar en la línea roja (recortar el principio)", CueAction.TRIM_START, cuttable)()
+                item("⇥ Terminar en la línea roja (recortar el final)", CueAction.TRIM_END, cuttable)()
+                item("🔍 Ajustar la línea roja con precisión", CueAction.CURSOR)()
+                item("⤵ Quitar y juntar (sin dejar hueco)", CueAction.REMOVE_CLOSE)()
+                item("⧉ Hacer una copia", CueAction.DUPLICATE)()
+                item(if (cue.muted) "🔊 Activar este audio" else "🔇 Silenciar este audio (sin borrarlo)", CueAction.MUTE)()
+                item((if (cue.fadeIn > 0f) "✓ " else "") + "Entrada suave", CueAction.FADE_IN)()
+                item((if (cue.fadeOut > 0f) "✓ " else "") + "Salida suave", CueAction.FADE_OUT)()
+                item("✎ Cambiar el nombre", CueAction.RENAME)()
+            }
+        }
         Button(onClick = onDone, modifier = Modifier.height(48.dp).widthIn(min = 84.dp), contentPadding = pad,
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F6F5F), contentColor = Color.White)) { Text("✓ Listo", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
     }
@@ -522,7 +569,7 @@ private fun packRows(clips: List<Placement>): List<List<Placement>> {
 @Composable
 private fun StoryTimeline(
     project: Project, placements: List<Placement>, position: Double, playing: Boolean, selectedId: String?, zoom: Float, enabled: Boolean,
-    onSelect: (String?) -> Unit, onCursor: (Double) -> Unit, onMove: (String, Double, String?) -> Unit, onZoom: (Float) -> Unit, focusId: String? = null,
+    onSelect: (String?) -> Unit, onCursor: (Double) -> Unit, onMove: (String, Double, String?) -> Unit, onZoom: (Float) -> Unit, focusId: String? = null, peaks: Map<String, FloatArray> = emptyMap(),
 ) {
     val lanes = buildList {
         project.characters.forEach { ch -> add(Lane(ch.name, Color(ch.color), placements.filter { it.cue.type == CueType.VOICE && it.cue.characterId == ch.id }, ch.id)) }
@@ -653,6 +700,22 @@ private fun StoryTimeline(
                                             )
                                         }.padding(6.dp),
                                 ) {
+                                    val pk = place.cue.file?.let { peaks[it] }
+                                    if (pk != null && pk.isNotEmpty() && place.cue.seconds > 0f) {
+                                        Canvas(Modifier.matchParentSize()) {
+                                            val total = place.cue.seconds
+                                            val from = place.cue.trimStart / total
+                                            val span = ((place.end - place.start).toFloat() / total).coerceAtMost(1f - from)
+                                            val barW = 3.dp.toPx()
+                                            var x = 0f
+                                            while (x < size.width) {
+                                                val idx = ((from + span * (x / size.width)) * pk.size).toInt().coerceIn(0, pk.size - 1)
+                                                val h = (pk[idx] * size.height * 0.8f).coerceAtLeast(2.dp.toPx())
+                                                drawRect(Color(0x550B1020), Offset(x, (size.height - h) / 2f), androidx.compose.ui.geometry.Size(barW - 1.dp.toPx(), h))
+                                                x += barW
+                                            }
+                                        }
+                                    }
                                     Text((if (isSel) "✓ " else "") + (if (place.cue.muted) "🔇 " else "") + (if (place.cue.toneSteps != 0) "🎚 " else "") + place.cue.text.ifBlank { place.cue.type.label },
                                         fontSize = 15.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, color = Color(0xFF0B1020), fontWeight = FontWeight.Bold)
                                 }

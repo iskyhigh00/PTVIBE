@@ -268,3 +268,18 @@ internal fun InlineMove(cue: Cue, start: Double, onMove: (Double) -> Unit, onDon
         }
     }
 }
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun InlineCursor(position: Double, onNudge: (Double) -> Unit, onListen: () -> Unit, onDone: () -> Unit) {
+    val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
+    @Composable fun Step(label: String, delta: Double) =
+        FilledTonalButton(onClick = { onNudge(delta) }, modifier = Modifier.height(48.dp).widthIn(min = 84.dp), contentPadding = pad) { Text(label, fontSize = 15.sp, maxLines = 1) }
+    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Línea roja: ${"%d:%04.1f".format(position.toInt() / 60, position % 60)}", Modifier.height(48.dp).padding(end = 6.dp).wrapContentHeight(Alignment.CenterVertically).semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Step("◀ 1 s", -1.0); Step("◀ 0,1 s", -0.1); Step("0,1 s ▶", 0.1); Step("1 s ▶", 1.0)
+        FilledTonalButton(onClick = onListen, modifier = Modifier.height(48.dp).widthIn(min = 84.dp), contentPadding = pad) { Text("▶ Oír 2 s", fontSize = 15.sp, maxLines = 1) }
+        Button(onClick = onDone, modifier = Modifier.height(48.dp).widthIn(min = 84.dp), contentPadding = pad,
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F6F5F), contentColor = Color.White)) { Text("✓ Listo", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
+    }
+}

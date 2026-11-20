@@ -39,6 +39,51 @@ object TimelineOps {
         return anchored.copy(cues = out)
     }
 
+    /** Recorta el principio del audio hasta [at] (sin tocar el archivo). Null si [at] no cae dentro del audio. */
+    fun trimStartTo(p: Project, cueId: String, at: Double): Project? {
+        val anchored = DramaRenderer.anchorTimeline(p)
+        val place = DramaRenderer.layout(anchored).firstOrNull { it.cue.id == cueId } ?: return null
+        if (at <= place.start + MIN_PIECE || at >= place.end - MIN_PIECE) return null
+        val pf = DramaRenderer.pitchFactor(DramaRenderer.pitchOf(anchored, place.cue))
+        val startF = at.toFloat()
+        return anchored.copy(cues = anchored.cues.map {
+            if (it.id != cueId) it else it.copy(
+                startSeconds = startF, durationSeconds = (place.end - startF.toDouble()).toFloat(),
+                trimStart = (it.trimStart + (startF.toDouble() - place.start) * pf).toFloat(), fadeIn = 0f)
+        })
+    }
+
+    /** Recorta el final del audio desde [at]. Null si [at] no cae dentro del audio. */
+    fun trimEndAt(p: Project, cueId: String, at: Double): Project? {
+        val anchored = DramaRenderer.anchorTimeline(p)
+        val place = DramaRenderer.layout(anchored).firstOrNull { it.cue.id == cueId } ?: return null
+        if (at <= place.start + MIN_PIECE || at >= place.end - MIN_PIECE) return null
+        return anchored.copy(cues = anchored.cues.map {
+            if (it.id != cueId) it else it.copy(startSeconds = place.start.toFloat(), durationSeconds = (at - place.start).toFloat(), fadeOut = 0f)
+        })
+    }
+
+    /** Quita el audio y corre hacia atrás los que vienen después, para no dejar un hueco. */
+    fun deleteAndClose(p: Project, cueId: String): Project {
+        val anchored = DramaRenderer.anchorTimeline(p)
+        val place = DramaRenderer.layout(anchored).firstOrNull { it.cue.id == cueId } ?: return p
+        val gap = (place.end - place.start).toFloat()
+        return anchored.copy(cues = anchored.cues.filter { it.id != cueId }.map {
+            val start = it.startSeconds
+            if (it.mode != CueMode.BED && start != null && start.toDouble() >= place.end - 1e-3) it.copy(startSeconds = max(0f, start - gap)) else it
+        })
+    }
+
+    /** Hace una copia del audio justo después del original. */
+    fun duplicate(p: Project, cueId: String, newId: String): Project? {
+        val anchored = DramaRenderer.anchorTimeline(p)
+        val place = DramaRenderer.layout(anchored).firstOrNull { it.cue.id == cueId } ?: return null
+        val copy = place.cue.copy(id = newId, startSeconds = (place.end + 0.2).toFloat(), durationSeconds = (place.end - place.start).toFloat())
+        val out = ArrayList<Cue>(anchored.cues.size + 1)
+        for (c in anchored.cues) { out += c; if (c.id == cueId) out += copy }
+        return anchored.copy(cues = out)
+    }
+
     fun delete(p: Project, cueId: String): Project = p.copy(cues = p.cues.filter { it.id != cueId })
 
     /** Mueve un audio a otro instante, sin desplazar a los demás. */

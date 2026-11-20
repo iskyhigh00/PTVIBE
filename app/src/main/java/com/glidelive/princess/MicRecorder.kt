@@ -4,15 +4,16 @@ import android.annotation.SuppressLint
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import java.io.File
 import kotlin.math.abs
 
 /** Graba del micrófono a 44,1 kHz mono. Hace falta el permiso de micrófono antes de llamar a [start]. */
-class MicRecorder(private val onLevel: (Float) -> Unit) {
+class MicRecorder(private val file: File, private val onLevel: (Float) -> Unit) {
     private var rec: AudioRecord? = null
     @Volatile private var running = false
     private var thread: Thread? = null
-    @Volatile private var data = ShortArray(RATE * 30)
     @Volatile private var n = 0
+    private var writer: WavIo.Writer? = null
 
     /** Pico más alto que se oyó (0..32767): si es muy bajo, el micrófono estaba tapado, silenciado u ocupado. */
     @Volatile var peak = 0
@@ -35,6 +36,8 @@ class MicRecorder(private val onLevel: (Float) -> Unit) {
             if (r.state != AudioRecord.STATE_INITIALIZED) { r.release(); return false }
             try { r.startRecording() } catch (t: Throwable) { r.release(); throw t }
             if (r.recordingState != AudioRecord.RECORDSTATE_RECORDING) { r.release(); return false }
+            val w = try { WavIo.Writer(file, 1, RATE) } catch (t: Throwable) { r.release(); throw t }
+            writer = w
             rec = r
             n = 0; peak = 0; failed = false; full = false
             running = true
@@ -45,8 +48,7 @@ class MicRecorder(private val onLevel: (Float) -> Unit) {
                     if (got < 0) { failed = true; running = false; break }   // error del sistema: no girar en vacío
                     if (got == 0) continue
                     if (n + got > MAX_SECONDS * RATE) { full = true; running = false; break }
-                    if (n + got > data.size) data = data.copyOf(minOf(maxOf(data.size * 2, n + got), MAX_SECONDS * RATE))
-                    System.arraycopy(buf, 0, data, n, got)
+                    try { w.write(buf, got) } catch (t: Throwable) { failed = true; running = false; break }   // disco lleno: se conserva lo ya escrito
                     n += got
                     var p = 0
                     for (i in 0 until got) p = maxOf(p, abs(buf[i].toInt()))
@@ -63,13 +65,14 @@ class MicRecorder(private val onLevel: (Float) -> Unit) {
 
     val isRunning: Boolean get() = running
 
-    /** Termina y devuelve lo grabado. */
-    fun stop(): ShortArray {
+    /** Termina de grabar. El audio ya está en el archivo (se va escribiendo mientras se graba); devuelve cuántos cuadros quedaron. */
+    fun stop(): Int {
         running = false
-        thread?.join(800)
+        thread?.join(3000)
         runCatching { rec?.stop() }
         runCatching { rec?.release() }; rec = null
-        return data.copyOf(n)
+        runCatching { writer?.close() }; writer = null
+        return n
     }
 
     companion object {

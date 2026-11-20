@@ -95,13 +95,13 @@ object DramaRenderer {
         val voice = BooleanArray(n)
         for (pl in places) if (pl.cue.type == CueType.VOICE && !pl.cue.muted) {
             val a = (pl.start * 100).toInt().minus(4).coerceIn(0, n - 1); val b = (pl.end * 100).toInt().coerceIn(0, n - 1)
-            for (i in a..b) voice[i] = true
+            for (i in a..min(n - 1, b + 40)) voice[i] = true   // 0,4 s más: en las pausas cortas la música no sube y baja
         }
         val env = FloatArray(n)
         var g = 1f
         for (i in 0 until n) {
             val target = if (voice[i]) depth else 1f
-            g += (target - g) * (if (target < g) 0.25f else 0.04f)  // baja rápido, sube despacio
+            g += (target - g) * (if (target < g) 0.25f else 0.03f)  // baja rápido, sube despacio
             env[i] = g
         }
         return env
@@ -142,39 +142,39 @@ object DramaRenderer {
         val mixR = FloatArray(mixL.size)
         val pcm = ShortArray(mixL.size * 2)
         // Pasada 1: el pico global (para bajar todo parejo si se pasa). Pasada 2: la mezcla ya ajustada.
-        var peak = 0f
-        for (pass in 0..1) {
-            val scale = if (pass == 1 && peak > 0.98f) 0.98f / peak else 1f
-            var from = 0
-            clips.clear()
-            while (from < frames) {
-                if (cancelled()) throw java.util.concurrent.CancellationException("mezcla cancelada")
-                val n = minOf(mixL.size, frames - from)
-                java.util.Arrays.fill(mixL, 0, n, 0f); java.util.Arrays.fill(mixR, 0, n, 0f)
-                for (pl in places) {
-                    val c = pl.cue
-                    if (c.type == CueType.SILENCE || c.muted) continue
-                    val startF = (pl.start * RATE).toInt()
-                    val endF = min(frames, (pl.end * RATE).toInt())
-                    if (endF <= from || startF >= from + n) continue
-                    val clip = clip(c) ?: continue
-                    if (clip.frames < 2) continue
-                    mixInto(p, c, clip, startF, endF, from, n, gains[c.id] ?: 1f, duck, mixL, mixR)
-                }
-                if (pass == 0) {
-                    for (i in 0 until n) peak = max(peak, max(abs(mixL[i]), abs(mixR[i])))
-                } else {
-                    for (i in 0 until n) {
-                        pcm[2 * i] = Math.round(mixL[i] * scale * 32767f).coerceIn(-32768, 32767).toShort()
-                        pcm[2 * i + 1] = Math.round(mixR[i] * scale * 32767f).coerceIn(-32768, 32767).toShort()
-                    }
-                    sink(pcm, from, n)
-                }
-                from += n
-                for (pl in places) if ((pl.end * RATE) <= from) clips.remove(pl.cue.id)   // lo que ya terminó se suelta
-                progress(((pass * frames + from).toFloat() / (2f * frames)).coerceIn(0f, 1f))
+        var from = 0
+        clips.clear()
+        while (from < frames) {
+            if (cancelled()) throw java.util.concurrent.CancellationException("mezcla cancelada")
+            val n = minOf(mixL.size, frames - from)
+            java.util.Arrays.fill(mixL, 0, n, 0f); java.util.Arrays.fill(mixR, 0, n, 0f)
+            for (pl in places) {
+                val c = pl.cue
+                if (c.type == CueType.SILENCE || c.muted) continue
+                val startF = (pl.start * RATE).toInt()
+                val endF = min(frames, (pl.end * RATE).toInt())
+                if (endF <= from || startF >= from + n) continue
+                val clip = clip(c) ?: continue
+                if (clip.frames < 2) continue
+                mixInto(p, c, clip, startF, endF, from, n, gains[c.id] ?: 1f, duck, mixL, mixR)
             }
+            for (i in 0 until n) {
+                pcm[2 * i] = Math.round(softLimit(mixL[i]) * 32767f).coerceIn(-32768, 32767).toShort()
+                pcm[2 * i + 1] = Math.round(softLimit(mixR[i]) * 32767f).coerceIn(-32768, 32767).toShort()
+            }
+            sink(pcm, from, n)
+            from += n
+            for (pl in places) if ((pl.end * RATE) <= from) clips.remove(pl.cue.id)   // lo que ya terminó se suelta
+            progress((from.toFloat() / frames).coerceIn(0f, 1f))
         }
+    }
+
+    /** Limitador suave: lo normal pasa igual y los picos se curvan hacia 1 sin recortar ni bajar el volumen de todo el cuento. */
+    fun softLimit(x: Float): Float {
+        val a = abs(x)
+        if (a <= 0.8f) return x
+        val y = 0.8f + 0.2f * kotlin.math.tanh((a - 0.8f) / 0.2f)
+        return if (x < 0f) -y else y
     }
 
     private fun mixInto(

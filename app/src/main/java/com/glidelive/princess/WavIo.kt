@@ -84,17 +84,24 @@ object WavIo {
         null
     }.getOrNull()
 
-    /** Recorta el silencio del principio y del final (con un margen), para que las voces entren justo. [channels] evita cortar a mitad de un cuadro estéreo. */
-    fun trimSilence(pcm: ShortArray, rate: Int, threshold: Int = 500, marginSec: Float = 0.12f, channels: Int = 1): ShortArray {
+    /** Primer y último cuadro [a, b) con sonido (más un margen), o null si todo es silencio. */
+    fun speechBounds(pcm: ShortArray, rate: Int, threshold: Int = 500, marginSec: Float = 0.12f, channels: Int = 1): Pair<Int, Int>? {
         val ch = channels.coerceAtLeast(1)
         val frames = pcm.size / ch
         fun loud(f: Int): Boolean { for (c in 0 until ch) if (kotlin.math.abs(pcm[f * ch + c].toInt()) >= threshold) return true; return false }
         var a = 0
         while (a < frames && !loud(a)) a++
-        if (a >= frames) return pcm
+        if (a >= frames) return null
         var b = frames - 1
         while (b > a && !loud(b)) b--
         val m = (marginSec * rate).toInt()
-        return pcm.copyOfRange(maxOf(0, a - m) * ch, minOf(frames, b + m + 1) * ch)
+        return maxOf(0, a - m) to minOf(frames, b + m + 1)
+    }
+
+    /** Recorta el silencio del principio y del final (con un margen), para que las voces entren justo. [channels] evita cortar a mitad de un cuadro estéreo. */
+    fun trimSilence(pcm: ShortArray, rate: Int, threshold: Int = 500, marginSec: Float = 0.12f, channels: Int = 1): ShortArray {
+        val ch = channels.coerceAtLeast(1)
+        val (a, b) = speechBounds(pcm, rate, threshold, marginSec, ch) ?: return pcm
+        return pcm.copyOfRange(a * ch, b * ch)
     }
 }

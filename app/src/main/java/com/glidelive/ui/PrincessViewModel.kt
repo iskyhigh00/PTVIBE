@@ -72,6 +72,8 @@ data class PrincessUi(
     val previewing: Boolean = false,
     /** Último audio agregado (para llevarlo a la vista). */
     val lastAddedId: String? = null,
+    /** Forma de onda (240 puntos, 0..1) de cada archivo de audio del cuento. */
+    val peaks: Map<String, FloatArray> = emptyMap(),
     /** Se está creando un cuento nuevo. */
     val creating: Boolean = false,
 )
@@ -141,6 +143,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                 val merged = u.projects + list.filter { p -> u.projects.none { it.id == p.id } }
                 u.copy(projects = merged, current = u.current ?: list.firstOrNull { p -> p.id == last } ?: list.firstOrNull())
             }
+            _ui.value.current?.let { runCatching { recoverTakes(it) } }   // una toma que quedó a medias al cerrarse la app
         }
         viewModelScope.launch(Dispatchers.Default) {
             while (isActive) {
@@ -343,7 +346,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         openEpoch++
         if (recorder != null) finishRecording()   // una grabación en curso se guarda en el cuento donde empezó
         stop(); synchronized(clips) { clips.clear() }; places = emptyList(); history.clear(); previewing = false
-        viewModelScope.launch(projectWrites + safety) { PrincessLibrary.cleanup(app, p) }
+        viewModelScope.launch(projectWrites + safety) { runCatching { recoverTakes(p) }; PrincessLibrary.cleanup(app, p) }
         prefs.edit().putString("princess_last", p.id).apply()
         _ui.update { it.copy(current = p, loaded = false, playingCue = -1, error = null, cursor = 0.0, canUndo = false, canRedo = false) }
     }
@@ -480,7 +483,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         anchored.copy(cues = anchored.cues.map { if (it.id == id) change(it) else it })
     }
 
-    fun playFromSeconds(seconds: Double) {
+    fun playFromSeconds(seconds: Double, stopAfterMs: Long = 0) {
         val p = _ui.value.current ?: return
         if (p.cues.isEmpty() || _ui.value.busy != null) return
         if (DramaRenderer.frameCount(p) > DramaRenderer.RATE * 15 * 60) {
@@ -492,12 +495,13 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
             stop()
             val pcm = renderProject(p, "Preparando tu cuento…")
             if (gen != leaveGen) { _ui.update { it.copy(busy = null) }; return@launchSafe }
-            if (_ui.value.current != p) { _ui.update { it.copy(busy = null) }; playFromSeconds(seconds); return@launchSafe }   // se editó mientras se preparaba: se vuelve a preparar
+            if (_ui.value.current != p) { _ui.update { it.copy(busy = null) }; playFromSeconds(seconds, stopAfterMs); return@launchSafe }   // se editó mientras se preparaba: se vuelve a preparar
             places = DramaRenderer.layout(p)
             previewing = false
             val total = DramaRenderer.totalSeconds(p)
             load(pcm, if (seconds >= total - 0.1) 0.0 else seconds.coerceIn(0.0, total))
             _ui.update { it.copy(busy = null) }
+            if (stopAfterMs > 0) { kotlinx.coroutines.delay(stopAfterMs); if (gen == leaveGen) stop() }
         }
     }
 
@@ -538,15 +542,21 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     // ---- grabar voces ----
     private var recordAt: Double? = null
 
+    private var recordingFile: File? = null
+
     fun startRecording(characterId: String, atSeconds: Double? = null): Boolean {
         if (recorder != null) return false
+        val p = _ui.value.current ?: return false
         recordAt = atSeconds
         if (!PlayerOwner.story) beforePlay()   // una canción de Pistas no debe entrar al micrófono
         stop()
-        val rec = MicRecorder { lvl -> _ui.update { it.copy(recLevel = lvl, recSeconds = recorder?.seconds ?: it.recSeconds) } }
+        // La toma se va escribiendo en el disco mientras se graba: si la app se cierra, se puede recuperar.
+        val file = File(PrincessLibrary.dir(app, p), "grabando_${PrincessLibrary.newId()}.wav")
+        recordingFile = file
+        val rec = try { MicRecorder(file) { lvl -> _ui.update { it.copy(recLevel = lvl, recSeconds = recorder?.seconds ?: it.recSeconds) } } } catch (t: Throwable) { report(t); return false }
         recorder = rec
         if (!rec.start()) {
-            recorder = null
+            recorder = null; file.delete()
             _ui.update { it.copy(error = "No pude abrir el micrófono. Puede que otra app lo esté usando o que falte el permiso.") }
             return false
         }
@@ -561,43 +571,69 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun cancelRecording() {
         recorder?.stop(); recorder = null
+        recordingFile?.delete(); recordingFile = null
         _ui.update { it.copy(recordingFor = null, recLevel = 0f) }
     }
 
-    /** Termina la grabación y agrega la voz en la línea roja (o después de lo último), sin el silencio sobrante. */
+    /** Termina la grabación y agrega la voz en la línea roja (o a continuación). El silencio de los extremos se saltea sin borrar nada del audio. */
     fun finishRecording(atSeconds: Double? = null) {
         val rec = recorder ?: return
         val at = atSeconds ?: recordAt
         val who = _ui.value.recordingFor
         val p = _ui.value.current
-        val pcm = rec.stop(); recorder = null
+        val frames = rec.stop(); recorder = null
+        val file = recordingFile; recordingFile = null
         val peak = rec.peak; val failed = rec.failed; val full = rec.full
         _ui.update { it.copy(recordingFor = null, recLevel = 0f) }
-        if (p == null || who == null) return
-        if (failed && pcm.size >= MicRecorder.RATE) _ui.update { it.copy(notice = "La grabación se cortó antes de terminar (otra app pudo tomar el micrófono). Guardé lo que alcanzó a grabar.") }
-        if (failed && pcm.size < MicRecorder.RATE) {
-            _ui.update { it.copy(error = "Se cortó la grabación: otra app pudo haber tomado el micrófono. Vuelve a intentar.") }; return
+        if (p == null || who == null || file == null) { file?.delete(); return }
+        if (failed && frames >= MicRecorder.RATE) _ui.update { it.copy(notice = "La grabación se cortó antes de terminar (otra app pudo tomar el micrófono). Guardé lo que alcanzó a grabar.") }
+        if (failed && frames < MicRecorder.RATE) {
+            file.delete(); _ui.update { it.copy(error = "Se cortó la grabación: otra app pudo haber tomado el micrófono. Vuelve a intentar.") }; return
         }
-        if (pcm.size < MicRecorder.RATE / 5) {
-            _ui.update { it.copy(notice = "La grabación fue muy corta. Toca el botón rojo y habla un poco más.") }; return
+        if (frames < MicRecorder.RATE / 5) {
+            file.delete(); _ui.update { it.copy(notice = "La grabación fue muy corta. Toca el botón rojo y habla un poco más.") }; return
         }
         if (peak < 150) {
-            _ui.update { it.copy(error = "No se oyó nada. Revisa que el micrófono no esté tapado ni silenciado y habla más cerca.") }; return
+            file.delete(); _ui.update { it.copy(error = "No se oyó nada. Revisa que el micrófono no esté tapado ni silenciado y habla más cerca.") }; return
         }
         launchSafe {
-            val saved = withContext(Dispatchers.IO) {
-                val trimmed = WavIo.trimSilence(pcm, MicRecorder.RATE)
-                val f = File(PrincessLibrary.dir(app, p), "voz_${PrincessLibrary.newId()}.wav")
-                WavIo.write(f, trimmed, 1, MicRecorder.RATE)
-                f.name to trimmed.size.toFloat() / MicRecorder.RATE
-            }
-            val cueCount = _ui.value.current?.cues?.count { it.type == CueType.VOICE } ?: 0
-            _ui.update { it.copy(notice = "¡Listo! Tu voz quedó guardada. Toca ▶ Escuchar para oírla.") }
+            val take = withContext(Dispatchers.IO) { takeFrom(file, p.id) }
+            if (take == null) { _ui.update { it.copy(error = "No se oyó nada. Revisa que el micrófono no esté tapado ni silenciado y habla más cerca.") }; return@launchSafe }
+            val number = nextTakeNumber(_ui.value.current)
             val startAt = at ?: ((_ui.value.current?.let { DramaRenderer.totalSeconds(it) } ?: 0.0) + 0.6)   // 0,6 s es el espacio con que entra una voz «a continuación»
-            _ui.update { it.copy(cursor = startAt + saved.second) }   // la línea roja queda al final de lo grabado
-            addTo(p.id, Cue(PrincessLibrary.newId(), CueType.VOICE, who, "Mi voz ${cueCount + 1}", saved.first, saved.second, 0.6f,
-                startSeconds = at?.toFloat()))
+            _ui.update { it.copy(cursor = startAt + take.length, notice = "¡Listo! Tu voz quedó guardada. Toca ▶ Escuchar para oírla.") }
+            addTo(p.id, takeCue(who, "Mi voz $number", take, at))
             if (full) _ui.update { it.copy(notice = "Llegaste al máximo de 10 minutos seguidos. Lo grabado quedó guardado.") }
+        }
+    }
+
+    /** Una toma ya guardada: archivo definitivo, duración total y la parte con voz (sin los silencios de los extremos). */
+    private class Take(val file: String, val total: Float, val from: Float, val length: Float)
+
+    private fun takeFrom(grabando: File, projectId: String): Take? {
+        val d = WavIo.read(grabando) ?: return null
+        val bounds = WavIo.speechBounds(d.pcm, d.rate) ?: return null
+        val name = "voz_${PrincessLibrary.newId()}.wav"
+        if (!grabando.renameTo(File(grabando.parentFile, name))) return null
+        return Take(name, d.pcm.size.toFloat() / d.rate, bounds.first.toFloat() / d.rate, (bounds.second - bounds.first).toFloat() / d.rate)
+    }
+
+    private fun takeCue(who: String, title: String, t: Take, at: Double?) =
+        Cue(PrincessLibrary.newId(), CueType.VOICE, who, title, t.file, t.total, 0.6f, startSeconds = at?.toFloat(), durationSeconds = t.length, trimStart = t.from)
+
+    private fun nextTakeNumber(p: Project?): Int =
+        (p?.cues.orEmpty().mapNotNull { Regex("^Mi voz (\\d+)$").find(it.text)?.groupValues?.get(1)?.toIntOrNull() }.maxOrNull() ?: 0) + 1
+
+    /** Tomas que quedaron a medias (la app se cerró grabando): se recuperan como audios al final del cuento. */
+    private suspend fun recoverTakes(p: Project) {
+        val dir = PrincessLibrary.dir(app, p)
+        val who = p.characters.firstOrNull()?.id ?: return
+        val files = dir.listFiles { f -> f.isFile && f.name.startsWith("grabando_") && f.name.endsWith(".wav") }.orEmpty()
+        for (f in files) {
+            val take = withContext(Dispatchers.IO) { runCatching { takeFrom(f, p.id) }.getOrNull() }
+            if (take == null) { f.delete(); continue }
+            addTo(p.id, takeCue(who, "Toma recuperada", take, null))
+            _ui.update { it.copy(notice = "Recuperé una grabación que quedó a medias. Está al final de tu cuento.") }
         }
     }
 
@@ -672,6 +708,92 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun removeCue(id: String) = edit { cur -> TimelineOps.delete(DramaRenderer.anchorTimeline(cur), id) }
+
+    /** Quita el audio y junta lo que venía después, sin dejar un hueco. */
+    fun removeAndClose(id: String) = edit { cur -> TimelineOps.deleteAndClose(cur, id) }
+
+    /** Recorta el principio del audio hasta la línea roja (el archivo no se toca). */
+    fun trimStartAtCursor(id: String) {
+        val at = _ui.value.cursor
+        val p = _ui.value.current ?: return
+        if (TimelineOps.trimStartTo(p, id, at) == null) { _ui.update { it.copy(notice = "Pon la línea roja sobre el audio, donde quieres que empiece.") }; return }
+        edit { cur -> TimelineOps.trimStartTo(cur, id, at) ?: cur }
+        _ui.update { it.copy(notice = "Listo: ahora empieza en la línea roja. Con ↶ puedes volver atrás.") }
+    }
+
+    /** Recorta el final del audio desde la línea roja. */
+    fun trimEndAtCursor(id: String) {
+        val at = _ui.value.cursor
+        val p = _ui.value.current ?: return
+        if (TimelineOps.trimEndAt(p, id, at) == null) { _ui.update { it.copy(notice = "Pon la línea roja sobre el audio, donde quieres que termine.") }; return }
+        edit { cur -> TimelineOps.trimEndAt(cur, id, at) ?: cur }
+        _ui.update { it.copy(notice = "Listo: ahora termina en la línea roja. Con ↶ puedes volver atrás.") }
+    }
+
+    fun duplicateCue(id: String) {
+        edit { cur -> TimelineOps.duplicate(cur, id, PrincessLibrary.newId()) ?: cur }
+        _ui.update { it.copy(notice = "Hice una copia justo después. Puedes moverla donde quieras.") }
+    }
+
+    fun toggleMute(id: String) {
+        val on = _ui.value.current?.cues?.firstOrNull { it.id == id }?.muted == true
+        editTimelineCue(id) { it.copy(muted = !on) }
+        _ui.update { it.copy(notice = if (on) "Ese audio vuelve a sonar." else "Ese audio quedó en silencio (no se borró). Tócalo otra vez para activarlo.") }
+    }
+
+    fun toggleFade(id: String, fadeIn: Boolean) {
+        val c = _ui.value.current?.cues?.firstOrNull { it.id == id } ?: return
+        val on = (if (fadeIn) c.fadeIn else c.fadeOut) > 0f
+        editTimelineCue(id) { if (fadeIn) it.copy(fadeIn = if (on) 0f else 0.6f) else it.copy(fadeOut = if (on) 0f else 0.6f) }
+        _ui.update { it.copy(notice = (if (fadeIn) "Entrada suave" else "Salida suave") + (if (on) " quitada." else " puesta: se oye más despacito al ${if (fadeIn) "empezar" else "terminar"}.")) }
+    }
+
+    fun renameCue(id: String, name: String) {
+        val n = name.trim()
+        if (n.isNotEmpty()) edit { cur -> cur.copy(cues = cur.cues.map { if (it.id == id) it.copy(text = n) else it }) }
+    }
+
+    fun nudgeCursor(delta: Double) = setCursor((_ui.value.cursor + delta).coerceAtLeast(0.0))
+
+    /** Escucha unos 2 segundos alrededor de la línea roja, para afinar un corte. */
+    fun listenAround() {
+        val at = _ui.value.cursor
+        playFromSeconds((at - 1.0).coerceAtLeast(0.0), stopAfterMs = 2500)
+    }
+
+    // ---- ondas de sonido (para ver dónde hay voz al cortar) ----
+    private val peakCache = HashMap<String, FloatArray>()
+
+    fun loadPeaks(p: Project) {
+        val missing = p.cues.filter { it.file != null && it.type != CueType.MUSIC && it.type != CueType.SILENCE && it.seconds <= 300f && !peakCache.containsKey(it.file) }
+        if (missing.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO + safety) {
+            val dir = PrincessLibrary.dir(app, p)
+            for (c in missing) {
+                val name = c.file ?: continue
+                val peaks = runCatching { peaksOf(File(dir, name)) }.getOrNull() ?: FloatArray(0)
+                synchronized(peakCache) { peakCache[name] = peaks }
+            }
+            _ui.update { it.copy(peaks = synchronized(peakCache) { HashMap(peakCache) }) }
+        }
+    }
+
+    private fun peaksOf(f: File, buckets: Int = 240): FloatArray {
+        val d = WavIo.read(f) ?: AudioDecoder.decode(f)
+        val frames = d.pcm.size / d.channels
+        if (frames < buckets) return FloatArray(0)
+        val out = FloatArray(buckets)
+        for (b in 0 until buckets) {
+            val from = (b.toLong() * frames / buckets).toInt(); val to = ((b + 1L) * frames / buckets).toInt()
+            var m = 0
+            var i = from
+            while (i < to) { m = maxOf(m, kotlin.math.abs(d.pcm[i * d.channels].toInt())); i += maxOf(1, (to - from) / 64) }
+            out[b] = m / 32768f
+        }
+        val top = out.max().coerceAtLeast(0.02f)
+        for (i in out.indices) out[i] = (out[i] / top).coerceIn(0f, 1f)
+        return out
+    }
 
     fun moveCueTo(id: String, start: Double, characterId: String? = null) = edit { cur ->
         val moved = TimelineOps.moveTo(cur, id, start.coerceIn(0.0, DramaRenderer.totalSeconds(cur) + 60.0))
