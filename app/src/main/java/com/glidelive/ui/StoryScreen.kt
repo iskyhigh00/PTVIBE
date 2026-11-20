@@ -74,6 +74,7 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.glidelive.princess.Cue
@@ -154,7 +155,7 @@ private fun StoryList(vm: PrincessViewModel, u: PrincessUi, onOpen: (Project) ->
     }
     Column(modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Mis cuentos", fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+            Text("Mis cuentos", fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f).semantics { heading() })
             MoreMenu(onOtherMode, onUpdate)
         }
         if (u.projects.isEmpty()) {
@@ -296,7 +297,7 @@ private fun StoryEditor(
             u.busy?.let { (label, p) ->
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Column(Modifier.weight(1f)) {
-                        Text(label, style = MaterialTheme.typography.labelLarge)
+                        Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite })
                         LinearProgressIndicator(progress = { p.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
                     }
                     if (label.startsWith("Preparando")) TextButton(onClick = vm::cancelWork, modifier = Modifier.height(48.dp)) { Text("Cancelar") }
@@ -312,7 +313,7 @@ private fun StoryEditor(
                 Column(Modifier.align(Alignment.BottomCenter)) { StoryNotices(vm, u, micDenied, { micPermission.launch(Manifest.permission.RECORD_AUDIO) }) }
             }
 
-            if (project.cues.isNotEmpty() && u.recordingFor == null && u.busy == null && panel == null && u.notice == null && u.error == null && (selected == null || selected.cue.type == CueType.MUSIC))
+            if (project.cues.isNotEmpty() && androidx.compose.ui.platform.LocalDensity.current.fontScale <= 1.15f && u.recordingFor == null && u.busy == null && panel == null && u.notice == null && u.error == null && (selected == null || selected.cue.type == CueType.MUSIC))
                 Text(
                     if (selected == null) "Toca un audio para elegirlo. Toca un espacio vacío de la línea de tiempo para poner la línea roja."
                     else "La música de fondo no se corta: puedes moverla, bajarle el volumen o quitarla.",
@@ -455,7 +456,7 @@ private fun SpeakerMenu(project: Project, current: String, onPick: (String) -> U
     Box(modifier) {
         FilledTonalButton(onClick = { open = true }, modifier = Modifier.height(52.dp).fillMaxWidth().semantics { contentDescription = "Quién habla: $name. Toca para cambiar" }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) { Text("👤 $name ▾", fontSize = 15.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            project.characters.forEach { c -> DropdownMenuItem(text = { Text(c.name) }, onClick = { open = false; onPick(c.id) }) }
+            project.characters.forEach { c -> DropdownMenuItem(text = { Text((if (c.id == current) "✓ " else "") + c.name) }, onClick = { open = false; onPick(c.id) }) }
             DropdownMenuItem(text = { Text("＋ Otra voz (la bruja, el lobo…)") }, onClick = { open = false; onNew() })
         }
     }
@@ -472,7 +473,7 @@ private fun RecordingBar(u: PrincessUi, onStop: () -> Unit, onDiscard: () -> Uni
             Text("Habla cerca del teléfono. Si no se mueve la barra, el micrófono no te oye.", style = MaterialTheme.typography.bodySmall)
         }
         BigButton("■ Terminar", RED, onStop)
-        TextButton(onClick = onDiscard) { Text("Descartar") }
+        TextButton(onClick = onDiscard, modifier = Modifier.height(48.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)) { Text("Descartar", fontWeight = FontWeight.Bold) }
     }
 }
 
@@ -572,7 +573,16 @@ private fun StoryTimeline(
             }
         }
         Column(Modifier.weight(1f).onSizeChanged { viewportPx = it.width }.horizontalScroll(hScroll)) {
-            Box(Modifier.width(widthDp.dp).height(48.dp).pointerInput(scale, enabled) { detectTapGestures { at -> if (enabled) onCursor((at.x / density / scale).toDouble()) } }) {
+            Box(Modifier.width(widthDp.dp).height(48.dp)
+                .semantics {
+                    contentDescription = "Regla de tiempo. La línea roja está en ${clock(position)}"
+                    customActions = listOf(
+                        androidx.compose.ui.semantics.CustomAccessibilityAction("Línea roja un segundo después") { onCursor(position + 1.0); true },
+                        androidx.compose.ui.semantics.CustomAccessibilityAction("Línea roja un segundo antes") { onCursor((position - 1.0).coerceAtLeast(0.0)); true },
+                        androidx.compose.ui.semantics.CustomAccessibilityAction("Línea roja al principio") { onCursor(0.0); true },
+                    )
+                }
+                .pointerInput(scale, enabled) { detectTapGestures { at -> if (enabled) onCursor((at.x / density / scale).toDouble()) } }) {
                 val step = listOf(1, 2, 5, 10, 15, 30, 60, 120, 300).firstOrNull { it * scale >= 72f } ?: 600
                 for (s in 0..duration.toInt() step step) Text(clock(s.toDouble()), Modifier.offset(x = (s * scale).dp).padding(top = 12.dp), fontSize = 15.sp)
             }
@@ -609,6 +619,7 @@ private fun StoryTimeline(
                                             role = androidx.compose.ui.semantics.Role.Button
                                             onClick(label = "Elegir") { onSelect(place.cue.id); true }
                                             customActions = listOf(
+                                                androidx.compose.ui.semantics.CustomAccessibilityAction("Poner la línea roja al inicio de este audio") { onCursor(place.start); true },
                                                 androidx.compose.ui.semantics.CustomAccessibilityAction("Mover un segundo después") { onMove(place.cue.id, place.start + 1.0, null); true },
                                                 androidx.compose.ui.semantics.CustomAccessibilityAction("Mover un segundo antes") { onMove(place.cue.id, (place.start - 1.0).coerceAtLeast(0.0), null); true },
                                             )

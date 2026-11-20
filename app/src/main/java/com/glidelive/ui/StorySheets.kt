@@ -69,6 +69,9 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.glidelive.princess.Cue
@@ -96,7 +99,7 @@ internal fun Sheet(title: String, onClose: () -> Unit, u: PrincessUi? = null, co
                 .clickable(interactionSource = card, indication = null) {}.padding(14.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f).semantics { heading() })
                 BigButton("Listo", Color(0xFF1F6F5F), onClose, Modifier.height(48.dp))
             }
             if (u != null) SheetBanner(u)
@@ -115,7 +118,7 @@ internal fun SheetBanner(u: PrincessUi) {
             LinearProgressIndicator(progress = { u.busy.second.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
         }
     } else if (msg != null) {
-        Text(msg, Modifier.fillMaxWidth().padding(vertical = 4.dp).background(
+        Text(msg, Modifier.fillMaxWidth().padding(vertical = 4.dp).semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }.background(
             if (u.error != null) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(10.dp)).padding(10.dp),
             style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold,
             color = if (u.error != null) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer)
@@ -186,8 +189,8 @@ internal fun SoundTile(icon: String, label: String, onListen: () -> Unit, onAdd:
     ) {
         Text(icon, fontSize = 34.sp)
         Text(label, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 2, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSecondaryContainer)
-        FilledTonalButton(onClick = onAdd, modifier = Modifier.height(48.dp).fillMaxWidth(), contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("＋ Poner", fontSize = 16.sp, maxLines = 1) }
-        TextButton(onClick = onListen, modifier = Modifier.height(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("▶ Oír", fontSize = 16.sp) }
+        FilledTonalButton(onClick = onAdd, modifier = Modifier.height(48.dp).fillMaxWidth().semantics { contentDescription = "Poner $label en la línea roja" }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("＋ Poner", fontSize = 16.sp, maxLines = 1) }
+        TextButton(onClick = onListen, modifier = Modifier.height(48.dp).semantics { contentDescription = "Oír $label" }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("▶ Oír", fontSize = 16.sp) }
     }
 }
 
@@ -195,8 +198,8 @@ internal fun SoundTile(icon: String, label: String, onListen: () -> Unit, onAdd:
 internal fun SoundRow(icon: String, label: String, onListen: () -> Unit, onAdd: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("$icon  $label", Modifier.weight(1f), fontSize = 16.sp)
-        TextButton(onClick = onListen, modifier = Modifier.height(48.dp)) { Text("▶ Oír", fontSize = 16.sp) }
-        FilledTonalButton(onClick = onAdd, modifier = Modifier.height(48.dp)) { Text("＋ Poner", fontSize = 16.sp) }
+        TextButton(onClick = onListen, modifier = Modifier.height(48.dp).semantics { contentDescription = "Oír $label" }) { Text("▶ Oír", fontSize = 16.sp) }
+        FilledTonalButton(onClick = onAdd, modifier = Modifier.height(48.dp).semantics { contentDescription = "Poner $label en la línea roja" }) { Text("＋ Poner", fontSize = 16.sp) }
     }
 }
 
@@ -238,7 +241,7 @@ internal fun InlineVolume(cue: Cue, onSet: (Float) -> Unit, onListen: () -> Unit
     var v by remember(cue.id) { mutableStateOf(cue.volume) }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Bajito", fontSize = 15.sp)
-        Slider(v, { v = it }, valueRange = 0f..1.5f, onValueChangeFinished = { onSet(v) }, modifier = Modifier.weight(1f))
+        Slider(v, { v = it }, valueRange = 0f..1.5f, onValueChangeFinished = { onSet(v) }, modifier = Modifier.weight(1f).semantics { contentDescription = "Volumen"; stateDescription = "${(v * 100).roundToInt()} por ciento" })
         Text("Fuerte  ${(v * 100).roundToInt()} %", fontSize = 15.sp)
         FilledTonalButton(onClick = onListen, modifier = Modifier.height(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)) { Text("▶ Oír", fontSize = 15.sp) }
         Button(onClick = onDone, modifier = Modifier.height(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp),

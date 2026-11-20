@@ -37,7 +37,7 @@ private val DarkColors = darkColorScheme(
 )
 
 private val LightColors = lightColorScheme(
-    primary = Violet,
+    primary = Color(0xFF5B3DF0),
     onPrimary = Color.White,
     primaryContainer = Color(0xFFE4DCFF),
     onPrimaryContainer = Color(0xFF1B0A66),
