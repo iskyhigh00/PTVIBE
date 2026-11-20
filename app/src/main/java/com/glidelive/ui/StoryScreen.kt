@@ -239,7 +239,7 @@ private fun StoryEditor(
     val working = u.busy != null || u.recordingFor != null
     val playing = clk.playing && u.loaded && !u.previewing
     val position = if (playing) clk.pos else u.cursor
-    val keepOn = (clk.playing && u.loaded) || u.recordingFor != null
+    val keepOn = u.recordingFor != null   // al escuchar, el cuento sigue sonando con la pantalla apagada
     val screen = androidx.compose.ui.platform.LocalView.current
     androidx.compose.runtime.SideEffect { screen.keepScreenOn = keepOn }   // la pantalla no se apaga mientras suena o graba
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { screen.keepScreenOn = false } }
@@ -334,7 +334,7 @@ private fun StoryEditor(
 
             if (project.cues.isNotEmpty() && androidx.compose.ui.platform.LocalDensity.current.fontScale <= 1.15f && u.recordingFor == null && u.busy == null && panel == null && u.notice == null && u.error == null && (selected == null || selected.cue.type == CueType.MUSIC))
                 Text(
-                    if (selected == null) "Toca un audio para elegirlo. Toca la tira de colores para mover la línea roja: ahí se graba, se corta y se pone todo."
+                    if (selected == null) "Para cortar: toca un audio y luego ✂ Cortar aquí. La línea roja marca dónde corta; muévela tocando la tira de colores."
                     else "La música de fondo no se corta: puedes moverla, bajarle el volumen o quitarla.",
                     Modifier.padding(horizontal = 12.dp), fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
@@ -379,11 +379,11 @@ private fun StoryTopBar(
         Box {
             TextButton(onClick = { more = true }, modifier = Modifier.height(48.dp).semantics { contentDescription = "Más opciones" }, contentPadding = pad) { Text("Más ▾", fontSize = 15.sp) }
             DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
-                DropdownMenuItem(text = { Text("💾 Guardar en mi teléfono (Música › Cuentos)") }, enabled = project.cues.isNotEmpty() && !working, onClick = { more = false; vm.saveToPhone() })
+                DropdownMenuItem(text = { Text("💾 Guardar el cuento en mi teléfono") }, enabled = project.cues.isNotEmpty() && !working, onClick = { more = false; vm.saveToPhone() })
                 DropdownMenuItem(text = { Text("⏮ Escuchar desde el principio") }, enabled = project.cues.isNotEmpty() && !working, onClick = { more = false; vm.playFromSeconds(0.0) })
-                DropdownMenuItem(text = { Text("🗣 Que una voz de computadora lea mi texto (prueba)") }, onClick = { more = false; onNarrate() })
-                DropdownMenuItem(text = { Text("Ver más tiempo en pantalla") }, onClick = { more = false; onZoomIn() })
-                DropdownMenuItem(text = { Text("Ver menos tiempo en pantalla") }, onClick = { more = false; onZoomOut() })
+                DropdownMenuItem(text = { Text("🗣 Escribir y que una voz de computadora lo lea") }, onClick = { more = false; onNarrate() })
+                DropdownMenuItem(text = { Text("Alejar (ver todo el cuento)") }, onClick = { more = false; onZoomIn() })
+                DropdownMenuItem(text = { Text("Acercar (ver más detalle)") }, onClick = { more = false; onZoomOut() })
                 onUpdate?.let { DropdownMenuItem(text = { Text("Buscar una versión nueva de la app") }, onClick = { more = false; it() }) }
                 onOtherMode?.let { DropdownMenuItem(text = { Text("🎸 Ir a la pantalla de hacer música") }, onClick = { more = false; it() }) }
             }
@@ -494,7 +494,7 @@ private fun SpeakerMenu(project: Project, current: String, onPick: (String) -> U
         FilledTonalButton(onClick = { open = true }, modifier = Modifier.height(52.dp).fillMaxWidth().semantics { contentDescription = "Quién habla: $name. Toca para cambiar" }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) { Text("👤 $name ▾", fontSize = 15.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             project.characters.forEach { c -> DropdownMenuItem(text = { Text((if (c.id == current) "✓ " else "") + c.name) }, onClick = { open = false; onPick(c.id) }) }
-            DropdownMenuItem(text = { Text("＋ Crear un personaje nuevo") }, onClick = { open = false; onNew() })
+            DropdownMenuItem(text = { Text("＋ Personaje nuevo") }, onClick = { open = false; onNew() })
         }
     }
 }
@@ -507,7 +507,7 @@ private fun RecordingBar(u: PrincessUi, onStop: () -> Unit, onDiscard: () -> Uni
         Column(Modifier.weight(1f)) {
             Text("Grabando…  ${"%.0f".format(u.recSeconds)} s", fontWeight = FontWeight.Bold, fontSize = 18.sp)
             LinearProgressIndicator(progress = { (u.recLevel * 2.5f).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
-            Text("Cuenta tu parte y toca ■ Terminar cuando acabes la frase. Si la barra no se mueve, el micrófono no te oye.", style = MaterialTheme.typography.bodySmall)
+            Text(if (u.recSeconds > 3f && u.recLevel < 0.02f) "La barra no se mueve: el micrófono no te oye. Acércate o revisa que no esté tapado." else "Habla. Toca ■ Terminar al acabar.", style = MaterialTheme.typography.bodySmall)
         }
         BigButton("■ Terminar", RED, onStop)
         TextButton(onClick = onDiscard, modifier = Modifier.height(48.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)) { Text("Descartar", fontWeight = FontWeight.Bold) }
@@ -524,7 +524,7 @@ private fun SelectionBar(cue: Cue, onCut: () -> Unit, onMove: () -> Unit, onTone
     @Composable fun Btn(text: String, enabled: Boolean, onClick: () -> Unit) =
         FilledTonalButton(onClick = onClick, modifier = Modifier.height(48.dp).widthIn(min = 84.dp), enabled = enabled, contentPadding = pad) { Text(text, fontSize = 15.sp, maxLines = 1) }
     FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Btn("✂ Cortar", !busy && cue.type != CueType.MUSIC, onCut)
+        Btn("✂ Cortar aquí", !busy && cue.type != CueType.MUSIC, onCut)
         Btn("↔ Mover", !busy, onMove)
         Btn("🎚 Voz graciosa", !busy && canTone, onTone)
         Btn("🔉 Volumen", !busy, onVolume)
@@ -537,14 +537,14 @@ private fun SelectionBar(cue: Cue, onCut: () -> Unit, onMove: () -> Unit, onTone
                 val cuttable = cue.type != CueType.MUSIC
                 fun item(text: String, action: CueAction, enabled: Boolean = true) =
                     @Composable { DropdownMenuItem(text = { Text(text) }, enabled = enabled, onClick = { more = false; onAction(action) }) }
-                item("⇤ Empezar en la línea roja (recortar el principio)", CueAction.TRIM_START, cuttable)()
-                item("⇥ Terminar en la línea roja (recortar el final)", CueAction.TRIM_END, cuttable)()
+                item("⇤ Borrar lo de antes de la línea roja", CueAction.TRIM_START, cuttable)()
+                item("⇥ Borrar lo de después de la línea roja", CueAction.TRIM_END, cuttable)()
                 item("🔍 Ajustar la línea roja con precisión", CueAction.CURSOR)()
-                item("⤵ Quitar y juntar (sin dejar hueco)", CueAction.REMOVE_CLOSE)()
+                item("⤵ Quitar y juntar lo que sigue", CueAction.REMOVE_CLOSE, cue.type == CueType.VOICE)()
                 item("⧉ Hacer una copia", CueAction.DUPLICATE)()
                 item(if (cue.muted) "🔊 Activar este audio" else "🔇 Silenciar este audio (sin borrarlo)", CueAction.MUTE)()
-                item((if (cue.fadeIn > 0f) "✓ " else "") + "Entrada suave", CueAction.FADE_IN)()
-                item((if (cue.fadeOut > 0f) "✓ " else "") + "Salida suave", CueAction.FADE_OUT)()
+                item((if (cue.fadeIn > 0f) "✓ " else "") + "Que empiece bajito y suba", CueAction.FADE_IN)()
+                item((if (cue.fadeOut > 0f) "✓ " else "") + "Que termine bajito", CueAction.FADE_OUT)()
                 item("✎ Cambiar el nombre", CueAction.RENAME)()
             }
         }

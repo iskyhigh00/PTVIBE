@@ -158,7 +158,7 @@ class StoryScreenTest {
         for (t in listOf("📤 Enviar", "▶ Escuchar", "Más ▾", "● Grabar", "🔊 Sonido", "🎵 Música")) insideRoot(t)
         for (d in listOf("Deshacer", "Rehacer", "Volver a Mis cuentos")) insideRoot(d, byDescription = true)
         rule.onNodeWithText("Gato", substring = true).performClick(); rule.waitForIdle()
-        for (t in listOf("✂ Cortar", "🎚 Voz graciosa", "🔉 Volumen", "▶ Oír", "🗑 Quitar", "✓ Listo")) insideRoot(t)
+        for (t in listOf("✂ Cortar aquí", "🎚 Voz graciosa", "🔉 Volumen", "▶ Oír", "🗑 Quitar", "✓ Listo")) insideRoot(t)
         shot("8-letra-grande")
     }
 
@@ -237,13 +237,13 @@ class StoryScreenTest {
 
     @Test fun quitarYJuntarCierraElHueco() {
         val vm = prepare(); story(vm)
-        vm.edit { p -> p.copy(cues = p.cues + Cue("s2", CueType.SFX, null, "Trueno", "y.wav", 2f, 0f, CueMode.SEQ, startSeconds = 12f, durationSeconds = 2f)) }
-        waitFor("se agregó el segundo") { vm.ui.value.current?.cues?.any { it.id == "s2" } == true }
-        rule.onNodeWithText("Gato", substring = true).performClick(); rule.waitForIdle()
+        vm.edit { p -> p.copy(cues = p.cues + Cue("v2", CueType.VOICE, p.characters.first().id, "Y entonces", "x.wav", 3f, 0f, CueMode.SEQ, startSeconds = 12f, durationSeconds = 3f)) }
+        waitFor("se agregó la segunda voz") { vm.ui.value.current?.cues?.any { it.id == "v2" } == true }
+        rule.onNodeWithText("Había una vez", substring = true).performClick(); rule.waitForIdle()
         openMore()
-        rule.onNodeWithText("Quitar y juntar", substring = true).performClick()
-        waitFor("se quitó Gato") { vm.ui.value.current!!.cues.none { it.id == "s1" } }
-        waitFor("el siguiente se corrió 3 s") { cue(vm, "s2").startSeconds == 9f }
+        rule.onNodeWithText("Quitar y juntar lo que sigue", substring = true).performClick()
+        waitFor("se quitó la primera voz") { vm.ui.value.current!!.cues.none { it.id == "v1" } }
+        waitFor("la siguiente se corrió 6 s") { cue(vm, "v2").startSeconds == 6f }
     }
 
     @Test fun recortarElPrincipioHastaLaLineaRoja() {
@@ -251,7 +251,7 @@ class StoryScreenTest {
         rule.onNodeWithText("Había una vez", substring = true).performClick(); rule.waitForIdle()
         vm.setCursor(3.0); rule.waitForIdle()
         openMore()
-        rule.onNodeWithText("Empezar en la línea roja", substring = true).performClick()
+        rule.onNodeWithText("Borrar lo de antes de la línea roja", substring = true).performClick()
         waitFor("recortó") { cue(vm, "v1").startSeconds == 3f }
         assertEquals(2f, cue(vm, "v1").trimStart, 0.01f)
         assertEquals(4f, cue(vm, "v1").durationSeconds!!, 0.01f)
@@ -265,7 +265,7 @@ class StoryScreenTest {
         rule.onAllNodesWithText("Gato", substring = true)[0].performClick(); rule.waitForIdle()
         openMore(); rule.onNodeWithText("Silenciar este audio", substring = true).performClick()
         waitFor("silenciado") { cue(vm, "s1").muted }
-        openMore(); rule.onNodeWithText("Entrada suave", substring = true).performClick()
+        openMore(); rule.onNodeWithText("Que empiece bajito y suba", substring = true).performClick()
         waitFor("entrada suave") { cue(vm, "s1").fadeIn > 0f }
     }
 

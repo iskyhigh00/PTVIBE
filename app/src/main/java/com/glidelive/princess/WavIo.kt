@@ -84,6 +84,102 @@ object WavIo {
         null
     }.getOrNull()
 
+    /** Dónde están las muestras dentro de un WAV PCM 16 bit: posición, largo en bytes, canales y frecuencia (null si no es de ese tipo). */
+    class DataRegion(val offset: Long, val bytes: Long, val channels: Int, val rate: Int) { val frames: Long get() = bytes / (2L * channels) }
+
+    fun dataRegion(file: File): DataRegion? = runCatching {
+        RandomAccessFile(file, "r").use { raf ->
+            val head = ByteArray(12); raf.readFully(head)
+            if (String(head, 0, 4) != "RIFF" || String(head, 8, 4) != "WAVE") return null
+            var channels = 0; var rate = 0; var bits = 0; var format = 0
+            var pos = 12L
+            val h = ByteArray(8)
+            while (pos + 8 <= raf.length()) {
+                raf.seek(pos); raf.readFully(h)
+                val id = String(h, 0, 4)
+                val raw = (h[4].toLong() and 0xFF) or ((h[5].toLong() and 0xFF) shl 8) or ((h[6].toLong() and 0xFF) shl 16) or ((h[7].toLong() and 0xFF) shl 24)
+                if (id == "fmt ") {
+                    val f = ByteArray(16); raf.readFully(f)
+                    format = (f[0].toInt() and 0xFF) or ((f[1].toInt() and 0xFF) shl 8)
+                    channels = (f[2].toInt() and 0xFF) or ((f[3].toInt() and 0xFF) shl 8)
+                    rate = (f[4].toInt() and 0xFF) or ((f[5].toInt() and 0xFF) shl 8) or ((f[6].toInt() and 0xFF) shl 16) or ((f[7].toInt() and 0xFF) shl 24)
+                    bits = (f[14].toInt() and 0xFF) or ((f[15].toInt() and 0xFF) shl 8)
+                } else if (id == "data") {
+                    if (format != 1 || bits != 16 || channels !in 1..2 || rate <= 0) return null
+                    val remaining = raf.length() - pos - 8
+                    val bytes = if (raw == 0L || raw > remaining) remaining else raw   // grabado en streaming o cortado: vale lo que haya
+                    return DataRegion(pos + 8, bytes, channels, rate)
+                }
+                pos += 8 + raw + (raw and 1L)
+            }
+            null
+        }
+    }.getOrNull()
+
+    /** Recorre el WAV por partes (sin cargarlo entero) y entrega cada bloque de muestras con su primer cuadro. */
+    private inline fun forEachBlock(file: File, region: DataRegion, block: (ShortArray, Int, Long) -> Unit) {
+        RandomAccessFile(file, "r").use { raf ->
+            raf.seek(region.offset)
+            val ch = region.channels
+            val buf = ByteArray(1 shl 16)
+            val shorts = ShortArray(buf.size / 2)
+            var left = region.frames * ch * 2
+            var frame = 0L
+            while (left > 0) {
+                val want = minOf(buf.size.toLong(), left).toInt() / (2 * ch) * (2 * ch)
+                if (want <= 0) break
+                val got = raf.read(buf, 0, want)
+                if (got <= 0) break
+                val usable = got / (2 * ch) * (2 * ch)
+                for (i in 0 until usable / 2) shorts[i] = ((buf[2 * i].toInt() and 0xFF) or (buf[2 * i + 1].toInt() shl 8)).toShort()
+                block(shorts, usable / 2, frame)
+                frame += usable / (2 * ch)
+                left -= usable
+            }
+        }
+    }
+
+    /** Como [speechBounds] pero leyendo el archivo por partes: sirve para tomas largas sin gastar memoria. Devuelve (inicio, fin, cuadros totales). */
+    fun scanBounds(file: File, threshold: Int = 500, marginSec: Float = 0.12f): Triple<Long, Long, Long>? {
+        val region = dataRegion(file) ?: return null
+        val ch = region.channels
+        var first = -1L; var last = -1L
+        forEachBlock(file, region) { samples, count, frame0 ->
+            var i = 0
+            while (i < count) {
+                var loud = false
+                for (c in 0 until ch) if (kotlin.math.abs(samples[i + c].toInt()) >= threshold) { loud = true; break }
+                if (loud) { val f = frame0 + i / ch; if (first < 0) first = f; last = f }
+                i += ch
+            }
+        }
+        if (first < 0) return null
+        val m = (marginSec * region.rate).toLong()
+        return Triple(maxOf(0L, first - m), minOf(region.frames, last + m + 1), region.frames)
+    }
+
+    /** Forma de onda: [perSecond] puntos por segundo (entre 240 y 120000 en total), normalizada a 0..1. */
+    fun peaksOfFile(file: File, perSecond: Int = 50): FloatArray? {
+        val region = dataRegion(file) ?: return null
+        val frames = region.frames
+        if (frames < 240) return null
+        val buckets = (frames * perSecond / region.rate).toInt().coerceIn(240, 120_000)
+        val out = FloatArray(buckets)
+        val ch = region.channels
+        forEachBlock(file, region) { samples, count, frame0 ->
+            var i = 0
+            while (i < count) {
+                val b = ((frame0 + i / ch) * buckets / frames).toInt().coerceIn(0, buckets - 1)
+                val v = kotlin.math.abs(samples[i].toInt()) / 32768f
+                if (v > out[b]) out[b] = v
+                i += ch
+            }
+        }
+        val top = out.max().coerceAtLeast(0.02f)
+        for (i in out.indices) out[i] = (out[i] / top).coerceIn(0f, 1f)
+        return out
+    }
+
     /** Primer y último cuadro [a, b) con sonido (más un margen), o null si todo es silencio. */
     fun speechBounds(pcm: ShortArray, rate: Int, threshold: Int = 500, marginSec: Float = 0.12f, channels: Int = 1): Pair<Int, Int>? {
         val ch = channels.coerceAtLeast(1)

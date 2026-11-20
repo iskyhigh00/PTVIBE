@@ -96,7 +96,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         enableEdgeToEdge()
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         EventHub.start(lifecycleScope)
@@ -150,6 +149,8 @@ class MainActivity : ComponentActivity() {
                     val transportEditor by transportVm.ui.collectAsState()
                     if (transportEditor.editor != null) SequencerDialog(transportVm)
                     LaunchedEffect(mode) {
+                        // Tocando música la pantalla no se apaga; en Cuentos solo mientras se graba (lo decide esa pantalla).
+                        if (mode == Mode.PRINCESS) window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) else window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                         PadBindings.keysEnabled = mode == Mode.BATERIA || mode == Mode.MIXTO
                         if (mode != Mode.PRINCESS) princessVm.onLeave()   // al salir de Cuentos se guarda y se calla
                     }
@@ -292,11 +293,11 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onPause() {
-        princessVm.onLeave()   // guarda lo grabado y lo editado: nada se pierde al salir
+        princessVm.onBackground()   // guarda lo grabado y lo editado; si el cuento está sonando, sigue sonando (con aviso en el teléfono)
         sessionVm.flush()
         sessionVm.stopIfRecording(transportVm.ui.value.bpm)
         chordsVm.stopAll(immediate = true)
-        NativeEngine.stop()
+        if (!princessVm.isStoryPlaying()) NativeEngine.stop()
         super.onPause()
     }
 }

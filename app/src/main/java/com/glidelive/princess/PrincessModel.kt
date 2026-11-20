@@ -122,7 +122,7 @@ object PrincessLibrary {
     fun orphans(files: List<String>, p: Project): List<String> {
         val used = HashSet<String>()
         for (c in p.cues) { c.file?.let(used::add); c.sourceFile?.let(used::add) }
-        return files.filter { it !in used && it != "project.json" && !it.startsWith("project-") }
+        return files.filter { it !in used && it != "project.json" && !it.startsWith("project-") && !it.startsWith("grabando_") }
     }
 
     /** Al arrancar: borra carpetas de cuentos sin project.json y temporales viejos (lo que dejaron borrados o cortes a medias). */

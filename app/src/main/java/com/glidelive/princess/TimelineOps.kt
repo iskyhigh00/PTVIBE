@@ -70,7 +70,7 @@ object TimelineOps {
         val gap = (place.end - place.start).toFloat()
         return anchored.copy(cues = anchored.cues.filter { it.id != cueId }.map {
             val start = it.startSeconds
-            if (it.mode != CueMode.BED && start != null && start.toDouble() >= place.end - 1e-3) it.copy(startSeconds = max(0f, start - gap)) else it
+            if (start != null && start.toDouble() >= place.end - 1e-3) it.copy(startSeconds = max(0f, start - gap)) else it
         })
     }
 

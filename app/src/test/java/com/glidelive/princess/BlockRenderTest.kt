@@ -175,4 +175,57 @@ class BlockRenderTest {
         assertEquals(400, WavIo.read(f)!!.pcm.size)
         f.delete()
     }
+
+    private fun anchoredProject() = project(
+        Cue("a", CueType.VOICE, "n", "a", "a.wav", 6f, startSeconds = 1f, durationSeconds = 6f),
+        Cue("b", CueType.VOICE, "n", "b", "b.wav", 3f, startSeconds = 8f, durationSeconds = 3f),
+        Cue("m", CueType.MUSIC, seconds = 30f, mode = CueMode.BED, startSeconds = 9f, durationSeconds = 10f),
+        Cue("s", CueType.SFX, seconds = 1f, startSeconds = 3f, durationSeconds = 1f),
+    )
+
+    @Test fun deleteAndCloseShiftsEverythingThatCameAfterIncludingMusic() {
+        val out = TimelineOps.deleteAndClose(anchoredProject(), "a").cues.associateBy { it.id }
+        assertNull(out["a"])
+        assertEquals(2f, out.getValue("b").startSeconds!!, 1e-4f)          // 8 - 6
+        assertEquals(3f, out.getValue("m").startSeconds!!, 1e-4f)          // la música que empezaba después también se corre
+        assertEquals(3f, out.getValue("s").startSeconds!!, 1e-4f)          // lo que se superponía a lo quitado no se mueve
+    }
+
+    @Test fun trimToTheRedLineKeepsTheRestInSyncWithTheSource() {
+        val p = anchoredProject()
+        val head = TimelineOps.trimStartTo(p, "a", 3.0)!!.cues.first { it.id == "a" }
+        assertEquals(3f, head.startSeconds!!, 1e-4f); assertEquals(2f, head.trimStart, 1e-4f); assertEquals(4f, head.durationSeconds!!, 1e-4f)
+        val tail = TimelineOps.trimEndAt(p, "a", 4.0)!!.cues.first { it.id == "a" }
+        assertEquals(1f, tail.startSeconds!!, 1e-4f); assertEquals(3f, tail.durationSeconds!!, 1e-4f)
+        assertNull("fuera del audio no se puede", TimelineOps.trimStartTo(p, "a", 20.0))
+        assertNull(TimelineOps.trimEndAt(p, "a", 1.05))
+    }
+
+    @Test fun duplicateGoesRightAfterTheOriginal() {
+        val out = TimelineOps.duplicate(anchoredProject(), "a", "copia")!!
+        assertEquals(listOf("a", "copia"), out.cues.map { it.id }.filter { it == "a" || it == "copia" })
+        assertEquals(7.2f, out.cues.first { it.id == "copia" }.startSeconds!!, 1e-3f)
+    }
+
+    @Test fun quietTakeIsStillFoundWithALowerThresholdAndStreamingReadMatches() {
+        val quiet = ShortArray(44100 * 3) { i -> if (i in 44100 until 88200) (if (i % 2 == 0) 220 else -220).toShort() else 0 }
+        val f = File.createTempFile("quiet", ".wav"); WavIo.write(f, quiet, 1, 44100)
+        assertNull("con el umbral normal no hay nada", WavIo.scanBounds(f, threshold = 500))
+        val b = WavIo.scanBounds(f, threshold = 150, marginSec = 0f)!!
+        assertEquals(44100L, b.first); assertEquals(88200L, b.second); assertEquals(44100L * 3, b.third)
+        assertEquals(WavIo.speechBounds(quiet, 44100, 150, 0f)!!.first.toLong(), b.first)
+        f.delete()
+    }
+
+    @Test fun interruptedRecordingWithZeroSizeHeaderIsStillReadable() {
+        val pcm = ShortArray(44100) { (it % 300 * 20).toShort() }
+        val f = File.createTempFile("cut", ".wav")
+        WavIo.Writer(f, 1, 44100).use { it.write(pcm) }
+        val bytes = f.readBytes(); for (k in 4..7) bytes[k] = 0; for (k in 40..43) bytes[k] = 0; f.writeBytes(bytes)   // como si la app se hubiera cerrado antes de cerrar el archivo
+        val region = WavIo.dataRegion(f)!!
+        assertEquals(44100L, region.frames)
+        val peaks = WavIo.peaksOfFile(f, perSecond = 100)!!
+        assertEquals(1f, peaks.max(), 1e-6f); assertTrue(peaks.size >= 240)
+        f.delete()
+    }
 }
