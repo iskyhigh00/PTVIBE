@@ -27,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
@@ -84,6 +85,7 @@ fun VoiceStudioScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val app = context.applicationContext
+    val focus = LocalFocusManager.current
     val directory = remember { File(app.cacheDir, "princess-narration-${UUID.randomUUID()}") }
     var installed by remember { mutableStateOf(NarrationPack.isReady(app)) }
     var characterId by remember(project.id) { mutableStateOf(project.characters.firstOrNull()?.id) }
@@ -126,6 +128,7 @@ fun VoiceStudioScreen(
     val key = DraftKey(characterId, request, usePocket, if (usePocket) pocketVoiceId else null)
     val audio = draft?.takeIf { it.first == key }?.second
     val canGenerate = if (usePocket) pocketSupported && pocketReady && pocketVoices.any { it.id == pocketVoiceId } else installed
+    val needsPack = if (usePocket) pocketSupported && !pocketReady else !installed
     val delivery = deliveries.firstOrNull { it.pace == pace && it.pitch == pitch }?.name ?: "Personalizada"
 
     fun action(label: String, block: suspend () -> Unit) {
@@ -190,6 +193,19 @@ fun VoiceStudioScreen(
     fun listen(clip: NarratedAudio) {
         previewJob?.cancel()
         previewJob = vm.previewFile(clip.file)
+    }
+
+    fun downloadVoices() = action("Preparando voces") {
+        if (usePocket) {
+            EmbeddedPocketPack.install(app) { progress = "Descargando voces" to it }
+            pocketVoices = EmbeddedPocketPack.voices(app)
+            pocketReady = EmbeddedPocketPack.isReady(app)
+            check(pocketReady && pocketVoices.isNotEmpty()) { "No se pudo preparar el paquete. Intenta descargarlo de nuevo." }
+        } else {
+            NarrationPack.install(app) { progress = "Descargando voces" to it }
+            installed = NarrationPack.isReady(app)
+        }
+        notice = "Voces listas. Elige una y genera el audio."
     }
 
     fun generate() = action("Preparando voz") {
@@ -279,15 +295,7 @@ fun VoiceStudioScreen(
                         Text("Estas voces requieren un teléfono ARM de 64 bits. En Opciones de voz puedes elegir Supertonic.", color = MaterialTheme.colorScheme.error)
                     } else if (!pocketReady) {
                         Text("Descarga las voces en español una vez (207 MB). Después podrás usarlas sin conexión.", style = MaterialTheme.typography.bodyMedium)
-                        Button(enabled = !busy, onClick = {
-                            action("Preparando voces") {
-                                EmbeddedPocketPack.install(app) { progress = "Descargando voces" to it }
-                                pocketVoices = EmbeddedPocketPack.voices(app)
-                                pocketReady = EmbeddedPocketPack.isReady(app)
-                                check(pocketReady && pocketVoices.isNotEmpty()) { "No se pudo preparar el paquete. Intenta descargarlo de nuevo." }
-                                notice = "Voces listas. Elige una y genera el audio."
-                            }
-                        }) { Text("Descargar voces") }
+
                     } else {
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             pocketVoices.forEach { voice ->
@@ -303,12 +311,7 @@ fun VoiceStudioScreen(
                 } else {
                     if (!installed) {
                         Text("Descarga estas voces una vez (129 MB) para usarlas sin conexión.", style = MaterialTheme.typography.bodySmall)
-                        Button(enabled = !busy, onClick = {
-                            action("Descargando voces") {
-                                NarrationPack.install(app) { progress = "Descargando voces" to it }
-                                installed = true
-                            }
-                        }) { Text("Descargar voces") }
+
                     } else if (!busy) {
                         Picker("Voz ${speaker + 1} · Supertonic", (0 until NeuralNarrator.VOICES).toList(), { "Voz ${it + 1}" }) { chosen ->
                             speaker = chosen
@@ -393,9 +396,12 @@ fun VoiceStudioScreen(
                     TextButton(enabled = !saving, onClick = { job?.cancel() }) { Text("Cancelar") }
                 }
                 Button(modifier = Modifier.weight(1f),
-                    enabled = !busy && characterId != null && (audio != null || (canGenerate && selected.isNotEmpty() && selected.length <= NarrationText.MAX_SELECTION)),
+                    enabled = !busy && (needsPack || characterId != null &&
+                        (audio != null || (canGenerate && selected.isNotEmpty() && selected.length <= NarrationText.MAX_SELECTION))),
                     onClick = {
-                        if (audio == null) generate()
+                        focus.clearFocus()
+                        if (needsPack) downloadVoices()
+                        else if (audio == null) generate()
                         else {
                             saving = true
                             action("Agregando al cuento") {
@@ -407,7 +413,12 @@ fun VoiceStudioScreen(
                                 notice = "Audio agregado al timeline. Puedes narrar otro fragmento o volver al cuento."
                             }
                         }
-                    }) { Text(if (busy) "Procesando…" else if (audio == null) "Generar y escuchar" else "Agregar al timeline") }
+                    }) { Text(when {
+                        busy -> "Procesando…"
+                        needsPack -> "Descargar voces (${if (usePocket) 207 else 129} MB)"
+                        audio == null -> "Generar y escuchar"
+                        else -> "Agregar al timeline"
+                    }) }
             }
         }
     }

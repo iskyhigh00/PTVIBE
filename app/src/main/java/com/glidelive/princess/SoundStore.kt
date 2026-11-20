@@ -57,8 +57,11 @@ object SoundCatalog {
         Track("the_builder.mp3", "El constructor · animada"), Track("batty_mcfaddlin.mp3", "Aventura · aventura"),
     )
 
-    const val MUSIC_CREDIT = "Música: Kevin MacLeod (incompetech.com), licencia Creative Commons Atribución 3.0."
-    const val SFX_CREDIT = "Efectos: ESC-50 (K. Piczak), sonidos de Freesound con licencias Creative Commons; uso personal / no comercial."
+    val starterMusic = listOf(Track("paseo.mp3", "Paseo tranquilo"), Track("bosque.mp3", "Bosque de noche"))
+    internal val starterEffects = listOf("dog", "rooster", "rain", "sea_waves", "crackling_fire", "clock_tick")
+
+    const val MUSIC_CREDIT = "Música incluida: GlideLive. Selección descargable: Kevin MacLeod (incompetech.com), CC BY 3.0."
+    const val SFX_CREDIT = "Efectos de Freesound, recopilados por K. Piczak: incluidos ESC-10 (CC BY), descargables ESC-50 (uso no comercial)."
 }
 
 data class MySound(val id: String, val name: String, val file: String, val seconds: Float)
@@ -76,21 +79,48 @@ object SoundStore {
     fun musicDir(ctx: Context) = File(root(ctx), "music").also { it.mkdirs() }
     fun mineDir(ctx: Context) = File(root(ctx), "mine").also { it.mkdirs() }
 
-    fun clips(ctx: Context, category: String): List<File> =
+    private fun downloadedClips(ctx: Context, category: String): List<File> =
         escDir(ctx, category).listFiles { f -> f.extension == "wav" }?.sortedBy { it.name } ?: emptyList()
+
+    private fun starterDir(ctx: Context) = File(root(ctx), "included-v1")
+
+    @Synchronized fun prepareStarter(ctx: Context) {
+        val dir = starterDir(ctx)
+        check(dir.isDirectory || dir.mkdirs())
+        val names = SoundCatalog.starterEffects.map { "$it.wav" } + SoundCatalog.starterMusic.map { it.file }
+        for (name in names) {
+            val file = File(dir, name)
+            if (file.isFile && file.length() > 0) continue
+            val part = File(dir, "$name.part")
+            try {
+                ctx.assets.open("story-starter/$name").use { input -> part.outputStream().use { input.copyTo(it) } }
+                check(part.renameTo(file))
+            } finally {
+                part.delete()
+            }
+        }
+    }
+
+    fun clips(ctx: Context, category: String): List<File> =
+        downloadedClips(ctx, category).ifEmpty {
+            listOfNotNull(File(starterDir(ctx), "$category.wav").takeIf { it.isFile })
+        }
 
     /** Los efectos están listos solo si casi todos los sonidos tienen al menos un audio (una descarga a medias no cuenta). */
     fun hasSfx(ctx: Context): Boolean {
         val all = SoundCatalog.groups.flatMap { it.sounds }
-        val have = all.count { clips(ctx, it.id).isNotEmpty() }
+        val have = all.count { downloadedClips(ctx, it.id).isNotEmpty() }
         return have >= all.size * 8 / 10
     }
 
     /** Hay algo bajado pero incompleto: se ofrece "Completar descarga". */
-    fun sfxPartial(ctx: Context): Boolean = !hasSfx(ctx) && SoundCatalog.groups.flatMap { it.sounds }.any { clips(ctx, it.id).isNotEmpty() }
+    fun sfxPartial(ctx: Context): Boolean = !hasSfx(ctx) && SoundCatalog.groups.flatMap { it.sounds }.any { downloadedClips(ctx, it.id).isNotEmpty() }
+
+    fun downloadedMusicCount(ctx: Context): Int = SoundCatalog.music.count { File(musicDir(ctx), it.file).length() > 0 }
 
     fun musicFiles(ctx: Context): List<Pair<SoundCatalog.Track, File>> =
-        SoundCatalog.music.mapNotNull { t -> File(musicDir(ctx), t.file).takeIf { it.exists() && it.length() > 0 }?.let { t to it } }
+        (SoundCatalog.starterMusic.map { it to File(starterDir(ctx), it.file) } +
+            SoundCatalog.music.map { it to File(musicDir(ctx), it.file) }).filter { (_, file) -> file.length() > 0 }
 
     fun bytesUsed(ctx: Context): Long = root(ctx).walkTopDown().filter { it.isFile }.sumOf { it.length() }
 

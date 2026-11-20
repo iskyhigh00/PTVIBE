@@ -1913,7 +1913,10 @@ private:
                 eos_logit = outputs[1].GetTensorData<float>()[0];
             }
             
-            if (!eos_ && eos_logit > tts.cfg_.eos_threshold) {
+            // Match Kyutai's six-frame warm-up: some voices emit a spurious
+            // end-of-speech signal before they have begun the first word.
+            constexpr int min_frames_before_eos = 6;
+            if (!eos_ && idx_ >= min_frames_before_eos && eos_logit > tts.cfg_.eos_threshold) {
                 eos_ = true;
                 eos_frame_ = idx_;
             }

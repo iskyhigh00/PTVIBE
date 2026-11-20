@@ -126,19 +126,21 @@ internal fun SheetBanner(u: PrincessUi) {
 }
 
 @Composable
-internal fun DownloadCard(vm: PrincessViewModel, u: PrincessUi, what: String) {
-    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(14.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        val d = u.download
-        val onCard = MaterialTheme.colorScheme.onSecondaryContainer
-        if (d != null) {
-            Text("${d.first}  ${(d.second * 100).toInt()} %", fontWeight = FontWeight.Bold, color = onCard)
-            LinearProgressIndicator(progress = { d.second.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-            TextButton(onClick = vm::cancelDownload, modifier = Modifier.height(48.dp), colors = ButtonDefaults.textButtonColors(contentColor = onCard)) { Text("Cancelar", fontWeight = FontWeight.Bold) }
-        } else {
-            Text(if (u.sfxPartial) "La descarga quedó a medias." else "Para tener $what hay que bajarlos una sola vez.", fontWeight = FontWeight.Bold, color = onCard)
-            Text("Pide a un adulto que conecte el WiFi. Después quedan guardados en tu teléfono y funcionan sin internet.", style = MaterialTheme.typography.bodyMedium, color = onCard)
-            BigButton(if (u.sfxPartial) "Completar la descarga" else "⬇ Descargar", RED, { vm.downloadAll() })
-        }
+private fun MoreAudio(u: PrincessUi, onDownload: () -> Unit, onCancel: () -> Unit, music: Boolean) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    u.download?.let { (label, progress) ->
+        Text("$label ${(progress * 100).toInt()} %", style = MaterialTheme.typography.bodyMedium)
+        LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+        TextButton(onClick = onCancel) { Text("Cancelar descarga") }
+        return
+    }
+    if (music && u.downloadedMusicCount >= SoundCatalog.music.size || !music && u.hasSfx) return
+    val label = if (music) "Más música" else "Más efectos"
+    TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Ocultar descarga" else label) }
+    if (expanded) {
+        Text(if (music) "Descarga la selección completa (unos 50 MB) para usarla sin internet."
+            else "Descarga más animales, ambientes y otros efectos (unos 150 MB) para usarlos sin internet.")
+        FilledTonalButton(onClick = onDownload) { Text(if (!music && u.sfxPartial) "Completar descarga" else "Descargar") }
     }
 }
 
@@ -146,36 +148,38 @@ internal fun DownloadCard(vm: PrincessViewModel, u: PrincessUi, what: String) {
 @Composable
 internal fun SoundsSheet(vm: PrincessViewModel, u: PrincessUi, onClose: () -> Unit, onPickFile: () -> Unit) {
     val ctx = LocalContext.current
-    var group by rememberSaveable { mutableStateOf("Animales") }
-    val groups = SoundCatalog.groups.map { it.name } + "Mis sonidos"
+    val groups = u.soundGroups.map { it.name } + "Mis sonidos"
+    var chosenGroup by rememberSaveable { mutableStateOf("Animales") }
+    val group = chosenGroup.takeIf { it in groups } ?: groups.first()
     Sheet("Poner un sonido en ${clock(vm.overlayTime())}", onClose, u) {
-        if (!u.hasSfx) Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            DownloadCard(vm, u, "los sonidos")
-            TextButton(onClick = onPickFile, modifier = Modifier.height(48.dp)) { Text("O elegir un sonido de mi teléfono…", fontSize = 15.sp) }
-        }
-        else Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                groups.forEach { g -> FilledTonalButton(onClick = { group = g }, modifier = Modifier.height(48.dp).semantics { selected = group == g; role = androidx.compose.ui.semantics.Role.Tab }, colors = if (group == g) ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors()) { Text((if (group == g) "✓ " else "") + g, fontSize = 15.sp, maxLines = 1) } }
-            }
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Toca «＋ Poner» y el sonido se pone donde está la línea roja. «▶ Oír» es para escucharlo antes.", style = MaterialTheme.typography.bodyMedium)
-            if (group == "Mis sonidos") {
-                if (u.mine.isEmpty()) Text("Aquí salen los sonidos que tú grabes o elijas de tu teléfono.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                u.mine.forEach { m ->
-                    val f = java.io.File(SoundStore.mineDir(ctx), m.file)
-                    SoundRow("🎙", m.name, onListen = { vm.previewFile(f) }, onAdd = { vm.addSoundFile(f, m.name, CueType.SFX, vm.overlayTime()) })
-                }
-            } else {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val available = remember(group, u.hasSfx) { SoundCatalog.groups.firstOrNull { it.name == group }?.sounds.orEmpty().filter { SoundStore.clips(ctx, it.id).isNotEmpty() } }
-                    available.forEach { s ->
-                        SoundTile(ICON[s.id] ?: "🔊", s.label,
-                            onListen = { vm.clipFor(s.id)?.let(vm::previewFile) }, onAdd = { vm.heardOrNext(s.id)?.let { vm.addSoundFile(it, s.label, CueType.SFX, vm.overlayTime()) } })
+                groups.forEach { name ->
+                    FilledTonalButton(onClick = { chosenGroup = name }, modifier = Modifier.height(48.dp).semantics { selected = group == name; role = androidx.compose.ui.semantics.Role.Tab },
+                        colors = if (group == name) ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors()) {
+                        Text((if (group == name) "✓ " else "") + name, fontSize = 15.sp, maxLines = 1)
                     }
                 }
             }
-            TextButton(onClick = onPickFile, modifier = Modifier.height(48.dp)) { Text("Elegir un sonido de mi teléfono…", fontSize = 15.sp) }
-            Text(SoundCatalog.SFX_CREDIT, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (group == "Mis sonidos") {
+                    if (u.mine.isEmpty()) Text("Puedes elegir un archivo de audio de tu teléfono.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    u.mine.forEach { sound ->
+                        val file = java.io.File(SoundStore.mineDir(ctx), sound.file)
+                        SoundRow("🎙", sound.name, onListen = { vm.previewFile(file) }, onAdd = { vm.addSoundFile(file, sound.name, CueType.SFX, vm.overlayTime()) })
+                    }
+                } else {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (sound in u.soundGroups.firstOrNull { it.name == group }?.sounds.orEmpty()) {
+                            SoundTile(ICON[sound.id] ?: "🔊", sound.label,
+                                onListen = { vm.clipFor(sound.id)?.let(vm::previewFile) },
+                                onAdd = { vm.heardOrNext(sound.id)?.let { vm.addSoundFile(it, sound.label, CueType.SFX, vm.overlayTime()) } })
+                        }
+                    }
+                }
+                TextButton(onClick = onPickFile, modifier = Modifier.height(48.dp)) { Text("Elegir un sonido de mi teléfono…", fontSize = 15.sp) }
+                MoreAudio(u, { vm.downloadSfx(10) }, vm::cancelDownload, music = false)
+                Text(SoundCatalog.SFX_CREDIT, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -209,12 +213,13 @@ internal fun MusicSheet(vm: PrincessViewModel, u: PrincessUi, onClose: () -> Uni
     val have = remember(u.musicCount) { SoundStore.musicFiles(ctx) }
     Sheet("Poner música de fondo desde ${clock(vm.overlayTime())}", onClose, u) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (have.isEmpty()) DownloadCard(vm, u, "la música")
-            else {
-                Text("La música suena suave por debajo y baja sola cuando alguien habla. Empieza en la línea roja.", style = MaterialTheme.typography.bodyMedium)
-                have.forEach { (t, f) -> SoundRow("🎵", t.label, onListen = { vm.previewFile(f) }, onAdd = { vm.addSoundFile(f, t.label.substringBefore(" ·"), CueType.MUSIC, vm.overlayTime()) }) }
+            Text("La música baja sola cuando alguien habla. Empieza en la línea roja.", style = MaterialTheme.typography.bodyMedium)
+            have.forEach { (track, file) ->
+                SoundRow("🎵", track.label, onListen = { vm.previewFile(file) },
+                    onAdd = { vm.addSoundFile(file, track.label.substringBefore(" ·"), CueType.MUSIC, vm.overlayTime()) })
             }
             TextButton(onClick = onPickFile, modifier = Modifier.height(48.dp)) { Text("Elegir una música de mi teléfono…", fontSize = 15.sp) }
+            MoreAudio(u, vm::downloadMusic, vm::cancelDownload, music = true)
             Text(SoundCatalog.MUSIC_CREDIT, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }

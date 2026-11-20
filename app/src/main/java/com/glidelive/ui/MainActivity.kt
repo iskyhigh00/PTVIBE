@@ -118,6 +118,7 @@ class MainActivity : ComponentActivity() {
                     // Los ajustes de cada pestaña se abren en una ventana encima (semitransparente, con X para cerrar).
                     var settingsOpen by rememberSaveable { mutableStateOf(false) }
                     var settingsGeneral by rememberSaveable { mutableStateOf(false) }
+                    var settingsUpdate by rememberSaveable { mutableStateOf(false) }
                     var demoOpen by remember { mutableStateOf(false) }
                     val startDemo: (Int) -> Unit = { i ->
                         // Las notas de la canción: Fa# menor en acordes y solista, banco C17 con sus acordes.
@@ -207,7 +208,12 @@ class MainActivity : ComponentActivity() {
                                             StoryScreen(princessVm, Modifier.weight(1f), onNarrate = {
                                                 princessVm.stop()
                                                 voiceStudio = true
-                                            }, onOtherMode = { mode = Mode.ACORDES }, onUpdate = { settingsGeneral = true; settingsOpen = true })
+                                            }, onOtherMode = { mode = Mode.ACORDES }, onUpdate = {
+                                                settingsGeneral = true
+                                                settingsUpdate = true
+                                                settingsOpen = true
+                                                updateVm.check()
+                                            })
                                         }
                                         Mode.PISTAS -> {
                                             val soloUi by soloVm.ui.collectAsState()
@@ -240,8 +246,8 @@ class MainActivity : ComponentActivity() {
                             ) { Text("⤡ Salir") }
                         }
                         if (settingsOpen && !fullscreen) {
-                            SettingsModal(mode, settingsGeneral, { settingsOpen = false }, vm, updateVm, chordsVm, soloVm, transportVm, sessionVm,
-                                { settingsOpen = false; keysOpen = true })
+                            SettingsModal(mode, settingsGeneral, { settingsOpen = false; settingsUpdate = false }, vm, updateVm, chordsVm, soloVm, transportVm, sessionVm,
+                                { settingsOpen = false; settingsUpdate = false; keysOpen = true }, startOnUpdate = settingsUpdate)
                         }
                         if (keysOpen) PadKeysPanel(sessionVm.midi.status, onClose = { keysOpen = false; PadBindings.startLearn(null) })
                         // Keep the editor in the Activity's measured viewport. A separate
@@ -477,7 +483,7 @@ private fun CalibrationPanel(vm: EngineViewModel) {
 private fun SettingsModal(
     mode: Mode, general: Boolean, onClose: () -> Unit,
     vm: EngineViewModel, updateVm: UpdateViewModel, chordsVm: ChordsViewModel, soloVm: SoloViewModel,
-    transportVm: TransportViewModel, sessionVm: SessionViewModel, onKeys: () -> Unit,
+    transportVm: TransportViewModel, sessionVm: SessionViewModel, onKeys: () -> Unit, startOnUpdate: Boolean = false,
 ) {
     val up by updateVm.state.collectAsState()
     val tabs: List<String> = if (general) listOf("Sesión", "Latencia", if (up is UpdateState.Available) "Actualizar •" else "Actualizar") else when (mode) {
@@ -488,7 +494,7 @@ private fun SettingsModal(
         Mode.MIXTO -> listOf("Base y bajo", "Batería", "Sonido", "Solista", "Bucles")
         Mode.PISTAS, Mode.PRINCESS -> listOf("Sesión", "Latencia", if (up is UpdateState.Available) "Actualizar •" else "Actualizar")
     }
-    var tab by remember(general, mode) { mutableIntStateOf(0) }
+    var tab by remember(general, mode, startOnUpdate) { mutableIntStateOf(if (startOnUpdate) tabs.lastIndex else 0) }
     val scrim = remember { MutableInteractionSource() }
     Box(
         Modifier.fillMaxSize().windowInsetsPadding(playInsets).background(Color.Black.copy(alpha = 0.45f))

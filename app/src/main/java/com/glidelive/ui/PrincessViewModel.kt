@@ -13,6 +13,8 @@ import com.glidelive.princess.Clip
 import com.glidelive.princess.Cue
 import com.glidelive.princess.CueMode
 import com.glidelive.princess.CueType
+import com.glidelive.princess.SoundCatalog
+import com.glidelive.princess.SoundStore
 import com.glidelive.princess.DramaRenderer
 import com.glidelive.princess.MicRecorder
 import com.glidelive.princess.Placement
@@ -59,6 +61,8 @@ data class PrincessUi(
     /** Sonidos del pack y los propios. */
     val hasSfx: Boolean = false,
     val musicCount: Int = 0,
+    val downloadedMusicCount: Int = 0,
+    val soundGroups: List<SoundCatalog.Group> = emptyList(),
     val mine: List<com.glidelive.princess.MySound> = emptyList(),
     val download: Pair<String, Float>? = null,
     val storageMb: Long = 0,
@@ -175,12 +179,17 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun refreshSounds() {
         viewModelScope.launch(Dispatchers.IO) {
+            runCatching { SoundStore.prepareStarter(app) }.onFailure { report(it) }
             val sfx = com.glidelive.princess.SoundStore.hasSfx(app)
             val music = com.glidelive.princess.SoundStore.musicFiles(app).size
+            val groups = SoundCatalog.groups.map { group ->
+                group.copy(sounds = group.sounds.filter { SoundStore.clips(app, it.id).isNotEmpty() })
+            }.filter { it.sounds.isNotEmpty() }
             val mine = com.glidelive.princess.SoundStore.mine(app)
             val mb = com.glidelive.princess.SoundStore.bytesUsed(app) / 1_000_000
             val partial = com.glidelive.princess.SoundStore.sfxPartial(app)
-            _ui.update { it.copy(hasSfx = sfx, musicCount = music, mine = mine, storageMb = mb, sfxPartial = partial) }
+            _ui.update { it.copy(hasSfx = sfx, musicCount = music, downloadedMusicCount = SoundStore.downloadedMusicCount(app),
+                soundGroups = groups, mine = mine, storageMb = mb, sfxPartial = partial) }
         }
     }
 
@@ -463,7 +472,6 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
             val name = "narracion_${UUID.randomUUID()}.wav"
             val cue = Cue(PrincessLibrary.newId(), CueType.VOICE, characterId, audio.text, name, audio.seconds, 0.6f)
             val updated = p.copy(cues = p.cues + cue)
-            history.record(p); _ui.update { it.copy(canUndo = history.canUndo, canRedo = history.canRedo) }
             withContext(projectWrites) {
                 val target = File(PrincessLibrary.dir(app, p), name)
                 try {
@@ -473,6 +481,10 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                     target.delete()
                     throw e
                 }
+            }
+            if (_ui.value.current?.id == projectId) {
+                history.record(p)
+                _ui.update { it.copy(canUndo = history.canUndo, canRedo = history.canRedo, lastAddedId = cue.id) }
             }
             updateProject(updated)
         }
@@ -550,9 +562,10 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     /** Trae un archivo de audio: [type] voz (del personaje [characterId]), música de fondo o efecto. */
-    fun importAudio(uri: Uri, type: CueType, characterId: String?) {
+    fun importAudio(uri: Uri, type: CueType, characterId: String?, replaceCueId: String? = null) {
         val p = _ui.value.current ?: return
         if (_ui.value.busy != null) return
+        if (replaceCueId != null && p.cues.none { it.id == replaceCueId && it.type == CueType.VOICE }) return
         val at = overlayTime()
         _ui.update { it.copy(busy = "Importando…" to 0f, error = null) }
         launchSafe {
@@ -571,13 +584,23 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                 }
             }
             r.onSuccess { (file, title, sec) ->
-                addTo(p.id, Cue(PrincessLibrary.newId(), type, if (type == CueType.VOICE) characterId else null, title, file, sec,
+                val cue = Cue(PrincessLibrary.newId(), type, if (type == CueType.VOICE) characterId else null, title, file, sec,
                     if (type == CueType.MUSIC) 0f else 0.5f,
                     if (type == CueType.MUSIC) CueMode.BED else CueMode.SEQ, if (type == CueType.MUSIC) 0.5f else 1f,
                     0, if (type == CueType.MUSIC) 1.5f else 0f, if (type == CueType.MUSIC) 2f else 0f,
-                    startSeconds = if (type == CueType.VOICE) null else at.toFloat()))   // música y sonidos van donde está la línea roja
+                    startSeconds = if (type == CueType.VOICE) null else at.toFloat())
+                if (replaceCueId != null) {
+                    try {
+                        check(replaceVoice(p.id, replaceCueId, cue)) { "La voz que ibas a cambiar ya no está en este cuento." }
+                    } catch (error: Throwable) {
+                        withContext(NonCancellable + Dispatchers.IO) { File(PrincessLibrary.dirOf(app, p.id), file).delete() }
+                        throw error
+                    }
+                } else {
+                    addTo(p.id, cue)
+                    _ui.update { it.copy(notice = if (type == CueType.VOICE) "Agregué «$title» a continuación." else "Agregué «$title» donde está la línea roja.") }
+                }
             }
-            r.onSuccess { (_, title, _) -> _ui.update { it.copy(notice = "Agregué «$title» donde está la línea roja.") } }
             r.onFailure { e -> _ui.update { it.copy(error = if (noSpace(e)) friendly(e) else "No pude usar ese archivo. Prueba con otro audio (mp3, m4a, wav) de menos de 20 minutos.") } }
             _ui.update { it.copy(busy = null) }
         }
@@ -585,14 +608,18 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
 
     // ---- grabar voces ----
     private var recordAt: Double? = null
+    private var replaceOnFinish: String? = null
 
     private var recordingFile: File? = null
     private val finishing: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()   // tomas que se están guardando ahora (la recuperación no las toca)
 
-    fun startRecording(characterId: String, atSeconds: Double? = null): Boolean {
-        if (recorder != null) return false
+    fun startRecording(characterId: String, atSeconds: Double? = null, replaceCueId: String? = null): Boolean {
+        if (recorder != null || _ui.value.busy != null) return false
         val p = _ui.value.current ?: return false
+        if (p.characters.none { it.id == characterId }) return false
+        if (replaceCueId != null && p.cues.none { it.id == replaceCueId && it.type == CueType.VOICE && it.characterId == characterId }) return false
         recordAt = atSeconds
+        replaceOnFinish = replaceCueId
         if (!PlayerOwner.story) beforePlay()   // una canción de Pistas no debe entrar al micrófono
         stop()
         // La toma se va escribiendo en el disco mientras se graba: si la app se cierra, se puede recuperar.
@@ -616,6 +643,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun cancelRecording() {
         recorder?.stop(); recorder = null
+        replaceOnFinish = null
         recordingFile?.delete(); recordingFile = null
         _ui.update { it.copy(recordingFor = null, recLevel = 0f) }
     }
@@ -624,6 +652,8 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     fun finishRecording(atSeconds: Double? = null) {
         val rec = recorder ?: return
         val at = atSeconds ?: recordAt
+        val replacement = replaceOnFinish
+        replaceOnFinish = null
         val who = _ui.value.recordingFor
         val p = _ui.value.current
         val frames = rec.stop(); recorder = null
@@ -646,11 +676,44 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
             val take = try { withContext(Dispatchers.IO) { takeFrom(file, p.id) } } finally { finishing -= file.name }
             if (take == null) { _ui.update { it.copy(error = "No pude guardar la grabación ahora, pero no se perdió: se recuperará al abrir el cuento otra vez.") }; return@launchSafe }
             val number = nextTakeNumber(_ui.value.current)
+            val cue = takeCue(who, "Mi voz $number", take, at)
+            if (replacement != null) {
+                interrupted = false
+                if (replaceVoice(p.id, replacement, cue)) return@launchSafe
+                // Si se quitó la pista mientras se guardaba la toma, conserva la grabación.
+                addTo(p.id, cue)
+                _ui.update { it.copy(notice = "Guardé la nueva toma como una voz más.") }
+                return@launchSafe
+            }
             val startAt = at ?: ((_ui.value.current?.let { DramaRenderer.totalSeconds(it) } ?: 0.0) + 0.6)   // 0,6 s es el espacio con que entra una voz «a continuación»
             _ui.update { it.copy(cursor = startAt + take.length, notice = if (interrupted) "Se detuvo la grabación porque saliste de la app. Tu voz hasta ahí quedó guardada." else if (peak < 3000) "Tu voz quedó guardada, pero se oyó muy bajito. Puedes grabar otra vez acercándote al micrófono, o tocar ▶ Escuchar para oírla." else "¡Listo! Tu voz quedó guardada y se oyó bien. Toca ▶ Escuchar para oírla.") }
             interrupted = false
-            addTo(p.id, takeCue(who, "Mi voz $number", take, at))
+            addTo(p.id, cue)
             if (full) _ui.update { it.copy(notice = "Llegaste al máximo de 10 minutos seguidos. Lo grabado quedó guardado.") }
+        }
+    }
+
+    /** Reemplaza la voz conservando su inicio y la posición de todos los demás audios. */
+    private suspend fun replaceVoice(projectId: String, cueId: String, take: Cue): Boolean = withContext(NonCancellable) {
+        projectEdits.withLock {
+            val open = _ui.value.current?.takeIf { it.id == projectId }
+            val original = open ?: withContext(projectWrites) { PrincessLibrary.load(app, projectId) } ?: return@withLock false
+            if (original.cues.none { it.id == cueId && it.type == CueType.VOICE }) return@withLock false
+            val anchored = DramaRenderer.anchorTimeline(original)
+            val updated = anchored.copy(cues = anchored.cues.map { clip ->
+                if (clip.id != cueId) clip else clip.copy(file = take.file, seconds = take.seconds,
+                    durationSeconds = take.durationSeconds, trimStart = take.trimStart, toneSteps = 0, sourceFile = null)
+            })
+            withContext(projectWrites) {
+                PrincessLibrary.saveInto(PrincessLibrary.dirOf(app, projectId), updated, createIfMissing = false)
+            }
+            if (_ui.value.current?.id == projectId) {
+                history.record(original)
+                _ui.update { it.copy(canUndo = history.canUndo, canRedo = history.canRedo,
+                    lastAddedId = cueId, notice = "Cambié la voz en el mismo lugar. Toca «Oír este pedacito» para escucharla.") }
+            }
+            updateProject(updated)
+            true
         }
     }
 
