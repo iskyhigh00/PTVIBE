@@ -367,7 +367,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun deleteProject(p: Project) {
-        if (_ui.value.current?.id == p.id) { workJob?.cancel(); lastExport = null; stop(); _ui.update { it.copy(current = null, loaded = false) } }
+        if (_ui.value.current?.id == p.id) { if (recorder != null) cancelRecording(); workJob?.cancel(); lastExport = null; stop(); _ui.update { it.copy(current = null, loaded = false) } }
         viewModelScope.launch(projectWrites + safety) {
             projectEdits.withLock { PrincessLibrary.delete(app, p) }
             _ui.update { u -> u.copy(projects = u.projects.filter { it.id != p.id }) }
@@ -512,6 +512,8 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                         PrincessLibrary.saveInto(PrincessLibrary.dirOf(app, projectId), next, createIfMissing = false)
                         _ui.update { u -> u.copy(projects = u.projects.map { if (it.id == projectId) next else it }) }
                     }
+                    // Si mientras tanto se reabrió ese cuento, el abierto tiene que quedar con la toma también.
+                    if (_ui.value.current?.id == projectId) applyLocked { c -> if (c.cues.any { it.id == cue.id }) c else c.copy(cues = c.cues + cue) }
                 }
             }
         }
@@ -681,7 +683,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         val first = p.characters.firstOrNull()?.id ?: return
         val files = dir.listFiles { f -> f.isFile && f.name.startsWith("grabando_") && f.name.endsWith(".wav") }.orEmpty()
         for (f in files) {
-            if (f.name in finishing) continue
+            if (f.name in finishing || f.name == recordingFile?.name) continue   // la que se está grabando o guardando ahora no se toca
             if (f.length() < 44 + MicRecorder.RATE / 5 * 2) { f.delete(); continue }   // menos de 0,2 s: no hay nada que recuperar
             val who = f.name.removePrefix("grabando_").substringBeforeLast("_").takeIf { id -> p.characters.any { it.id == id } } ?: first
             val take = withContext(Dispatchers.IO) { runCatching { takeFrom(f, p.id) }.getOrNull() }
@@ -714,7 +716,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     private fun load(pcm: ShortArray, from: Double) {
-        if (!requestAudioFocus()) { _ui.update { it.copy(notice = "Ahora no se puede reproducir: otra app está usando el sonido (¿una llamada?). Inténtalo de nuevo en un momento.") }; return }
+        if (!requestAudioFocus()) { _ui.update { it.copy(notice = "Ahora no se puede reproducir: otra app está usando el sonido (¿una llamada?). Cierra esa app o termina la llamada y vuelve a tocar ▶ Escuchar.") }; return }
         beforePlay()
         PlayerOwner.story = true
         NativeEngine.replicaMask(0)
@@ -724,10 +726,10 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         NativeEngine.stemMaster(1f, 1f)
         NativeEngine.stemLoop(-1.0, -1.0)
         NativeEngine.stemSeek(from)
+        playStartedAt = System.currentTimeMillis()   // antes de empezar: el vigilante del final no debe ver la marca anterior
         NativeEngine.stemPlay(true)
         playToken++
         if (!serviceOn) serviceOn = PlaybackService.start(app)   // sigue sonando con la pantalla apagada
-        playStartedAt = System.currentTimeMillis()
         _ui.update { it.copy(loaded = true) }
     }
 

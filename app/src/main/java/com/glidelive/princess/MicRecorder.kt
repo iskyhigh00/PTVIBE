@@ -72,6 +72,7 @@ class MicRecorder(private val file: File, private val onLevel: (Float) -> Unit) 
         running = false
         runCatching { rec?.stop() }   // primero se detiene el micrófono: así una lectura trabada se libera y el hilo puede terminar
         thread?.join(3000)
+        if (thread?.isAlive == true) failed = true   // el hilo no terminó a tiempo: la toma puede estar incompleta
         runCatching { rec?.release() }; rec = null
         writer = null
         return n
