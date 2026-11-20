@@ -512,6 +512,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                     0, if (type == CueType.MUSIC) 1.5f else 0f, if (type == CueType.MUSIC) 2f else 0f,
                     startSeconds = if (type == CueType.VOICE) null else at.toFloat()))   // música y sonidos van donde está la línea roja
             }
+            r.onSuccess { (_, title, _) -> _ui.update { it.copy(notice = "Agregué «$title» donde está la línea roja.") } }
             r.onFailure { e -> _ui.update { it.copy(error = if (noSpace(e)) friendly(e) else "No pude usar ese archivo. Prueba con otro audio (mp3, m4a, wav) de menos de 20 minutos.") } }
             _ui.update { it.copy(busy = null) }
         }

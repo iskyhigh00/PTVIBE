@@ -150,13 +150,14 @@ internal fun SoundsSheet(vm: PrincessViewModel, u: PrincessUi, onClose: () -> Un
             DownloadCard(vm, u, "los sonidos")
             TextButton(onClick = onPickFile, modifier = Modifier.height(48.dp)) { Text("O elegir un sonido de mi teléfono…", fontSize = 15.sp) }
         }
-        else Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        else Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 groups.forEach { g -> FilledTonalButton(onClick = { group = g }, modifier = Modifier.height(48.dp).semantics { selected = group == g; role = androidx.compose.ui.semantics.Role.Tab }, colors = if (group == g) ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors()) { Text((if (group == g) "✓ " else "") + g, fontSize = 15.sp, maxLines = 1) } }
             }
-            Text("Toca un sonido y se pone donde está la línea roja. «▶ Oír» es para escucharlo antes.", style = MaterialTheme.typography.bodyMedium)
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Toca «＋ Poner» y el sonido se pone donde está la línea roja. «▶ Oír» es para escucharlo antes.", style = MaterialTheme.typography.bodyMedium)
             if (group == "Mis sonidos") {
-                if (u.mine.isEmpty()) Text("Aquí aparecen los sonidos que guardes tú.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (u.mine.isEmpty()) Text("Todavía no tienes sonidos propios. Aquí aparecen los que guardes desde las otras pantallas de la app.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 u.mine.forEach { m ->
                     val f = java.io.File(SoundStore.mineDir(ctx), m.file)
                     SoundRow("🎙", m.name, onListen = { vm.previewFile(f) }, onAdd = { vm.addSoundFile(f, m.name, CueType.SFX, vm.overlayTime()) })
@@ -172,6 +173,7 @@ internal fun SoundsSheet(vm: PrincessViewModel, u: PrincessUi, onClose: () -> Un
             }
             TextButton(onClick = onPickFile, modifier = Modifier.height(48.dp)) { Text("Elegir un sonido de mi teléfono…", fontSize = 15.sp) }
             Text(SoundCatalog.SFX_CREDIT, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }
@@ -179,11 +181,12 @@ internal fun SoundsSheet(vm: PrincessViewModel, u: PrincessUi, onClose: () -> Un
 @Composable
 internal fun SoundTile(icon: String, label: String, onListen: () -> Unit, onAdd: () -> Unit) {
     Column(
-        Modifier.width(120.dp).background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(16.dp)).clickable(onClick = onAdd).padding(8.dp),
+        Modifier.width(120.dp).background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(16.dp)).padding(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(icon, fontSize = 34.sp)
         Text(label, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 2, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSecondaryContainer)
+        FilledTonalButton(onClick = onAdd, modifier = Modifier.height(48.dp).fillMaxWidth(), contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("＋ Poner", fontSize = 16.sp, maxLines = 1) }
         TextButton(onClick = onListen, modifier = Modifier.height(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("▶ Oír", fontSize = 16.sp) }
     }
 }

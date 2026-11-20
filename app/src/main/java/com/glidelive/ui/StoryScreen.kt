@@ -191,7 +191,7 @@ private fun StoryList(vm: PrincessViewModel, u: PrincessUi, onOpen: (Project) ->
 internal fun BigButton(text: String, color: Color, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
     Button(onClick = onClick, enabled = enabled, modifier = modifier.height(56.dp), shape = RoundedCornerShape(28.dp),
         colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = Color.White)) {
-        Text(text, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(text, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
     }
 }
 
@@ -314,7 +314,7 @@ private fun StoryEditor(
 
             if (project.cues.isNotEmpty() && u.recordingFor == null && u.busy == null && panel == null && u.notice == null && u.error == null && (selected == null || selected.cue.type == CueType.MUSIC))
                 Text(
-                    if (selected == null) "Toca un audio para elegirlo. Toca la regla de arriba para poner la línea roja."
+                    if (selected == null) "Toca un audio para elegirlo. Toca un espacio vacío de la línea de tiempo para poner la línea roja."
                     else "La música de fondo no se corta: puedes moverla, bajarle el volumen o quitarla.",
                     Modifier.padding(horizontal = 12.dp), fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
@@ -352,7 +352,7 @@ private fun StoryTopBar(
             enabled = (project.cues.isNotEmpty() || sounding) && u.busy == null && u.recordingFor == null,
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F6F5F), contentColor = Color.White),
             modifier = Modifier.height(48.dp).widthIn(min = 150.dp), contentPadding = pad,
-        ) { Text(if (sounding) "■ Parar" else "▶ Escuchar ${clock(position)}", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
+        ) { Text(if (sounding) "■ Parar" else "▶ Escuchar ${clock(if (position >= DramaRenderer.totalSeconds(project) - 0.1) 0.0 else position)}", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
         Button(onClick = { vm.export() }, enabled = project.cues.isNotEmpty() && !working, modifier = Modifier.height(48.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0), contentColor = Color.White), contentPadding = pad) { Text("📤 Enviar", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
         var more by remember { mutableStateOf(false) }
@@ -434,7 +434,7 @@ private fun StoryBottomBar(
                 busy = u.busy != null,
             )
             else -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                BigButton(if (pos > 0.05) "● Grabar ${clock(pos)}" else "● Grabar mi voz", RED, record, Modifier.weight(1.4f), enabled = u.busy == null)
+                BigButton(if (androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.15f) "● Grabar" else if (pos > 0.05) "● Grabar ${clock(pos)}" else "● Grabar mi voz", RED, record, Modifier.weight(1.4f), enabled = u.busy == null)
                 SpeakerMenu(project, speakerId, onPick = { setSpeaker(it) }, onNew = { newCharacter() }, modifier = Modifier.weight(1f))
                 FilledTonalButton(onClick = { setPanel(Panel.SOUNDS) }, modifier = Modifier.height(52.dp).weight(1f), enabled = u.busy == null,
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) { Text("🔊 Sonido", fontSize = 16.sp, maxLines = 1) }
@@ -532,9 +532,9 @@ private fun StoryTimeline(
     var viewportPx by remember { mutableStateOf(0) }
     val vScroll = rememberScrollState()
     var manualUntil by remember { mutableStateOf(0L) }
-    androidx.compose.runtime.LaunchedEffect(hScroll.isScrollInProgress) { if (hScroll.isScrollInProgress && playing) manualUntil = System.currentTimeMillis() + 4000 }
+    androidx.compose.runtime.LaunchedEffect(hScroll.isScrollInProgress) { if (hScroll.isScrollInProgress) manualUntil = System.currentTimeMillis() + 4000 }
     androidx.compose.runtime.LaunchedEffect((position * 5).toInt(), playing, viewportPx) {
-        if (viewportPx > 0 && playing && System.currentTimeMillis() > manualUntil) {   // la línea roja no se sale de la pantalla mientras suena
+        if (viewportPx > 0 && System.currentTimeMillis() > manualUntil) {   // la línea roja no se sale de la pantalla mientras suena
             val x = (position * scale * density).toInt()
             if (x < hScroll.value || x > hScroll.value + viewportPx - 80) hScroll.animateScrollTo((x - viewportPx / 4).coerceAtLeast(0))
         }
@@ -544,10 +544,13 @@ private fun StoryTimeline(
         lanes.map { l -> y.also { y += max(1, packRows(l.clips).size) * 56f } }
     }
     // Al elegir un audio, su línea se sube a la vista (con poca altura quedaría escondida debajo de los botones).
-    androidx.compose.runtime.LaunchedEffect(selectedId, focusId) {
-        val target = selectedId ?: focusId
-        val idx = lanes.indexOfFirst { l -> l.clips.any { it.cue.id == target } }
-        if (target != null && idx >= 0) vScroll.animateScrollTo(((laneTops[idx] + 48f) * density).toInt() - 8)
+    androidx.compose.runtime.LaunchedEffect(selectedId) {
+        val idx = lanes.indexOfFirst { l -> l.clips.any { it.cue.id == selectedId } }
+        if (selectedId != null && idx >= 0) vScroll.animateScrollTo(((laneTops[idx] + 48f) * density).toInt() - 8)
+    }
+    androidx.compose.runtime.LaunchedEffect(focusId) {   // el audio recién agregado se trae a la vista (sin pisar lo que el usuario deselecciona)
+        val idx = lanes.indexOfFirst { l -> l.clips.any { it.cue.id == focusId } }
+        if (focusId != null && idx >= 0) vScroll.animateScrollTo(((laneTops[idx] + 48f) * density).toInt() - 8)
     }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f), RoundedCornerShape(14.dp)).padding(6.dp).verticalScroll(vScroll)) {
     Row(Modifier.fillMaxWidth()) {
@@ -582,7 +585,7 @@ private fun StoryTimeline(
                                 .zIndex(if (row.any { it.cue.id == draggingId }) 1f else 0f)
                                 .pointerInput(scale, enabled) { detectTapGestures { at -> if (enabled) { onCursor((at.x / density / scale).toDouble()); onSelect(null) } } },
                         ) {
-                            Canvas(Modifier.fillMaxSize()) {
+                            Canvas(Modifier.fillMaxSize().zIndex(1f)) {
                                 val x = (position * scale * density).toFloat()
                                 drawLine(Color.White, Offset(x, 0f), Offset(x, size.height), 6.dp.toPx())
                                 drawLine(RED, Offset(x, 0f), Offset(x, size.height), 3.dp.toPx())
