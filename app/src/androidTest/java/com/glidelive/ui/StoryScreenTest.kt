@@ -241,7 +241,7 @@ class StoryScreenTest {
         waitFor("se agregó la segunda voz") { vm.ui.value.current?.cues?.any { it.id == "v2" } == true }
         rule.onNodeWithText("Había una vez", substring = true).performClick(); rule.waitForIdle()
         openMore()
-        rule.onNodeWithText("Quitar y juntar lo que sigue", substring = true).performClick()
+        rule.onNodeWithText("Quitar este pedacito y juntar el resto", substring = true).performClick()
         waitFor("se quitó la primera voz") { vm.ui.value.current!!.cues.none { it.id == "v1" } }
         waitFor("la siguiente se corrió 6 s") { cue(vm, "v2").startSeconds == 6f }
     }
