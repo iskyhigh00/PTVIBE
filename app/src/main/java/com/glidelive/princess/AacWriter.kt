@@ -73,7 +73,13 @@ class AacWriter(file: File, private val rate: Int = 44100, private val channels:
     override fun close() {
         var failure: Throwable? = null
         try {
-            val idx = codec.dequeueInputBuffer(5_000_000)
+            // Si no hay un búfer de entrada libre, es porque faltan por vaciar los de salida: se vacían mientras se espera.
+            var idx = -1
+            var tries = 0
+            while (idx < 0 && tries++ < 1500) {
+                idx = codec.dequeueInputBuffer(10_000)
+                if (idx < 0) drain(false)
+            }
             if (idx < 0) throw java.io.IOException("El codificador no aceptó el final del audio")
             codec.queueInputBuffer(idx, 0, 0, frames * 1_000_000L / rate, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
             drain(true)
