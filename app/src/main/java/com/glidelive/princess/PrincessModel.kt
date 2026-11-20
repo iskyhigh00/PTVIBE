@@ -100,7 +100,7 @@ object PrincessLibrary {
         }
     }
 
-    fun delete(ctx: Context, p: Project) { dir(ctx, p).deleteRecursively() }
+    @Synchronized fun delete(ctx: Context, p: Project) { dir(ctx, p).deleteRecursively() }
 
     /** Nombres de archivo de la carpeta de un cuento que ningún audio usa (tonos viejos, audios quitados, envíos anteriores). */
     fun orphans(files: List<String>, p: Project): List<String> {
