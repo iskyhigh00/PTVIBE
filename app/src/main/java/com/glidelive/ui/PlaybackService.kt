@@ -19,7 +19,17 @@ import androidx.core.app.NotificationCompat
 class PlaybackService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onCreate() {
+        super.onCreate()
+        goForeground()   // Android exige avisar enseguida; si se pide parar de inmediato, igual no falla
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        goForeground()
+        return START_NOT_STICKY
+    }
+
+    private fun goForeground() {
         val nm = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= 26) nm.createNotificationChannel(NotificationChannel(CHANNEL, "Cuento sonando", NotificationManager.IMPORTANCE_LOW))
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_IMMUTABLE)
@@ -29,16 +39,15 @@ class PlaybackService : Service() {
             .setContentText("Toca para volver a GlideLive")
             .setContentIntent(open).setOngoing(true).setSilent(true).build()
         if (Build.VERSION.SDK_INT >= 29) startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK) else startForeground(ID, n)
-        return START_NOT_STICKY
     }
 
     companion object {
         private const val CHANNEL = "cuento_sonando"
         private const val ID = 4107
 
-        fun start(ctx: Context) {
-            runCatching { androidx.core.content.ContextCompat.startForegroundService(ctx, Intent(ctx, PlaybackService::class.java)) }
-        }
+        /** true si se pudo iniciar (desde segundo plano, Android 12+ puede negarlo). */
+        fun start(ctx: Context): Boolean =
+            runCatching { androidx.core.content.ContextCompat.startForegroundService(ctx, Intent(ctx, PlaybackService::class.java)) }.isSuccess
 
         fun stop(ctx: Context) {
             runCatching { ctx.stopService(Intent(ctx, PlaybackService::class.java)) }

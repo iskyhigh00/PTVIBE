@@ -275,6 +275,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        princessVm.onForeground()
         if (!NativeEngine.start()) {
             // El dispositivo de salida puede tardar en estar disponible: 3 reintentos espaciados.
             lifecycleScope.launch {

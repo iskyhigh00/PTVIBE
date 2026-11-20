@@ -116,6 +116,17 @@ object WavIo {
         }
     }.getOrNull()
 
+    /** Corrige los tamaños de la cabecera de un WAV que quedó abierto (la app se cerró grabando), para que cualquier reproductor lo lea. */
+    fun repairHeader(file: File) {
+        val region = dataRegion(file) ?: return
+        val len = file.length()
+        RandomAccessFile(file, "rw").use { raf ->
+            fun le32(v: Long) = byteArrayOf(v.toByte(), (v shr 8).toByte(), (v shr 16).toByte(), (v shr 24).toByte())
+            raf.seek(4); raf.write(le32(len - 8))
+            raf.seek(region.offset - 4); raf.write(le32(region.bytes))
+        }
+    }
+
     /** Recorre el WAV por partes (sin cargarlo entero) y entrega cada bloque de muestras con su primer cuadro. */
     private inline fun forEachBlock(file: File, region: DataRegion, block: (ShortArray, Int, Long) -> Unit) {
         RandomAccessFile(file, "r").use { raf ->
@@ -170,7 +181,8 @@ object WavIo {
             var i = 0
             while (i < count) {
                 val b = ((frame0 + i / ch) * buckets / frames).toInt().coerceIn(0, buckets - 1)
-                val v = kotlin.math.abs(samples[i].toInt()) / 32768f
+                var v = 0f
+                for (c in 0 until ch) v = maxOf(v, kotlin.math.abs(samples[i + c].toInt()) / 32768f)
                 if (v > out[b]) out[b] = v
                 i += ch
             }

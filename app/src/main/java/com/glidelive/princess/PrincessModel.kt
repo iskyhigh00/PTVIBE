@@ -76,6 +76,11 @@ object PrincessLibrary {
     private fun root(ctx: Context) = File(ctx.filesDir, "princess").also { it.mkdirs() }
     fun dir(ctx: Context, p: Project) = File(root(ctx), p.id).also { it.mkdirs() }
 
+    /** Carpeta de un cuento por su id (sin crearla si no existe). */
+    fun dirOf(ctx: Context, id: String) = File(root(ctx), id)
+
+    fun load(ctx: Context, id: String): Project? = runCatching { parse(File(dirOf(ctx, id), "project.json").readText()) }.getOrNull()
+
     fun create(ctx: Context, title: String): Project {
         val p = Project(newId(), title.ifBlank { "Mi obra" }, listOf(Character(newId(), "Narrador", PALETTE[0])), emptyList())
         saveInto(dir(ctx, p), p, createIfMissing = true)

@@ -228,4 +228,27 @@ class BlockRenderTest {
         assertEquals(1f, peaks.max(), 1e-6f); assertTrue(peaks.size >= 240)
         f.delete()
     }
+
+    @Test fun repairedHeaderOfAnInterruptedRecordingHasRealSizes() {
+        val pcm = ShortArray(22050) { (it % 200 * 30).toShort() }
+        val f = File.createTempFile("repair", ".wav")
+        WavIo.Writer(f, 1, 22050).use { it.write(pcm) }
+        val bytes = f.readBytes(); for (k in 4..7) bytes[k] = 0; for (k in 40..43) bytes[k] = 0; f.writeBytes(bytes)
+        WavIo.repairHeader(f)
+        val fixed = f.readBytes()
+        val dataSize = (fixed[40].toInt() and 0xFF) or ((fixed[41].toInt() and 0xFF) shl 8) or ((fixed[42].toInt() and 0xFF) shl 16) or ((fixed[43].toInt() and 0xFF) shl 24)
+        assertEquals(22050 * 2, dataSize)
+        assertArrayEquals(pcm, WavIo.read(f)!!.pcm)
+        f.delete()
+    }
+
+    @Test fun stereoPeaksUseBothChannels() {
+        val frames = 44100
+        val st = ShortArray(frames * 2) { i -> if (i % 2 == 1 && i > frames) 20000 else 100 }   // solo el canal derecho tiene la parte fuerte
+        val f = File.createTempFile("st", ".wav"); WavIo.write(f, st, 2, 44100)
+        val peaks = WavIo.peaksOfFile(f, perSecond = 100)!!
+        assertEquals(1f, peaks.max(), 1e-6f)
+        assertTrue("la parte fuerte del canal derecho debe verse", peaks.count { it > 0.9f } > 10)
+        f.delete()
+    }
 }

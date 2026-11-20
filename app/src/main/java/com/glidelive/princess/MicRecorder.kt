@@ -42,6 +42,7 @@ class MicRecorder(private val file: File, private val onLevel: (Float) -> Unit) 
             n = 0; peak = 0; failed = false; full = false
             running = true
             thread = Thread {
+              try {
                 val buf = ShortArray(2048)
                 while (running) {
                     val got = r.read(buf, 0, buf.size)
@@ -55,6 +56,7 @@ class MicRecorder(private val file: File, private val onLevel: (Float) -> Unit) 
                     if (p > peak) peak = p
                     onLevel(p / 32768f)
                 }
+              } finally { runCatching { w.close() } }   // el mismo hilo que escribe cierra el archivo
             }.also { it.start() }
             true
         } catch (t: Throwable) {
@@ -71,7 +73,7 @@ class MicRecorder(private val file: File, private val onLevel: (Float) -> Unit) 
         thread?.join(3000)
         runCatching { rec?.stop() }
         runCatching { rec?.release() }; rec = null
-        runCatching { writer?.close() }; writer = null
+        writer = null
         return n
     }
 
