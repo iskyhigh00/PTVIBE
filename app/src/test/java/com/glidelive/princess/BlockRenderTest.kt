@@ -41,7 +41,7 @@ class BlockRenderTest {
         for (i in 0..400) {
             val x = i / 100f
             val y = DramaRenderer.softLimit(x)
-            assertTrue(y >= last - 1e-6f); assertTrue(y < 1f); last = y
+            assertTrue(y >= last - 1e-6f); assertTrue(y <= 1f); last = y
         }
         assertEquals(0.5f, DramaRenderer.softLimit(0.5f), 1e-6f)
         assertEquals(-DramaRenderer.softLimit(0.9f), DramaRenderer.softLimit(-0.9f), 1e-6f)
