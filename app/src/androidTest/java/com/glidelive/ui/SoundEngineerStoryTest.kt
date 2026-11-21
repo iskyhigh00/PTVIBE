@@ -93,6 +93,12 @@ class SoundEngineerStoryTest {
             waitFor("crear personaje") { vm.ui.value.current?.characters?.any { it.name == "Guía" } == true }
 
             click("✎ Escribir")
+            val activeSpeakerFollowed = shown("Personaje: Guía")
+            val narrator = checkNotNull(vm.ui.value.current).characters.first().name
+            if (activeSpeakerFollowed) {
+                textButton("Personaje: Guía").performScrollTo().performClick()
+                click(narrator)
+            }
             rule.onNode(hasSetTextAction()).performTextReplacement(firstLine)
             val download = "Descargar voces (129 MB)"
             if (!NarrationPack.isReady(rule.activity)) {
@@ -102,7 +108,6 @@ class SoundEngineerStoryTest {
                 }
                 assertTrue("Modelo Supertonic disponible", NarrationPack.isReady(rule.activity))
             }
-            val narrator = checkNotNull(vm.ui.value.current).characters.first().name
             enterLine(vm, firstLine)
             textButton("Personaje: $narrator").performScrollTo().performClick()
             click("Guía")
@@ -141,10 +146,10 @@ class SoundEngineerStoryTest {
 
             rule.onNodeWithContentDescription("Efecto Lluvia", substring = true).performClick()
             click("🔉 Volumen")
-            val hasContext = shown("Oír mezcla", true)
+            val hasContext = shown("▶ Mezcla")
             capture("03-volumen")
             if (hasContext) {
-                click("Oír mezcla", true)
+                click("▶ Mezcla")
                 waitFor("reproducir mezcla en contexto") {
                     vm.clock.value.playing && vm.ui.value.loaded && !vm.ui.value.previewing
                 }
@@ -178,6 +183,7 @@ class SoundEngineerStoryTest {
                 File(dir, checkNotNull(place.cue.file)).copyTo(File(evidence, "voz-${index+1}.wav"), overwrite = true)
             }
             File(evidence, "pistas.txt").writeText(buildString {
+                appendLine("Escribir abrió el personaje activo: $activeSpeakerFollowed")
                 appendLine("Revisión contextual desde Volumen: $hasContext")
                 for (place in DramaRenderer.layout(final)) {
                     val c = place.cue
