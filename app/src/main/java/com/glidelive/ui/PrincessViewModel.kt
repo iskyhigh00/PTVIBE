@@ -315,7 +315,8 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                     if (bed) CueMode.BED else CueMode.SEQ, if (bed) 0.5f else sfxVolume, 0,
                     fadeIn = if (bed) 1.5f else if (ambient) minOf(0.8f, sec / 3) else 0f,
                     fadeOut = if (bed) 2f else if (ambient) minOf(1.2f, sec / 3) else 0f,
-                    startSeconds = if (bed) (atSeconds ?: 0.0).toFloat() else if (over) atSeconds!!.toFloat() else null))
+                    startSeconds = if (bed) (atSeconds ?: 0.0).toFloat() else if (over) atSeconds!!.toFloat() else null,
+                    duckUnderVoice = type == CueType.SFX && ambient))
             }
             r.onFailure { e -> _ui.update { it.copy(error = if (noSpace(e)) friendly(e) else "No pude agregar ese sonido. Prueba con otro.") } }
             } finally { addingSound = false }
@@ -880,9 +881,8 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun nudgeCursor(delta: Double) = setCursor((_ui.value.cursor + delta).coerceAtLeast(0.0))
 
-    /** Escucha unos 2 segundos alrededor de la línea roja, para afinar un corte. */
-    fun listenAround() {
-        val at = _ui.value.cursor
+    /** Escucha un tramo breve de la mezcla alrededor de la posición indicada. */
+    fun listenAround(at: Double = _ui.value.cursor) {
         playFromSeconds((at - 1.0).coerceAtLeast(0.0), stopAfterMs = 2500)
     }
 

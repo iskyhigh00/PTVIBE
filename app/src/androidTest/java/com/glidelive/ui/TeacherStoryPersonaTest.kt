@@ -80,12 +80,14 @@ class TeacherStoryPersonaTest {
             AppTheme {
                 AppBackground {
                     val u by vm.ui.collectAsState()
-                    var writing by remember { mutableStateOf(false) }
+                    var writingFor by remember { mutableStateOf<String?>(null) }
                     var script by remember { mutableStateOf(TextFieldValue()) }
-                    StoryScreen(vm, Modifier.fillMaxSize(), onNarrate = { writing = true })
-                    if (writing) u.current?.let { project ->
-                        VoiceStudioScreen(project, vm, script, { script = it }, onClose = { writing = false },
-                            modifier = Modifier.matchParentSize())
+                    StoryScreen(vm, Modifier.fillMaxSize(), onNarrate = { writingFor = it })
+                    writingFor?.let { speakerId ->
+                        u.current?.let { project ->
+                            VoiceStudioScreen(project, vm, script, { script = it }, onClose = { writingFor = null },
+                                modifier = Modifier.matchParentSize(), initialCharacterId = speakerId)
+                        }
                     }
                 }
             }
@@ -162,6 +164,7 @@ class TeacherStoryPersonaTest {
         waitFor("agregar lluvia") { vm.ui.value.current?.cues?.any { it.type == CueType.SFX } == true }
         val effect = checkNotNull(vm.ui.value.current).cues.first { it.type == CueType.SFX }
         assertEquals(2f, checkNotNull(effect.startSeconds), 0.01f)
+        assertTrue(effect.duckUnderVoice)
         rule.onNodeWithText("Listo").performClick()
 
         rule.runOnIdle { vm.setCursor(0.0) }
@@ -176,6 +179,12 @@ class TeacherStoryPersonaTest {
         waitFor("aplicar mezcla más suave") {
             vm.ui.value.current?.cues?.firstOrNull { it.type == CueType.MUSIC }?.volume?.let { it in 0.1f..0.49f } == true
         }
+        rule.onNodeWithText("▶ Solo").assertIsDisplayed()
+        rule.onNodeWithText("▶ Mezcla").performClick()
+        waitFor("escuchar la mezcla en Volumen") {
+            vm.clock.value.playing && !vm.ui.value.previewing && vm.clock.value.pos > 0.08
+        }
+        waitFor("terminar la escucha breve") { !vm.clock.value.playing }
         rule.onNodeWithText("✓ Listo").performClick()
         capture("3-mezcla")
 
@@ -185,6 +194,7 @@ class TeacherStoryPersonaTest {
         val saved = checkNotNull(PrincessLibrary.load(context, project.id))
         assertEquals(4, saved.cues.size)
         assertEquals(2, saved.cues.filter { it.type == CueType.VOICE }.map { it.characterId }.distinct().size)
+        assertTrue(saved.cues.single { it.type == CueType.SFX }.duckUnderVoice)
         assertTrue(saved.cues.all { checkNotNull(it.file).let { name -> File(PrincessLibrary.dir(context, saved), name).length() > 44 } })
         capture("4-reabierto")
         rule.onNodeWithText("▶ Escuchar", substring = true).performClick()

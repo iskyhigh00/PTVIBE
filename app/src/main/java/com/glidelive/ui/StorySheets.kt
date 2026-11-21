@@ -243,12 +243,18 @@ internal fun InlineTone(cue: Cue, onPick: (Int) -> Unit, onListen: () -> Unit, o
 }
 
 @Composable
-internal fun InlineVolume(cue: Cue, onSet: (Float) -> Unit, onListen: () -> Unit, onDone: () -> Unit) {
-    var v by remember(cue.id) { mutableStateOf(cue.volume) }
+internal fun InlineVolume(cue: Cue, onSet: (Float) -> Unit, onMix: () -> Unit, onSolo: () -> Unit, onDone: () -> Unit, busy: Boolean) {
+    var v by remember(cue.id, cue.volume) { mutableStateOf(cue.volume) }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Slider(v, { v = it }, valueRange = 0f..(if (cue.type == CueType.MUSIC) 1f else 1.5f), onValueChangeFinished = { onSet(v) }, modifier = Modifier.weight(1f).semantics { contentDescription = "Volumen"; stateDescription = "${(v * 100).roundToInt()} por ciento" })
         Text("${(v * 100).roundToInt()} %", fontSize = 13.sp)
-        FilledTonalButton(onClick = onListen, modifier = Modifier.height(48.dp), shape = storyControlShape, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)) { Text("▶ Oír", fontSize = 13.sp) }
+        val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
+        FilledTonalButton(onClick = onMix, enabled = !busy, modifier = Modifier.height(48.dp), shape = storyControlShape, contentPadding = pad) {
+            Text("▶ Mezcla", fontSize = 13.sp, maxLines = 1)
+        }
+        FilledTonalButton(onClick = onSolo, enabled = !busy, modifier = Modifier.height(48.dp), shape = storyControlShape, contentPadding = pad) {
+            Text("▶ Solo", fontSize = 13.sp, maxLines = 1)
+        }
         Button(onClick = onDone, modifier = Modifier.height(48.dp), shape = storyControlShape, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F6F5F), contentColor = Color.White)) { Text("✓ Listo", fontSize = 13.sp) }
     }

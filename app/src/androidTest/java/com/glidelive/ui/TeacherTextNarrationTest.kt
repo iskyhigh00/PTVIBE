@@ -84,6 +84,9 @@ class TeacherTextNarrationTest {
         waitFor("crear el personaje del zorro") { vm.ui.value.current?.characters?.any { it.name == "Zorro" } == true }
         rule.onNodeWithText("✎ Escribir").assertIsDisplayed().performClick()
         rule.onNodeWithText("Crear una voz").assertIsDisplayed()
+        val narrator = checkNotNull(vm.ui.value.current).characters.first().name
+        rule.onNodeWithText("Personaje: Zorro").performScrollTo().assertIsDisplayed().performClick()
+        rule.onNodeWithText(narrator).performClick()
 
         val opening = "El zorro encendió su farol, pero la lluvia lo apagó."
         val reply = "¿Quién anda ahí? ¡No veo ni mis patas!"
@@ -109,7 +112,6 @@ class TeacherTextNarrationTest {
             }
         }
 
-        val narrator = checkNotNull(vm.ui.value.current).characters.first().name
         addLine(vm, opening)
         rule.onNodeWithText("Personaje: $narrator").performScrollTo().performClick()
         rule.onNodeWithText("Zorro").performClick()

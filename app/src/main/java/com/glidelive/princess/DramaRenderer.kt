@@ -89,7 +89,7 @@ object DramaRenderer {
 
     fun totalSeconds(p: Project): Double = layout(p).maxOfOrNull { it.end } ?: 0.0
 
-    /** Ganancia (0..1) de la música a 100 Hz: baja mientras hay voces, con subida y bajada suaves. */
+    /** Ganancia (0..1) del fondo a 100 Hz: baja mientras hay voces, con subida y bajada suaves. */
     fun duckEnvelope(places: List<Placement>, total: Double, depth: Float = 0.35f): FloatArray {
         val n = (total * 100).toInt() + 2
         val voice = BooleanArray(n)
@@ -128,7 +128,9 @@ object DramaRenderer {
         val places = layout(p)
         val total = places.maxOfOrNull { it.end } ?: 0.0
         val frames = (total * RATE).toInt() + RATE / 2
-        val duck = if (p.duckMusic) duckEnvelope(places, total) else null
+        val duck = if (p.duckMusic || p.cues.any { it.type == CueType.SFX && it.duckUnderVoice && !it.muted }) {
+            duckEnvelope(places, total)
+        } else null
         val gains = HashMap<String, Float>()
         val clips = HashMap<String, Clip?>()
         fun clip(c: Cue): Clip? { if (!clips.containsKey(c.id)) clips[c.id] = clipOf(c); return clips[c.id] }
@@ -156,7 +158,12 @@ object DramaRenderer {
                 if (endF <= from || startF >= from + n) continue
                 val clip = clip(c) ?: continue
                 if (clip.frames < 2) continue
-                mixInto(p, c, clip, startF, endF, from, n, gains[c.id] ?: 1f, duck, mixL, mixR)
+                val reduceBehindVoice = when (c.type) {
+                    CueType.MUSIC -> p.duckMusic
+                    CueType.SFX -> c.duckUnderVoice
+                    else -> false
+                }
+                mixInto(p, c, clip, startF, endF, from, n, gains[c.id] ?: 1f, duck.takeIf { reduceBehindVoice }, mixL, mixR)
             }
             for (i in 0 until n) {
                 pcm[2 * i] = Math.round(softLimit(mixL[i]) * 32767f).coerceIn(-32768, 32767).toShort()
@@ -216,7 +223,7 @@ object DramaRenderer {
             if (fadeInF > 0 && i < fadeInF) e = i.toFloat() / fadeInF
             val remaining = len - 1 - i
             if (fadeOutF > 0 && remaining < fadeOutF) e = min(e, remaining.toFloat() / fadeOutF)
-            if (c.type == CueType.MUSIC && duck != null) {
+            if (duck != null) {
                 val pos100 = (startF + i) / (RATE / 100.0)
                 val k = min(duck.size - 1, pos100.toInt()); val k2 = min(duck.size - 1, k + 1)
                 e *= duck[k] + (duck[k2] - duck[k]) * (pos100 - k).toFloat()
