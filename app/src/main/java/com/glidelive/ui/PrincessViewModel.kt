@@ -316,8 +316,6 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                     fadeIn = if (bed) 1.5f else if (ambient) minOf(0.8f, sec / 3) else 0f,
                     fadeOut = if (bed) 2f else if (ambient) minOf(1.2f, sec / 3) else 0f,
                     startSeconds = if (bed) (atSeconds ?: 0.0).toFloat() else if (over) atSeconds!!.toFloat() else null))
-                val where = atSeconds ?: 0.0
-                _ui.update { it.copy(notice = if (bed) "Puse «$label» de fondo desde ${"%d:%02d".format(where.toInt() / 60, where.toInt() % 60)}." else "Puse «$label» en la línea roja.") }
             }
             r.onFailure { e -> _ui.update { it.copy(error = if (noSpace(e)) friendly(e) else "No pude agregar ese sonido. Prueba con otro.") } }
             } finally { addingSound = false }
@@ -602,7 +600,6 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                     }
                 } else {
                     addTo(p.id, cue)
-                    _ui.update { it.copy(notice = if (type == CueType.VOICE) "Agregué «$title» a continuación." else "Agregué «$title» donde está la línea roja.") }
                 }
             }
             r.onFailure { e -> _ui.update { it.copy(error = if (noSpace(e)) friendly(e) else "No pude usar ese archivo. Prueba con otro audio (mp3, m4a, wav) de menos de 20 minutos.") } }
@@ -667,7 +664,6 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         val peak = rec.peak; val failed = rec.failed; val full = rec.full
         _ui.update { it.copy(recordingFor = null, recLevel = 0f) }
         if (p == null || who == null || file == null) { file?.delete(); return }
-        if (failed && frames >= MicRecorder.RATE) _ui.update { it.copy(notice = "La grabación se cortó antes de terminar (otra app pudo tomar el micrófono). Guardé lo que alcanzó a grabar.") }
         if (failed && frames < MicRecorder.RATE) {
             file.delete(); _ui.update { it.copy(error = "Se cortó la grabación: otra app pudo haber tomado el micrófono. Vuelve a intentar.") }; return
         }
@@ -691,9 +687,14 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                 return@launchSafe
             }
             val startAt = at ?: ((_ui.value.current?.let { DramaRenderer.totalSeconds(it) } ?: 0.0) + 0.6)   // 0,6 s es el espacio con que entra una voz «a continuación»
-            _ui.update { it.copy(cursor = startAt + take.length, notice = if (wasInterrupted) "Se detuvo la grabación al salir de la app. Guardé lo que alcanzaste a grabar." else if (peak < 3000) "Guardé tu voz. Se oye bajito. Acércate al micrófono si quieres grabarla otra vez." else "Guardé tu voz. Toca el audio para oírlo.") }
+            val notice = when {
+                failed || wasInterrupted -> "La grabación se interrumpió. Se guardó lo grabado."
+                full -> "Límite de 10 minutos. Se guardó la toma."
+                peak < 3000 -> "Nivel bajo. Acércate al micrófono para repetir la toma."
+                else -> null
+            }
+            _ui.update { it.copy(cursor = startAt + take.length, notice = notice) }
             addTo(p.id, cue)
-            if (full) _ui.update { it.copy(notice = "Llegaste al máximo de 10 minutos seguidos. Lo grabado quedó guardado.") }
         }
     }
 
@@ -713,8 +714,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
             }
             if (_ui.value.current?.id == projectId) {
                 history.record(original)
-                _ui.update { it.copy(canUndo = history.canUndo, canRedo = history.canRedo,
-                    lastAddedId = cueId, notice = "Cambié la voz en el mismo lugar. Toca «Oír este pedacito» para escucharla.") }
+                _ui.update { it.copy(canUndo = history.canUndo, canRedo = history.canRedo, lastAddedId = cueId) }
             }
             updateProject(updated)
             true
@@ -832,7 +832,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         val problem = TimelineOps.cutProblem(p, id, at)
         if (problem != null) { _ui.update { it.copy(notice = problem) }; return }
         edit { cur -> TimelineOps.split(cur, id, at, PrincessLibrary.newId()) ?: cur }
-        _ui.update { it.copy(notice = "Listo, lo corté en dos. Ahora puedes mover o quitar cada pedazo.") }
+        dismissNotice()
     }
 
     fun removeCue(id: String) = edit { cur -> TimelineOps.delete(DramaRenderer.anchorTimeline(cur), id) }
@@ -844,36 +844,33 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     fun trimStartAtCursor(id: String) {
         val at = _ui.value.cursor
         val p = _ui.value.current ?: return
-        if (TimelineOps.trimStartTo(p, id, at) == null) { _ui.update { it.copy(notice = "Pon la línea roja sobre el audio, donde quieres que empiece.") }; return }
+        if (TimelineOps.trimStartTo(p, id, at) == null) { _ui.update { it.copy(notice = "Mueve la línea roja al nuevo inicio del clip.") }; return }
         edit { cur -> TimelineOps.trimStartTo(cur, id, at) ?: cur }
-        _ui.update { it.copy(notice = "Listo: ahora empieza en la línea roja. Con ↶ puedes volver atrás.") }
+        dismissNotice()
     }
 
     /** Recorta el final del audio desde la línea roja. */
     fun trimEndAtCursor(id: String) {
         val at = _ui.value.cursor
         val p = _ui.value.current ?: return
-        if (TimelineOps.trimEndAt(p, id, at) == null) { _ui.update { it.copy(notice = "Pon la línea roja sobre el audio, donde quieres que termine.") }; return }
+        if (TimelineOps.trimEndAt(p, id, at) == null) { _ui.update { it.copy(notice = "Mueve la línea roja al nuevo final del clip.") }; return }
         edit { cur -> TimelineOps.trimEndAt(cur, id, at) ?: cur }
-        _ui.update { it.copy(notice = "Listo: ahora termina en la línea roja. Con ↶ puedes volver atrás.") }
+        dismissNotice()
     }
 
     fun duplicateCue(id: String) {
         edit { cur -> TimelineOps.duplicate(cur, id, PrincessLibrary.newId()) ?: cur }
-        _ui.update { it.copy(notice = "Hice una copia justo después. Puedes moverla donde quieras.") }
     }
 
     fun toggleMute(id: String) {
         val on = _ui.value.current?.cues?.firstOrNull { it.id == id }?.muted == true
         editTimelineCue(id) { it.copy(muted = !on) }
-        _ui.update { it.copy(notice = if (on) "Ese audio vuelve a sonar." else "Ese audio quedó en silencio (no se borró). Tócalo otra vez para activarlo.") }
     }
 
     fun toggleFade(id: String, fadeIn: Boolean) {
         val c = _ui.value.current?.cues?.firstOrNull { it.id == id } ?: return
         val on = (if (fadeIn) c.fadeIn else c.fadeOut) > 0f
         editTimelineCue(id) { if (fadeIn) it.copy(fadeIn = if (on) 0f else 0.6f) else it.copy(fadeOut = if (on) 0f else 0.6f) }
-        _ui.update { it.copy(notice = (if (fadeIn) "Entrada suave" else "Salida suave") + (if (on) " quitada." else " puesta: se oye más despacito al ${if (fadeIn) "empezar" else "terminar"}.")) }
     }
 
     fun renameCue(id: String, name: String) {
@@ -967,7 +964,6 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun dismissNotice() = _ui.update { it.copy(notice = null) }
-    fun setNotice(text: String) = _ui.update { it.copy(notice = text) }
 
     private var focusRequest: android.media.AudioFocusRequest? = null
 

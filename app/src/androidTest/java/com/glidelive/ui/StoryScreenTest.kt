@@ -17,6 +17,7 @@ import com.glidelive.princess.PrincessLibrary
 import com.glidelive.ui.theme.AppTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -84,6 +85,20 @@ class StoryScreenTest {
         rule.onNodeWithText("🎵 Música").assertIsDisplayed()
     }
 
+    @Test fun cuentoVacioDejaLaLineaDeTiempoDisponible() {
+        val vm = prepare()
+        val title = "Cuento vacío ${System.nanoTime()}"
+        vm.newProject(title)
+        waitFor("proyecto vacío abierto") { vm.ui.value.current?.title == title }
+        rule.onNodeWithText("Tu cuento empieza aquí").assertDoesNotExist()
+        val ruler = rule.onNodeWithContentDescription("Regla de tiempo", substring = true)
+        ruler.assertIsDisplayed().performTouchInput { click(percentOffset(0.25f, 0.5f)) }
+        waitFor("línea roja movida") { vm.ui.value.cursor > 0 }
+        rule.onNodeWithText("● Sonidos").assertIsDisplayed()
+        rule.onNodeWithText("● Música de fondo").assertIsDisplayed()
+        shot("9-linea-vacia")
+    }
+
     @Test fun moverManteniendoApretado() {
         val vm = prepare(); story(vm)
         val before = cue(vm, "s1").startSeconds!!
@@ -121,6 +136,7 @@ class StoryScreenTest {
         rule.onNodeWithText("Gato", substring = true).performClick()
         rule.onNodeWithText("Quitar", substring = true).performClick()
         waitFor("quitado") { vm.ui.value.current!!.cues.none { it.id == "s1" } }
+        assertNull("La desaparición del clip confirma que se quitó", vm.ui.value.notice)
         rule.onNodeWithContentDescription("Deshacer").performClick()
         waitFor("deshecho") { vm.ui.value.current!!.cues.any { it.id == "s1" } }
     }
@@ -146,6 +162,7 @@ class StoryScreenTest {
         vm.setCursor(4.0)
         rule.onNodeWithText("Cortar", substring = true).performClick()
         waitFor("se cortó") { vm.ui.value.current!!.cues.count { it.type == CueType.VOICE } == 2 }
+        assertNull("El corte ya se ve en la línea de tiempo", vm.ui.value.notice)
     }
 
     private fun insideRoot(label: String, byDescription: Boolean = false) {

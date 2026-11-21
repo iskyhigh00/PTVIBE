@@ -74,7 +74,6 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -91,6 +90,7 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 internal val RED = Color(0xFFD32F2F)
+internal val storyControlShape = RoundedCornerShape(10.dp)
 
 /** «Mi cuento N» con el número siguiente al más alto que ya existe (no se repite aunque se borren cuentos). */
 internal fun nextStoryNumber(projects: List<Project>): Int =
@@ -278,7 +278,6 @@ private fun StoryEditor(
         if (android.os.Build.VERSION.SDK_INT >= 33 && !prefsApp.getBoolean("asked_notif", false) &&
             ctx.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             prefsApp.edit().putBoolean("asked_notif", true).apply()
-            vm.setNotice("Para ver «Tu cuento está sonando» con la pantalla apagada, toca Permitir en el siguiente mensaje.")
             notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
@@ -349,7 +348,7 @@ private fun StoryEditor(
         }
     }
     Box(modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             // ── Barra de arriba (sin deslizar: todo a la vista) ──
             StoryTopBar(vm, project, u, clk.pos, playing, clk.playing && u.loaded, position, working, { askNotifications() }, onBack, { renaming = true }, { pickFile(CueType.VOICE, speakerId) }, { zoom = (zoom * 1.5f).coerceAtMost(120f) }, { zoom = (zoom / 1.5f).coerceAtLeast(8f) }, onUpdate, onOtherMode)
             u.busy?.let { (label, p) ->
@@ -367,17 +366,9 @@ private fun StoryEditor(
                 StoryTimeline(project, placements, position, playing, selectedId, zoom, enabled = u.busy == null && u.recordingFor == null,
                     onSelect = { selectedId = it }, onCursor = { vm.setCursor(it) }, onMove = { id, s, who -> vm.moveCueTo(id, s, who) },
                     onZoom = { f -> zoom = (zoom * f).coerceIn(8f, 120f) }, focusId = u.lastAddedId, peaks = u.peaks)
-                if (project.cues.isEmpty() && !working && u.error == null && !micDenied) StoryEmptyHint(Modifier.align(Alignment.Center))
             }
             StoryNotices(vm, u, micDenied, { micPermission.launch(Manifest.permission.RECORD_AUDIO) })
 
-            if (project.cues.isNotEmpty() && androidx.compose.ui.platform.LocalDensity.current.fontScale <= 1.15f && u.recordingFor == null && u.busy == null && panel == null && u.notice == null && u.error == null && (selected == null || selected.cue.type == CueType.MUSIC))
-                Text(
-                    if (selected == null) "Para cortar: toca un audio y luego ✂ Cortar aquí. La línea roja marca dónde corta; muévela tocando la tira de colores."
-                    else "La música de fondo no se corta: puedes moverla, bajarle el volumen o quitarla.",
-                    Modifier.padding(horizontal = 12.dp), fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-            // ── Avisos ──
             // ── Barra de abajo: cambia según lo que se esté haciendo ──
             StoryBottomBar(vm, project, u, selected, panel, { panel = it }, { selectedId = it }, playing, clk.pos, speakerId, { speaker = it }, { newCharacter = true }, { record() }, { confirmDiscard = true }, { renamingCue = it },
                 onNarrate, { record(it) }, { pickFile(CueType.VOICE, it.characterId, it.id) })
@@ -401,24 +392,24 @@ private fun StoryTopBar(
 ) {
     val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        TextButton(onClick = onBack, modifier = Modifier.height(48.dp).semantics { contentDescription = "Volver a Mis cuentos" }, contentPadding = pad) { Text("←", fontSize = 22.sp, fontWeight = FontWeight.Bold) }
+        TextButton(onClick = onBack, modifier = Modifier.size(48.dp).semantics { contentDescription = "Volver a Mis cuentos" }, contentPadding = pad) { Text("←", fontSize = 19.sp) }
         TextButton(onClick = { onRename() }, modifier = Modifier.weight(1f).height(48.dp).semantics { contentDescription = "Cambiar el nombre del cuento: ${project.title}" }, contentPadding = pad) {
-            Text(project.title + " ✎", fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Text(project.title + " ✎", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         }
-        FilledTonalButton(onClick = { vm.undo() }, enabled = u.canUndo && !working, modifier = Modifier.height(48.dp).widthIn(min = 48.dp).semantics { contentDescription = "Deshacer" }, contentPadding = pad) { Text(if (androidx.compose.ui.platform.LocalDensity.current.fontScale <= 1.15f) "↶ Deshacer" else "↶", fontSize = if (androidx.compose.ui.platform.LocalDensity.current.fontScale <= 1.15f) 15.sp else 20.sp, maxLines = 1) }
-        FilledTonalButton(onClick = { vm.redo() }, enabled = u.canRedo && !working, modifier = Modifier.height(48.dp).widthIn(min = 48.dp).semantics { contentDescription = "Rehacer" }, contentPadding = pad) { Text("↷", fontSize = 20.sp, maxLines = 1) }
+        TextButton(onClick = vm::undo, enabled = u.canUndo && !working, modifier = Modifier.size(48.dp).semantics { contentDescription = "Deshacer" }, contentPadding = pad) { Text("↶", fontSize = 19.sp) }
+        TextButton(onClick = vm::redo, enabled = u.canRedo && !working, modifier = Modifier.size(48.dp).semantics { contentDescription = "Rehacer" }, contentPadding = pad) { Text("↷", fontSize = 19.sp) }
         Button(
             onClick = { if (playing) { vm.setCursor(clkPos); vm.stop() } else if (sounding) vm.stop() else { beforePlay(); vm.playFromSeconds(u.cursor) } },
             enabled = (project.cues.isNotEmpty() || sounding) && u.busy == null && u.recordingFor == null,
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F6F5F), contentColor = Color.White),
-            modifier = Modifier.height(48.dp).widthIn(min = 150.dp), contentPadding = pad,
-        ) { Text(if (sounding) "■ Parar" else "▶ Escuchar ${clock(if (position >= DramaRenderer.totalSeconds(project) - 0.1) 0.0 else position)}", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
+            modifier = Modifier.height(48.dp).widthIn(min = 112.dp), contentPadding = pad, shape = storyControlShape,
+        ) { Text(if (sounding) "■ Parar" else "▶ Escuchar ${clock(if (position >= DramaRenderer.totalSeconds(project) - 0.1) 0.0 else position)}", fontSize = 13.sp, maxLines = 1) }
         var exportMenu by remember { mutableStateOf(false) }
         Box {
             Button(onClick = { exportMenu = true }, enabled = project.cues.isNotEmpty() && !working,
                 modifier = Modifier.height(48.dp).semantics { contentDescription = "Enviar o guardar el cuento" },
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0), contentColor = Color.White),
-                contentPadding = pad) { Text("📤 Enviar", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
+                contentPadding = pad, shape = storyControlShape) { Text("📤 Enviar", fontSize = 13.sp, maxLines = 1) }
             DropdownMenu(expanded = exportMenu, onDismissRequest = { exportMenu = false }) {
                 DropdownMenuItem(text = { Text("Enviar por WhatsApp u otra app") }, onClick = { exportMenu = false; vm.export() })
                 DropdownMenuItem(text = { Text("Guardar el cuento en mi teléfono") }, onClick = { exportMenu = false; vm.saveToPhone() })
@@ -426,7 +417,7 @@ private fun StoryTopBar(
         }
         var more by remember { mutableStateOf(false) }
         Box {
-            TextButton(onClick = { more = true }, modifier = Modifier.height(48.dp).semantics { contentDescription = "Más opciones" }, contentPadding = pad) { Text("Más ▾", fontSize = 15.sp) }
+            TextButton(onClick = { more = true }, modifier = Modifier.height(48.dp).semantics { contentDescription = "Más opciones" }, contentPadding = pad) { Text("Más ▾", fontSize = 13.sp) }
             DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
                 DropdownMenuItem(text = { Text("⏮ Escuchar desde el principio") }, enabled = project.cues.isNotEmpty() && !working, onClick = { more = false; vm.playFromSeconds(0.0) })
                 DropdownMenuItem(text = { Text("Importar una voz desde el teléfono") }, enabled = !working, onClick = { more = false; onImportVoice() })
@@ -440,37 +431,46 @@ private fun StoryTopBar(
 }
 
 @Composable
-private fun StoryEmptyHint(modifier: Modifier) {
-    Column(modifier.heightIn(max = 140.dp).verticalScroll(rememberScrollState())
-        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp)).padding(14.dp),
-        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("Tu cuento empieza aquí", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        Text("Graba tu voz o escribe para que la app la lea. Agrega un sonido o música cuando quieras.", textAlign = TextAlign.Center)
-    }
-}
-
-@Composable
 private fun StoryNotices(vm: PrincessViewModel, u: PrincessUi, micDenied: Boolean, askPermission: () -> Unit) {
     val ctx = LocalContext.current
-            val msg = u.error ?: u.notice
-            if (msg != null) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp).background(
-                    if (u.error != null) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Text(msg, Modifier.weight(1f).padding(vertical = 8.dp).semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }, style = MaterialTheme.typography.bodyMedium, color = if (u.error != null) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer)
-                    TextButton(onClick = vm::dismissError, modifier = Modifier.height(48.dp), colors = ButtonDefaults.textButtonColors(contentColor = if (u.error != null) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer)) { Text("Entendido", fontWeight = FontWeight.Bold) }
+    (u.error ?: u.notice)?.let { message ->
+        val error = u.error != null
+        val scheme = MaterialTheme.colorScheme
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                .background(if (error) scheme.errorContainer else scheme.surfaceVariant, storyControlShape)
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                message, Modifier.weight(1f).padding(vertical = 4.dp)
+                    .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (error) scheme.onErrorContainer else scheme.onSurfaceVariant,
+            )
+            if (error) {
+                TextButton(onClick = vm::dismissError, modifier = Modifier.height(48.dp),
+                    colors = ButtonDefaults.textButtonColors(contentColor = scheme.onErrorContainer)) {
+                    Text("Entendido", style = MaterialTheme.typography.labelMedium)
                 }
             }
-            if (micDenied) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp).background(MaterialTheme.colorScheme.tertiaryContainer, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Para grabar tu voz necesito usar el micrófono.", Modifier.weight(1f).padding(vertical = 8.dp), color = MaterialTheme.colorScheme.onTertiaryContainer)
-                    TextButton(onClick = { askPermission() }, modifier = Modifier.height(48.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onTertiaryContainer)) { Text("Dar permiso", fontWeight = FontWeight.Bold) }
-                    TextButton(onClick = {
-                        ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    }, modifier = Modifier.height(48.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onTertiaryContainer)) { Text("Abrir ajustes", fontWeight = FontWeight.Bold) }
-                }
-            }
+        }
+    }
+    if (micDenied) {
+        val color = MaterialTheme.colorScheme.onTertiaryContainer
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                .background(MaterialTheme.colorScheme.tertiaryContainer, storyControlShape).padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Se necesita permiso de micrófono.", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = color)
+            TextButton(onClick = askPermission, modifier = Modifier.height(48.dp),
+                colors = ButtonDefaults.textButtonColors(contentColor = color)) { Text("Dar permiso", fontSize = 12.sp) }
+            TextButton(onClick = {
+                ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }, modifier = Modifier.height(48.dp), colors = ButtonDefaults.textButtonColors(contentColor = color)) { Text("Abrir ajustes", fontSize = 12.sp) }
+        }
+    }
 }
 
 @Composable
@@ -480,7 +480,7 @@ private fun StoryBottomBar(
     narrate: () -> Unit, rerecord: (Cue) -> Unit, replaceFile: (Cue) -> Unit,
 ) {
     val pos = if (playing) clkPos else u.cursor
-            Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+    Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
         when {
             u.recordingFor != null -> RecordingBar(u, onStop = { vm.finishRecording() }, onDiscard = discard)
             selected != null && panel == Panel.MOVE -> InlineMove(selected.cue, selected.start, onMove = { delta -> vm.moveCueTo(selected.cue.id, (selected.start + delta).coerceAtLeast(0.0)) }, onDone = { setPanel(null) },
@@ -497,7 +497,7 @@ private fun StoryBottomBar(
                 onCut = { if (playing) { vm.setCursor(clkPos); vm.stop() } else if (u.previewing) vm.stop(); vm.cutAtCursor(selected.cue.id) },
                 onMove = { setPanel(Panel.MOVE) }, onVolume = { setPanel(Panel.VOLUME) },
                 onListen = { vm.previewCue(selected.cue.id) },
-                onRemove = { vm.removeCue(selected.cue.id); select(null); vm.setNotice("Quité ese audio. Si fue sin querer, toca ↶ para recuperarlo.") },
+                onRemove = { vm.removeCue(selected.cue.id); select(null) },
                 onDone = { select(null) },
                 onAction = { a ->
                     val id = selected.cue.id
@@ -505,7 +505,7 @@ private fun StoryBottomBar(
                         CueAction.TRIM_START -> vm.trimStartAtCursor(id)
                         CueAction.TRIM_END -> vm.trimEndAtCursor(id)
                         CueAction.CURSOR -> setPanel(Panel.CURSOR)
-                        CueAction.REMOVE_CLOSE -> { vm.removeAndClose(id); select(null); vm.setNotice("Quité ese audio y junté lo que seguía. Si fue sin querer, toca ↶.") }
+                        CueAction.REMOVE_CLOSE -> { vm.removeAndClose(id); select(null) }
                         CueAction.DUPLICATE -> vm.duplicateCue(id)
                         CueAction.MUTE -> vm.toggleMute(id)
                         CueAction.FADE_IN -> vm.toggleFade(id, true)
@@ -520,16 +520,20 @@ private fun StoryBottomBar(
                 busy = u.busy != null,
             )
             else -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                BigButton("● Grabar", RED, record, Modifier.weight(1.2f).semantics {
-                    contentDescription = if (pos > 0.05) "Grabar mi voz desde ${clock(pos)}" else "Grabar mi voz"
-                }, enabled = u.busy == null)
-                FilledTonalButton(onClick = narrate, modifier = Modifier.height(52.dp).weight(1f), enabled = u.busy == null,
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) { Text("✎ Escribir", fontSize = 16.sp, maxLines = 1) }
+                Button(
+                    onClick = record, enabled = u.busy == null, shape = storyControlShape,
+                    colors = ButtonDefaults.buttonColors(containerColor = RED, contentColor = Color.White),
+                    modifier = Modifier.height(48.dp).weight(1f).semantics {
+                        contentDescription = if (pos > 0.05) "Grabar mi voz desde ${clock(pos)}" else "Grabar mi voz"
+                    }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp),
+                ) { Text("● Grabar", fontSize = 14.sp, maxLines = 1) }
+                FilledTonalButton(onClick = narrate, modifier = Modifier.height(48.dp).weight(1f), enabled = u.busy == null, shape = storyControlShape,
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) { Text("✎ Escribir", fontSize = 13.sp, maxLines = 1) }
                 SpeakerMenu(project, speakerId, onPick = { setSpeaker(it) }, onNew = { newCharacter() }, modifier = Modifier.weight(1f))
-                FilledTonalButton(onClick = { setPanel(Panel.SOUNDS) }, modifier = Modifier.height(52.dp).weight(1f), enabled = u.busy == null,
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) { Text("🔊 Sonido", fontSize = 16.sp, maxLines = 1) }
-                FilledTonalButton(onClick = { setPanel(Panel.MUSIC) }, modifier = Modifier.height(52.dp).weight(1f), enabled = u.busy == null,
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) { Text("🎵 Música", fontSize = 16.sp, maxLines = 1) }
+                FilledTonalButton(onClick = { setPanel(Panel.SOUNDS) }, modifier = Modifier.height(48.dp).weight(1f), enabled = u.busy == null, shape = storyControlShape,
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) { Text("🔊 Sonido", fontSize = 13.sp, maxLines = 1) }
+                FilledTonalButton(onClick = { setPanel(Panel.MUSIC) }, modifier = Modifier.height(48.dp).weight(1f), enabled = u.busy == null, shape = storyControlShape,
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) { Text("🎵 Música", fontSize = 13.sp, maxLines = 1) }
             }
         }
     }
@@ -541,7 +545,7 @@ private fun SpeakerMenu(project: Project, current: String, onPick: (String) -> U
     var open by remember { mutableStateOf(false) }
     val name = project.characters.firstOrNull { it.id == current }?.name ?: "Yo"
     Box(modifier) {
-        FilledTonalButton(onClick = { open = true }, modifier = Modifier.height(52.dp).fillMaxWidth().semantics { contentDescription = "Quién habla: $name. Toca para cambiar" }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) { Text("👤 $name ▾", fontSize = 15.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
+        FilledTonalButton(onClick = { open = true }, modifier = Modifier.height(48.dp).fillMaxWidth().semantics { contentDescription = "Quién habla: $name. Toca para cambiar" }, shape = storyControlShape, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) { Text("👤 $name ▾", fontSize = 13.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             project.characters.forEach { c -> DropdownMenuItem(text = { Text((if (c.id == current) "✓ " else "") + c.name) }, onClick = { open = false; onPick(c.id) }) }
             DropdownMenuItem(text = { Text("＋ Personaje nuevo") }, onClick = { open = false; onNew() })
@@ -551,20 +555,21 @@ private fun SpeakerMenu(project: Project, current: String, onPick: (String) -> U
 
 @Composable
 private fun RecordingBar(u: PrincessUi, onStop: () -> Unit, onDiscard: () -> Unit) {
-    Row(Modifier.fillMaxWidth().background(Color(0x33E5334B), RoundedCornerShape(16.dp)).padding(10.dp), verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Box(Modifier.size16().background(RED, CircleShape))
+    Row(Modifier.fillMaxWidth().background(Color(0x33E5334B), storyControlShape).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(Modifier.size(8.dp).background(RED, CircleShape))
         Column(Modifier.weight(1f)) {
-            Text("Grabando…  ${"%.0f".format(u.recSeconds)} s", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text("Grabando · ${clock(u.recSeconds.toDouble())}", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
             LinearProgressIndicator(progress = { (u.recLevel * 2.5f).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
-            Text(if (u.recSeconds > 3f && u.recPeak < 0.02f) "La barra no se mueve: el micrófono no te oye. Acércate o revisa que no esté tapado." else if (u.recSeconds > 4f && u.recPeak < 0.09f) "Habla un poco más fuerte o acércate al micrófono." else "Habla. Toca ■ Terminar al acabar.", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+            if (u.recSeconds > 4f && u.recPeak < 0.09f) {
+                Text("Nivel bajo. Acércate al micrófono.", style = MaterialTheme.typography.bodySmall)
+            }
         }
-        BigButton("■ Terminar", RED, onStop)
-        TextButton(onClick = onDiscard, modifier = Modifier.height(48.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)) { Text("Descartar", fontWeight = FontWeight.Bold) }
+        Button(onClick = onStop, modifier = Modifier.height(48.dp), shape = storyControlShape,
+            colors = ButtonDefaults.buttonColors(containerColor = RED, contentColor = Color.White)) { Text("■ Terminar", fontSize = 13.sp) }
+        TextButton(onClick = onDiscard, modifier = Modifier.height(48.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)) { Text("Descartar", fontSize = 13.sp) }
     }
 }
-
-private fun Modifier.size16() = this.then(Modifier.width(16.dp).height(16.dp))
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -572,12 +577,12 @@ private fun SelectionBar(cue: Cue, onCut: () -> Unit, onMove: () -> Unit, onVolu
                          onAction: (CueAction) -> Unit, canTone: Boolean, busy: Boolean) {
     val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
     @Composable fun Btn(text: String, enabled: Boolean, onClick: () -> Unit) =
-        FilledTonalButton(onClick = onClick, modifier = Modifier.height(48.dp).widthIn(min = 84.dp), enabled = enabled, contentPadding = pad) { Text(text, fontSize = 15.sp, maxLines = 1) }
+        FilledTonalButton(onClick = onClick, modifier = Modifier.height(48.dp).widthIn(min = 48.dp), enabled = enabled, contentPadding = pad, shape = storyControlShape) { Text(text, fontSize = 13.sp, maxLines = 1) }
     FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Btn("✂ Cortar aquí", !busy && cue.type != CueType.MUSIC, onCut)
         Btn("↔ Mover", !busy, onMove)
         Btn("🔉 Volumen", !busy, onVolume)
-        Btn("▶ Oír este pedacito", !busy, onListen)
+        Btn("▶ Oír", !busy, onListen)
         Btn("🗑 Quitar", !busy, onRemove)
         var more by remember { mutableStateOf(false) }
         Box {
@@ -602,8 +607,8 @@ private fun SelectionBar(cue: Cue, onCut: () -> Unit, onMove: () -> Unit, onVolu
                 item("✎ Cambiar el nombre", CueAction.RENAME)()
             }
         }
-        Button(onClick = onDone, modifier = Modifier.height(48.dp).widthIn(min = 84.dp), contentPadding = pad,
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F6F5F), contentColor = Color.White)) { Text("✓ Listo", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
+        Button(onClick = onDone, modifier = Modifier.height(48.dp).widthIn(min = 48.dp), contentPadding = pad, shape = storyControlShape,
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F6F5F), contentColor = Color.White)) { Text("✓ Listo", fontSize = 13.sp, maxLines = 1) }
     }
 }
 
@@ -665,8 +670,8 @@ private fun StoryTimeline(
     Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp)).padding(6.dp)) {
         Column(Modifier.width(104.dp)) {
             Row(Modifier.height(48.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { onZoom(1f / 1.5f) }, enabled = zoom > 8.5f, modifier = Modifier.size(48.dp).semantics { contentDescription = "Ver más tiempo en pantalla" }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("−", fontSize = 24.sp, fontWeight = FontWeight.Bold) }
-                TextButton(onClick = { onZoom(1.5f) }, enabled = zoom < 119f, modifier = Modifier.size(48.dp).semantics { contentDescription = "Acercar: ver menos tiempo, más grande" }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("+", fontSize = 24.sp, fontWeight = FontWeight.Bold) }
+                TextButton(onClick = { onZoom(1f / 1.5f) }, enabled = zoom > 8.5f, modifier = Modifier.size(48.dp).semantics { contentDescription = "Ver más tiempo en pantalla" }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("−", fontSize = 20.sp) }
+                TextButton(onClick = { onZoom(1.5f) }, enabled = zoom < 119f, modifier = Modifier.size(48.dp).semantics { contentDescription = "Acercar: ver menos tiempo, más grande" }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("+", fontSize = 20.sp) }
             }
             Column(Modifier.weight(1f, fill = false).verticalScroll(vScroll)) {
                 lanes.forEach { lane ->
@@ -675,7 +680,7 @@ private fun StoryTimeline(
                         Text(androidx.compose.ui.text.buildAnnotatedString {
                             withStyle(androidx.compose.ui.text.SpanStyle(color = lane.color, fontWeight = FontWeight.Bold)) { append("● ") }
                             append(lane.label)
-                        }, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        }, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium, fontSize = 12.sp, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -692,7 +697,7 @@ private fun StoryTimeline(
                 }
                 .pointerInput(scale, enabled) { detectTapGestures { at -> if (enabled) onCursor((at.x / density / scale).toDouble()) } }) {
                 val step = listOf(1, 2, 5, 10, 15, 30, 60, 120, 300).firstOrNull { it * scale >= 72f } ?: 600
-                for (s in 0..duration.toInt() step step) Text(clock(s.toDouble()), Modifier.offset(x = (s * scale).dp).padding(top = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 15.sp)
+                for (s in 0..duration.toInt() step step) Text(clock(s.toDouble()), Modifier.align(Alignment.CenterStart).offset(x = (s * scale).dp), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
             }
             Column(Modifier.weight(1f, fill = false).verticalScroll(vScroll)) {
                 lanes.forEach { lane ->
@@ -705,8 +710,8 @@ private fun StoryTimeline(
                         ) {
                             Canvas(Modifier.fillMaxSize().zIndex(1f)) {
                                 val x = (position * scale * density).toFloat()
-                                drawLine(Color.White, Offset(x, 0f), Offset(x, size.height), 6.dp.toPx())
-                                drawLine(RED, Offset(x, 0f), Offset(x, size.height), 3.dp.toPx())
+                                drawLine(Color.White, Offset(x, 0f), Offset(x, size.height), 3.dp.toPx())
+                                drawLine(RED, Offset(x, 0f), Offset(x, size.height), 1.5.dp.toPx())
                             }
                             row.forEach { place ->
                                 var dragX by remember(place.cue.id, place.start) { mutableStateOf(0f) }
@@ -770,7 +775,7 @@ private fun StoryTimeline(
                                         }
                                     }
                                     Text((if (isSel) "✓ " else "") + (if (place.cue.muted) "🔇 " else "") + (if (place.cue.toneSteps != 0) "🎚 " else "") + place.cue.text.ifBlank { place.cue.type.label },
-                                        fontSize = 15.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, color = Color(0xFF0B1020), fontWeight = FontWeight.Bold)
+                                        fontSize = 12.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, color = Color(0xFF0B1020), fontWeight = FontWeight.SemiBold)
                                 }
                             }
                         }
