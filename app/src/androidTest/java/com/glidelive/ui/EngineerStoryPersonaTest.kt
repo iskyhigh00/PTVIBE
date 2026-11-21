@@ -90,7 +90,7 @@ class EngineerStoryPersonaTest {
             assertEquals(6f, checkNotNull(effectStart()), 0.01f)
             rule.onNode(hasContentDescription("Efecto Gato", substring = true)).performScrollTo().performClick()
             rule.onNodeWithText("↔ Mover").performClick()
-            rule.onNodeWithText("1 s después").performClick()
+            rule.onNodeWithText("1 s después ▶").assertIsDisplayed().performClick()
             rule.waitUntil(10_000) { effectStart() == 7f }
             rule.onNodeWithContentDescription("Deshacer").performClick()
             rule.waitUntil(10_000) { effectStart() == 6f }

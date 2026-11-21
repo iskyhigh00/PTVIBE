@@ -81,7 +81,7 @@ class ChildStoryPersonaTest {
             waitFor("capturar un segundo de micrófono") { vm.ui.value.recSeconds >= 1f || vm.ui.value.recordingFor == null }
             if (vm.ui.value.recordingFor != null) {
                 shot("02-grabando")
-                click("Terminar", substring = true)
+                click("■ Terminar")
             }
         }
         waitFor("resultado al terminar la grabación") {
