@@ -80,7 +80,7 @@ class StoryScreenTest {
         shot("2-cuento")
         rule.onNodeWithText("📤 Enviar", substring = true).assertIsDisplayed()
         rule.onNodeWithText("▶ Escuchar", substring = true).assertIsDisplayed()
-        rule.onNodeWithText("Grabar mi voz", substring = true).assertIsDisplayed()
+        rule.onNodeWithContentDescription("Grabar mi voz").assertIsDisplayed()
         rule.onNodeWithText("🎵 Música").assertIsDisplayed()
     }
 
@@ -156,11 +156,13 @@ class StoryScreenTest {
 
     @Test fun nadaSeSaleConLetraGrande() {
         val vm = prepare(1.3f); story(vm)
-        for (t in listOf("📤 Enviar", "▶ Escuchar", "Más ▾", "● Grabar", "🔊 Sonido", "🎵 Música")) insideRoot(t)
+        for (t in listOf("📤 Enviar", "▶ Escuchar", "Más ▾", "● Grabar", "✎ Escribir", "🔊 Sonido", "🎵 Música")) insideRoot(t)
         for (d in listOf("Deshacer", "Rehacer", "Volver a Mis cuentos")) insideRoot(d, byDescription = true)
         rule.onNodeWithText("Gato", substring = true).performClick(); rule.waitForIdle()
-        for (t in listOf("✂ Cortar aquí", "🎚 Voz graciosa", "🔉 Volumen", "▶ Oír", "🗑 Quitar", "✓ Listo")) insideRoot(t)
+        for (t in listOf("✂ Cortar aquí", "🔉 Volumen", "▶ Oír", "🗑 Quitar", "⋯ Más", "✓ Listo")) insideRoot(t)
         shot("8-letra-grande")
+        openMore()
+        rule.onNodeWithText("🎚 Voz graciosa", substring = true).assertIsDisplayed()
     }
 
     @Test fun lineaDeTiempoNoQuedaTapada() {

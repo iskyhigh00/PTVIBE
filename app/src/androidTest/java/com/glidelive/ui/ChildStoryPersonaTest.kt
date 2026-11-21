@@ -85,7 +85,7 @@ class ChildStoryPersonaTest {
             }
             if (vm.ui.value.recordingFor != null) {
                 shot("02-grabando")
-                click("Terminar", substring = true)
+                click("■ Terminar")
             }
         }
         waitFor("resultado al terminar la grabación") {
@@ -226,6 +226,7 @@ class ChildStoryPersonaTest {
             note("Reabrí y escuché cuento con dos voces, efecto y música.")
 
             click("📤 Enviar", true)
+            click("Enviar por WhatsApp u otra app")
             val dir = File(PrincessLibrary.dir(rule.activity, p), "enviar")
             waitFor("preparar audio para enviar", timeout = 35_000) {
                 vm.ui.value.busy == null && dir.listFiles().orEmpty().any { it.extension == "m4a" && it.length() > 2_000 }

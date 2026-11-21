@@ -367,11 +367,9 @@ private fun StoryEditor(
                 StoryTimeline(project, placements, position, playing, selectedId, zoom, enabled = u.busy == null && u.recordingFor == null,
                     onSelect = { selectedId = it }, onCursor = { vm.setCursor(it) }, onMove = { id, s, who -> vm.moveCueTo(id, s, who) },
                     onZoom = { f -> zoom = (zoom * f).coerceIn(8f, 120f) }, focusId = u.lastAddedId, peaks = u.peaks)
-                if (project.cues.isEmpty()) StoryEmptyHint(Modifier.align(Alignment.Center))
-                Column(Modifier.align(Alignment.BottomCenter)) {
-                    StoryNotices(vm, u, micDenied, { micPermission.launch(Manifest.permission.RECORD_AUDIO) })
-                }
+                if (project.cues.isEmpty() && !working && u.error == null && !micDenied) StoryEmptyHint(Modifier.align(Alignment.Center))
             }
+            StoryNotices(vm, u, micDenied, { micPermission.launch(Manifest.permission.RECORD_AUDIO) })
 
             if (project.cues.isNotEmpty() && androidx.compose.ui.platform.LocalDensity.current.fontScale <= 1.15f && u.recordingFor == null && u.busy == null && panel == null && u.notice == null && u.error == null && (selected == null || selected.cue.type == CueType.MUSIC))
                 Text(
@@ -415,13 +413,21 @@ private fun StoryTopBar(
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F6F5F), contentColor = Color.White),
             modifier = Modifier.height(48.dp).widthIn(min = 150.dp), contentPadding = pad,
         ) { Text(if (sounding) "■ Parar" else "▶ Escuchar ${clock(if (position >= DramaRenderer.totalSeconds(project) - 0.1) 0.0 else position)}", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
-        Button(onClick = { vm.export() }, enabled = project.cues.isNotEmpty() && !working, modifier = Modifier.height(48.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0), contentColor = Color.White), contentPadding = pad) { Text(if (androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.15f) "📤 Enviar" else "📤 Enviar cuento", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.semantics { contentDescription = "Enviar el cuento por WhatsApp u otra app" }) }
+        var exportMenu by remember { mutableStateOf(false) }
+        Box {
+            Button(onClick = { exportMenu = true }, enabled = project.cues.isNotEmpty() && !working,
+                modifier = Modifier.height(48.dp).semantics { contentDescription = "Enviar o guardar el cuento" },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0), contentColor = Color.White),
+                contentPadding = pad) { Text("📤 Enviar", fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
+            DropdownMenu(expanded = exportMenu, onDismissRequest = { exportMenu = false }) {
+                DropdownMenuItem(text = { Text("Enviar por WhatsApp u otra app") }, onClick = { exportMenu = false; vm.export() })
+                DropdownMenuItem(text = { Text("Guardar el cuento en mi teléfono") }, onClick = { exportMenu = false; vm.saveToPhone() })
+            }
+        }
         var more by remember { mutableStateOf(false) }
         Box {
             TextButton(onClick = { more = true }, modifier = Modifier.height(48.dp).semantics { contentDescription = "Más opciones" }, contentPadding = pad) { Text("Más ▾", fontSize = 15.sp) }
             DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
-                DropdownMenuItem(text = { Text("💾 Guardar el cuento en mi teléfono") }, enabled = project.cues.isNotEmpty() && !working, onClick = { more = false; vm.saveToPhone() })
                 DropdownMenuItem(text = { Text("⏮ Escuchar desde el principio") }, enabled = project.cues.isNotEmpty() && !working, onClick = { more = false; vm.playFromSeconds(0.0) })
                 DropdownMenuItem(text = { Text("Importar una voz desde el teléfono") }, enabled = !working, onClick = { more = false; onImportVoice() })
                 DropdownMenuItem(text = { Text("Alejar (ver todo el cuento)") }, onClick = { more = false; onZoomIn() })
@@ -435,16 +441,12 @@ private fun StoryTopBar(
 
 @Composable
 private fun StoryEmptyHint(modifier: Modifier) {
-                    Column(modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState()).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f), RoundedCornerShape(16.dp)).padding(18.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Tu cuento empieza aquí", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                        Text("1. Toca Grabar y cuenta una parte, o Escribir para usar una voz de la app.", style = MaterialTheme.typography.bodyLarge)
-                        Text("2. Con 👤 elige quién habla (el lobo, mamá…) y graba otra parte.", style = MaterialTheme.typography.bodyLarge)
-                        Text("3. Toca 🔊 Sonido o 🎵 Música para decorarlo.", style = MaterialTheme.typography.bodyLarge)
-                        Text("4. Toca un audio para cortarlo o moverlo.", style = MaterialTheme.typography.bodyLarge)
-                        Text("5. Toca ▶ Escuchar para oír todo tu cuento, y después 📤 Enviar para mandarlo por WhatsApp.", style = MaterialTheme.typography.bodyLarge)
-                        Text("Si te equivocas, toca ↶ para volver atrás. Tu cuento se guarda solo.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+    Column(modifier.heightIn(max = 140.dp).verticalScroll(rememberScrollState())
+        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp)).padding(14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Tu cuento empieza aquí", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text("Graba tu voz o escribe para que la app la lea. Agrega un sonido o música cuando quieras.", textAlign = TextAlign.Center)
+    }
 }
 
 @Composable
@@ -518,7 +520,9 @@ private fun StoryBottomBar(
                 busy = u.busy != null,
             )
             else -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                BigButton(if (androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.15f) "● Grabar" else if (pos > 0.05) "● Grabar ${clock(pos)}" else "● Grabar mi voz", RED, record, Modifier.weight(1.4f), enabled = u.busy == null)
+                BigButton("● Grabar", RED, record, Modifier.weight(1.2f).semantics {
+                    contentDescription = if (pos > 0.05) "Grabar mi voz desde ${clock(pos)}" else "Grabar mi voz"
+                }, enabled = u.busy == null)
                 FilledTonalButton(onClick = narrate, modifier = Modifier.height(52.dp).weight(1f), enabled = u.busy == null,
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) { Text("✎ Escribir", fontSize = 16.sp, maxLines = 1) }
                 SpeakerMenu(project, speakerId, onPick = { setSpeaker(it) }, onNew = { newCharacter() }, modifier = Modifier.weight(1f))

@@ -313,7 +313,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                     if (bed) CueMode.BED else CueMode.SEQ, if (bed) 0.5f else sfxVolume, 0, if (bed) 1.5f else 0f, if (bed) 2f else 0f,
                     startSeconds = if (bed) (atSeconds ?: 0.0).toFloat() else if (over) atSeconds!!.toFloat() else null))
                 val where = atSeconds ?: 0.0
-                _ui.update { it.copy(notice = if (bed) "Puse «$label» de fondo, suave, desde el minuto ${"%d:%02d".format(where.toInt() / 60, where.toInt() % 60)}. Se oye bajito mientras hablas." else "Agregué «$label» donde está la línea roja.") }
+                _ui.update { it.copy(notice = if (bed) "Puse «$label» de fondo desde ${"%d:%02d".format(where.toInt() / 60, where.toInt() % 60)}." else "Puse «$label» en la línea roja.") }
             }
             r.onFailure { e -> _ui.update { it.copy(error = if (noSpace(e)) friendly(e) else "No pude agregar ese sonido. Prueba con otro.") } }
             } finally { addingSound = false }
@@ -654,6 +654,8 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         val at = atSeconds ?: recordAt
         val replacement = replaceOnFinish
         replaceOnFinish = null
+        val wasInterrupted = interrupted
+        interrupted = false
         val who = _ui.value.recordingFor
         val p = _ui.value.current
         val frames = rec.stop(); recorder = null
@@ -678,16 +680,14 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
             val number = nextTakeNumber(_ui.value.current)
             val cue = takeCue(who, "Mi voz $number", take, at)
             if (replacement != null) {
-                interrupted = false
-                if (replaceVoice(p.id, replacement, cue)) return@launchSafe
-                // Si se quitó la pista mientras se guardaba la toma, conserva la grabación.
+                if (!wasInterrupted && !failed && replaceVoice(p.id, replacement, cue)) return@launchSafe
+                // No cambiar el original si faltó terminar la toma o si se quitó la pista.
                 addTo(p.id, cue)
-                _ui.update { it.copy(notice = "Guardé la nueva toma como una voz más.") }
+                _ui.update { it.copy(notice = "Guardé la nueva toma aparte. No cambié la voz anterior.") }
                 return@launchSafe
             }
             val startAt = at ?: ((_ui.value.current?.let { DramaRenderer.totalSeconds(it) } ?: 0.0) + 0.6)   // 0,6 s es el espacio con que entra una voz «a continuación»
-            _ui.update { it.copy(cursor = startAt + take.length, notice = if (interrupted) "Se detuvo la grabación porque saliste de la app. Tu voz hasta ahí quedó guardada." else if (peak < 3000) "Tu voz quedó guardada, pero se oyó muy bajito. Puedes grabar otra vez acercándote al micrófono, o tocar ▶ Escuchar para oírla." else "¡Listo! Tu voz quedó guardada y se oyó bien. Toca ▶ Escuchar para oírla.") }
-            interrupted = false
+            _ui.update { it.copy(cursor = startAt + take.length, notice = if (wasInterrupted) "Se detuvo la grabación al salir de la app. Guardé lo que alcanzaste a grabar." else if (peak < 3000) "Guardé tu voz. Se oye bajito. Acércate al micrófono si quieres grabarla otra vez." else "Guardé tu voz. Toca el audio para oírlo.") }
             addTo(p.id, cue)
             if (full) _ui.update { it.copy(notice = "Llegaste al máximo de 10 minutos seguidos. Lo grabado quedó guardado.") }
         }

@@ -14,7 +14,7 @@ runner_args=()
 if [[ -n "${GLIDELIVE_TEST_MIC_SINK:-}" ]]; then
     # Solo en CI. Las muestras sintéticas entran por el micrófono virtual de Android.
     # El altavoz usa otro sink para que la reproducción no entre en la grabación.
-    adb emu avd hostmicon
+    adb emu avd hostmicon || exit 1
     (
         sample=app/src/main/assets/pocket-voices/grave.wav
         while paplay --device="$GLIDELIVE_TEST_MIC_SINK" "$sample"; do :; done

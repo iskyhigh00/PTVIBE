@@ -90,7 +90,7 @@ class EngineerStoryPersonaTest {
             assertEquals(6f, checkNotNull(effectStart()), 0.01f)
             rule.onNode(hasContentDescription("Efecto Gato", substring = true)).performScrollTo().performClick()
             rule.onNodeWithText("↔ Mover").performClick()
-            rule.onNodeWithText("1 s después").performClick()
+            rule.onNodeWithText("1 s después ▶").assertIsDisplayed().performClick()
             rule.waitUntil(10_000) { effectStart() == 7f }
             rule.onNodeWithContentDescription("Deshacer").performClick()
             rule.waitUntil(10_000) { effectStart() == 6f }
@@ -107,7 +107,7 @@ class EngineerStoryPersonaTest {
             persisted.cues.forEach { assertTrue("Audio ausente: ${it.text}", File(folder, checkNotNull(it.file)).length() > 44) }
             shot("ingeniero-2-reabierto")
 
-            rule.onNodeWithContentDescription("Más opciones").performClick()
+            rule.onNodeWithContentDescription("Enviar o guardar el cuento").performClick()
             rule.onNodeWithText("Guardar el cuento en mi teléfono", substring = true).performClick()
             rule.waitUntil(25_000) { vm.ui.value.notice?.startsWith("Guardé tu cuento") == true || vm.ui.value.error != null }
             assertTrue(vm.ui.value.error.orEmpty(), vm.ui.value.error == null)

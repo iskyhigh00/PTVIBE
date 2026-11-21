@@ -193,7 +193,7 @@ class TeacherStoryPersonaTest {
         }
         rule.onNodeWithText("■ Parar").performClick()
 
-        rule.onNodeWithText("Más ▾").performClick()
+        rule.onNodeWithText("📤 Enviar").performClick()
         rule.onNodeWithText("Guardar el cuento en mi teléfono", substring = true).performClick()
         waitFor("encontrar M4A guardado en Música") { findSavedCuento(title) != null || vm.ui.value.error != null }
         val uri = findSavedCuento(title)
