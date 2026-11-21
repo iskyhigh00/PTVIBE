@@ -70,6 +70,23 @@ class DramaRendererTest {
         assertTrue("música más baja bajo la voz: $ducked < $loud", ducked < loud * 0.6)
     }
 
+    @Test fun onlyMarkedEffectsDuckDuringSpeechAndRecoverAfterwards() {
+        val p = project(
+            cue("m", CueType.MUSIC, 1f, mode = CueMode.BED, ch = null),
+            cue("v", CueType.VOICE, 1f, gap = 2f),
+            cue("rain", CueType.SFX, 6f, ch = null).copy(startSeconds = 0f, duckUnderVoice = true),
+            cue("knock", CueType.SFX, 1f, ch = null).copy(startSeconds = 2f),
+        )
+        val out = DramaRenderer.render(p, { c ->
+            constant(if (c.id == "rain") 8000 else 3000, c.seconds)
+        })
+        fun at(sec: Double) = out[(sec * DramaRenderer.RATE).toInt() * 2].toDouble()
+        assertEquals(11000.0, at(1.0), 10.0)
+        // Ganancia 0,35 solo para la lluvia: la voz, la música y el golpe conservan su nivel.
+        assertEquals(11800.0, at(2.5), 10.0)
+        assertEquals(11000.0, at(5.5), 20.0)
+    }
+
     @Test fun voicesAreLevelledWhenAsked() {
         val quiet = constant(4000, 1f)
         val g = DramaRenderer.voiceGain(quiet)
@@ -86,7 +103,12 @@ class DramaRendererTest {
     }
 
     @Test fun projectSurvivesJson() {
-        val p = project(cue("v1", CueType.VOICE, 2f, gap = 1.5f), cue("m", CueType.MUSIC, 4f, mode = CueMode.BED, ch = null, span = 3))
+        val p = project(
+            cue("v1", CueType.VOICE, 2f, gap = 1.5f),
+            cue("m", CueType.MUSIC, 4f, mode = CueMode.BED, ch = null, span = 3),
+            cue("rain", CueType.SFX, 4f, ch = null).copy(duckUnderVoice = true),
+            cue("knock", CueType.SFX, 1f, ch = null),
+        )
         val back = PrincessLibrary.parse(PrincessLibrary.toJson(p).toString())
         assertEquals(p, back)
     }

@@ -115,7 +115,7 @@ internal val ICON = mapOf(
 internal enum class Panel { SOUNDS, MUSIC, TONE, VOLUME, MOVE, CURSOR }
 
 /** Lo que se puede hacer con un audio elegido, además de los botones principales. */
-internal enum class CueAction { TRIM_START, TRIM_END, CURSOR, REMOVE_CLOSE, DUPLICATE, MUTE, FADE_IN, FADE_OUT, RENAME, TONE, RERECORD, REPLACE_FILE }
+internal enum class CueAction { TRIM_START, TRIM_END, CURSOR, REMOVE_CLOSE, DUPLICATE, MUTE, FADE_IN, FADE_OUT, DUCK, RENAME, TONE, RERECORD, REPLACE_FILE }
 
 /**
  * Cuentos: hacer el audio de un cuento. Pensada para quien la abre por primera vez: un botón rojo para grabar, sonidos y música
@@ -125,7 +125,7 @@ internal enum class CueAction { TRIM_START, TRIM_END, CURSOR, REMOVE_CLOSE, DUPL
 fun StoryScreen(
     vm: PrincessViewModel,
     modifier: Modifier = Modifier,
-    onNarrate: () -> Unit,
+    onNarrate: (String) -> Unit,
     onOtherMode: (() -> Unit)? = null,
     onUpdate: (() -> Unit)? = null,
 ) {
@@ -220,7 +220,7 @@ private fun MoreMenu(onOtherMode: (() -> Unit)?, onUpdate: (() -> Unit)?) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun StoryEditor(
-    vm: PrincessViewModel, project: Project, onBack: () -> Unit, onNarrate: () -> Unit, modifier: Modifier,
+    vm: PrincessViewModel, project: Project, onBack: () -> Unit, onNarrate: (String) -> Unit, modifier: Modifier,
     onOtherMode: (() -> Unit)?, onUpdate: (() -> Unit)?,
 ) {
     val u by vm.ui.collectAsState()
@@ -371,7 +371,7 @@ private fun StoryEditor(
 
             // ── Barra de abajo: cambia según lo que se esté haciendo ──
             StoryBottomBar(vm, project, u, selected, panel, { panel = it }, { selectedId = it }, playing, clk.pos, speakerId, { speaker = it }, { newCharacter = true }, { record() }, { confirmDiscard = true }, { renamingCue = it },
-                onNarrate, { record(it) }, { pickFile(CueType.VOICE, it.characterId, it.id) })
+                { onNarrate(speakerId) }, { record(it) }, { pickFile(CueType.VOICE, it.characterId, it.id) })
         }
 
         // ── Hojas encima ──
@@ -491,7 +491,14 @@ private fun StoryBottomBar(
                 } else null)
             selected != null && panel == Panel.CURSOR -> InlineCursor(position = pos, onNudge = { vm.nudgeCursor(it) }, onListen = { vm.listenAround() }, onDone = { setPanel(null) })
             selected != null && panel == Panel.TONE -> InlineTone(selected.cue, onPick = { vm.setTone(selected.cue.id, it) }, onListen = { vm.previewCue(selected.cue.id) }, onDone = { setPanel(null) }, busy = u.busy != null)
-            selected != null && panel == Panel.VOLUME -> InlineVolume(selected.cue, onSet = { v -> vm.editTimelineCue(selected.cue.id) { c -> c.copy(volume = v) } }, onListen = { vm.previewCue(selected.cue.id) }, onDone = { setPanel(null) })
+            selected != null && panel == Panel.VOLUME -> InlineVolume(
+                selected.cue,
+                onSet = { v -> vm.editTimelineCue(selected.cue.id) { c -> c.copy(volume = v) } },
+                onMix = { vm.listenAround(if (pos in selected.start..selected.end) pos else selected.start) },
+                onSolo = { vm.previewCue(selected.cue.id) },
+                onDone = { setPanel(null) },
+                busy = u.busy != null,
+            )
             selected != null -> SelectionBar(
                 selected.cue,
                 onCut = { if (playing) { vm.setCursor(clkPos); vm.stop() } else if (u.previewing) vm.stop(); vm.cutAtCursor(selected.cue.id) },
@@ -510,6 +517,7 @@ private fun StoryBottomBar(
                         CueAction.MUTE -> vm.toggleMute(id)
                         CueAction.FADE_IN -> vm.toggleFade(id, true)
                         CueAction.FADE_OUT -> vm.toggleFade(id, false)
+                        CueAction.DUCK -> vm.editTimelineCue(id) { it.copy(duckUnderVoice = !it.duckUnderVoice) }
                         CueAction.RENAME -> rename(id)
                         CueAction.TONE -> setPanel(Panel.TONE)
                         CueAction.RERECORD -> rerecord(selected.cue)
@@ -602,6 +610,9 @@ private fun SelectionBar(cue: Cue, onCut: () -> Unit, onMove: () -> Unit, onVolu
                 item("⤵ Quitar este pedacito y juntar el resto" + (if (cue.type == CueType.VOICE) "" else " (solo en pedacitos de voz)"), CueAction.REMOVE_CLOSE, cue.type == CueType.VOICE)()
                 item("⧉ Hacer una copia", CueAction.DUPLICATE)()
                 item(if (cue.muted) "🔊 Activar este audio" else "🔇 Silenciar este audio (sin borrarlo)", CueAction.MUTE)()
+                if (cue.type == CueType.SFX) {
+                    item((if (cue.duckUnderVoice) "✓ " else "") + "Bajar mientras hay voz", CueAction.DUCK)()
+                }
                 item((if (cue.fadeIn > 0f) "✓ " else "") + "Que empiece bajito y suba", CueAction.FADE_IN)()
                 item((if (cue.fadeOut > 0f) "✓ " else "") + "Que termine bajito", CueAction.FADE_OUT)()
                 item("✎ Cambiar el nombre", CueAction.RENAME)()

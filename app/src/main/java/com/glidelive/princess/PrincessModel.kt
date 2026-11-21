@@ -55,6 +55,8 @@ data class Cue(
     val toneSteps: Int = 0,
     /** Archivo original antes de aplicar el tono (para poder volver a "Normal" sin perder calidad). */
     val sourceFile: String? = null,
+    /** Reduce este efecto durante las voces. Los ambientes del catálogo lo activan al agregarse. */
+    val duckUnderVoice: Boolean = false,
 )
 
 data class Project(
@@ -166,6 +168,7 @@ object PrincessLibrary {
             c.durationSeconds?.let { put("durationSeconds", it.toDouble()) }
             put("trimStart", c.trimStart.toDouble()); put("muted", c.muted); put("loop", c.loop)
             put("toneSteps", c.toneSteps); c.sourceFile?.let { put("sourceFile", it) }
+            if (c.duckUnderVoice) put("duckUnderVoice", true)
         }) })
     }
 
@@ -188,7 +191,8 @@ object PrincessLibrary {
                 it.optDouble("durationSeconds").takeIf { value -> value.isFinite() && value >= 0 }?.toFloat(),
                 it.optDouble("trimStart", 0.0).takeIf { value -> value.isFinite() && value >= 0 }?.toFloat() ?: 0f,
                 it.optBoolean("muted", false), it.optBoolean("loop", false),
-                it.optInt("toneSteps", 0).coerceIn(-2, 2), it.optString("sourceFile").ifEmpty { null }) } },
+                it.optInt("toneSteps", 0).coerceIn(-2, 2), it.optString("sourceFile").ifEmpty { null },
+                it.optBoolean("duckUnderVoice", false)) } },
             o.optBoolean("normalizeVoices", true), o.optBoolean("duckMusic", true),
         )
     }

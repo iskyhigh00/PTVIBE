@@ -81,6 +81,7 @@ fun VoiceStudioScreen(
     onDocument: (TextFieldValue) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    initialCharacterId: String? = null,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -88,7 +89,9 @@ fun VoiceStudioScreen(
     val focus = LocalFocusManager.current
     val directory = remember { File(app.cacheDir, "princess-narration-${UUID.randomUUID()}") }
     var installed by remember { mutableStateOf(NarrationPack.isReady(app)) }
-    var characterId by remember(project.id) { mutableStateOf(project.characters.firstOrNull()?.id) }
+    var characterId by remember(project.id, initialCharacterId) {
+        mutableStateOf(project.characters.firstOrNull { it.id == initialCharacterId }?.id ?: project.characters.firstOrNull()?.id)
+    }
     val character = project.characters.firstOrNull { it.id == characterId }
     val initialPreset = NarrationPresets.find(character?.narrationPresetId)
         ?: NarrationPresets.default

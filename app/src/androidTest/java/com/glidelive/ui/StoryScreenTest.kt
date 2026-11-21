@@ -288,6 +288,10 @@ class StoryScreenTest {
         waitFor("silenciado") { cue(vm, "s1").muted }
         openMore(); rule.onNodeWithText("Que empiece bajito y suba", substring = true).performClick()
         waitFor("entrada suave") { cue(vm, "s1").fadeIn > 0f }
+        openMore(); rule.onNodeWithText("Bajar mientras hay voz").performClick()
+        waitFor("efecto baja bajo voces al activarlo") { cue(vm, "s1").duckUnderVoice }
+        openMore(); rule.onNodeWithText("✓ Bajar mientras hay voz").performClick()
+        waitFor("efecto recupera nivel fijo al desactivarlo") { !cue(vm, "s1").duckUnderVoice }
     }
 
     @Test fun recuperaUnaTomaQueQuedoAMedias() {
