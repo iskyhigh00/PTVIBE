@@ -36,7 +36,7 @@ class EngineerStoryPersonaTest {
     @get:Rule val rule = createAndroidComposeRule<ComponentActivity>()
 
     @OptIn(ExperimentalTestApi::class)
-    @Test fun editsTwoCharactersAndSavesTheMixedStory() {
+    @Test fun measuresKnownTestSignalsAfterEditingAndExporting() {
         val vm = ViewModelProvider(rule.activity)[PrincessViewModel::class.java]
         val ctx = rule.activity
         val title = "Bosque de prueba ${System.nanoTime()}"
@@ -131,8 +131,6 @@ class EngineerStoryPersonaTest {
             }
             assertTrue("No se encontró un audio en MediaStore", saved != null)
             saved?.let { resolver.delete(it, null, null) }
-            val artifactDir = File(ctx.getExternalFilesDir(null), "shots").apply { mkdirs() }
-            exported.copyTo(File(artifactDir, "ingeniero-mezcla.m4a"), overwrite = true)
         } finally {
             fixtures.forEach { it.delete() }
             vm.refreshSounds()
