@@ -173,7 +173,7 @@ internal fun SoundsSheet(vm: PrincessViewModel, u: PrincessUi, onClose: () -> Un
                         for (sound in u.soundGroups.firstOrNull { it.name == group }?.sounds.orEmpty()) {
                             SoundTile(ICON[sound.id] ?: "🔊", sound.label,
                                 onListen = { vm.clipFor(sound.id)?.let(vm::previewFile) },
-                                onAdd = { vm.heardOrNext(sound.id)?.let { vm.addSoundFile(it, sound.label, CueType.SFX, vm.overlayTime()) } })
+                                onAdd = { vm.heardOrNext(sound.id)?.let { vm.addSoundFile(it, sound.label, CueType.SFX, vm.overlayTime(), ambient = sound.ambient) } })
                         }
                     }
                 }

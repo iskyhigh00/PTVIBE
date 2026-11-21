@@ -16,8 +16,19 @@ if [[ -n "${GLIDELIVE_TEST_MIC_SINK:-}" ]]; then
     # El altavoz usa otro sink para que la reproducción no entre en la grabación.
     adb emu avd hostmicon || exit 1
     (
-        sample=app/src/main/assets/pocket-voices/grave.wav
-        while paplay --device="$GLIDELIVE_TEST_MIC_SINK" "$sample"; do :; done
+        shots=/sdcard/Android/data/com.glidelive/files/shots
+        last=
+        while true; do
+            request=$(adb exec-out cat "$shots/mic-request" 2>/dev/null) || request=
+            read -r voice token <<< "$request"
+            if [[ ( "$voice" == narrador || "$voice" == rana ) && "$token" =~ ^[0-9]+$ && "$token" != "$last" ]]; then
+                last=$token
+                if paplay --device="$GLIDELIVE_TEST_MIC_SINK" "scripts/fixtures/story-voices/$voice.wav"; then
+                    adb shell "printf '%s' '$token' > '$shots/mic-complete'"
+                fi
+            fi
+            sleep 0.15
+        done
     ) &
     mic_feeder=$!
     runner_args+=("-Pandroid.testInstrumentationRunnerArguments.storyMicInjected=true")

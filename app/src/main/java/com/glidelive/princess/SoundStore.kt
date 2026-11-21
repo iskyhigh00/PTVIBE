@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /** Sonidos que trae la app para armar la obra: efectos (animales, ambiente, puertas…) y música de fondo. */
 object SoundCatalog {
-    data class Sound(val id: String, val label: String)
+    data class Sound(val id: String, val label: String, val ambient: Boolean = false)
     data class Group(val name: String, val sounds: List<Sound>)
     data class Track(val file: String, val label: String)
 
@@ -27,11 +27,11 @@ object SoundCatalog {
         Group("Animales", listOf(
             Sound("dog", "Perro"), Sound("cat", "Gato"), Sound("rooster", "Gallo"), Sound("hen", "Gallina"), Sound("pig", "Cerdo"),
             Sound("cow", "Vaca"), Sound("sheep", "Oveja"), Sound("frog", "Rana"),
-            Sound("chirping_birds", "Pajaritos"), Sound("insects", "Insectos"), Sound("crickets", "Grillos"),
+            Sound("chirping_birds", "Pajaritos", ambient = true), Sound("insects", "Insectos", ambient = true), Sound("crickets", "Grillos", ambient = true),
         )),
         Group("Naturaleza", listOf(
-            Sound("rain", "Lluvia"), Sound("thunderstorm", "Tormenta"), Sound("wind", "Viento"), Sound("sea_waves", "Olas del mar"),
-            Sound("crackling_fire", "Fogata"), Sound("water_drops", "Gotitas"), Sound("pouring_water", "Agua"),
+            Sound("rain", "Lluvia", ambient = true), Sound("thunderstorm", "Tormenta"), Sound("wind", "Viento", ambient = true), Sound("sea_waves", "Olas del mar", ambient = true),
+            Sound("crackling_fire", "Fogata", ambient = true), Sound("water_drops", "Gotitas"), Sound("pouring_water", "Agua"),
         )),
         Group("Personas", listOf(
             Sound("laughing", "Risas"), Sound("crying_baby", "Bebé llora"), Sound("clapping", "Aplausos"), Sound("footsteps", "Pasos"),

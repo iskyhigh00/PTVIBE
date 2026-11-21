@@ -28,4 +28,25 @@ class NarrationTailTest {
         assertTrue(mix[finalFrame * 2 + 1] > 15000)
         assertEquals(source.size / 24000.0, DramaRenderer.totalSeconds(p), 1e-6)
     }
+
+    @Test fun aVoiceWithoutAFadeRetainsItsLastFrame() {
+        val cue = Cue("voice", CueType.VOICE, seconds = 1f, gap = 0f)
+        val p = Project("p", "Final", emptyList(), listOf(cue), normalizeVoices = false)
+        val source = ShortArray(DramaRenderer.RATE).also { it[it.lastIndex] = 3072 }
+        val mix = DramaRenderer.render(p, { Clip(source, 1, DramaRenderer.RATE) })
+        assertEquals(3072, mix[2 * (source.size - 1)].toInt())
+    }
+
+    @Test fun anAmbientClipReachesSilenceAtTheTwoMixBoundaries() {
+        val rate = DramaRenderer.RATE
+        val cue = Cue("rain", CueType.SFX, seconds = 5f, gap = 0f, fadeIn = .8f, fadeOut = 1.2f)
+        val p = Project("p", "Lluvia", emptyList(), listOf(cue))
+        val source = ShortArray(rate * 5) { 8000 }
+        val mix = DramaRenderer.render(p, { Clip(source, 1, rate) })
+        assertEquals(0, mix[0].toInt())
+        assertEquals(4000.0, mix[(.4 * rate).toInt() * 2].toDouble(), 2.0)
+        assertEquals(8000, mix[rate * 2].toInt())
+        assertEquals(4000.0, mix[(4.4 * rate).toInt() * 2].toDouble(), 2.0)
+        assertEquals(0, mix[(source.size - 1) * 2].toInt())
+    }
 }

@@ -279,7 +279,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         if (_ui.value.loaded && !previewing && _clock.value.dur > 0) seek(v.coerceAtMost(_clock.value.dur))
     }
 
-    fun addSoundFile(file: File, label: String, type: CueType, atSeconds: Double? = null) {
+    fun addSoundFile(file: File, label: String, type: CueType, atSeconds: Double? = null, ambient: Boolean = false) {
         val p = _ui.value.current ?: return
         if (addingSound) return
         addingSound = true
@@ -295,7 +295,9 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                         Pair(f.name, AudioDecoder.decode(f).seconds.toFloat())
                     } else {
                         val d = AudioDecoder.decode(file)
-                        val pcm = WavIo.trimSilence(d.pcm, d.rate, threshold = 350, marginSec = 0.06f, channels = d.channels)
+                        // Un ambiente ya tiene sus propias transiciones y textura suave.
+                        val pcm = if (ambient) d.pcm else WavIo.trimSilence(d.pcm, d.rate,
+                            threshold = 350, marginSec = 0.06f, channels = d.channels)
                         val f = File(PrincessLibrary.dir(app, p), "$id.wav")
                         WavIo.write(f, pcm, d.channels, d.rate)
                         // Los efectos se igualan: su pico queda cerca de la mitad, para que un ladrido no tape la voz.
@@ -310,7 +312,9 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
                 val over = atSeconds != null && !bed
                 // "Encima": posición absoluta en el timeline; el resto de las pistas no se mueve.
                 addTo(p.id, Cue(PrincessLibrary.newId(), type, null, label, name, sec, if (bed) 0f else 0.5f,
-                    if (bed) CueMode.BED else CueMode.SEQ, if (bed) 0.5f else sfxVolume, 0, if (bed) 1.5f else 0f, if (bed) 2f else 0f,
+                    if (bed) CueMode.BED else CueMode.SEQ, if (bed) 0.5f else sfxVolume, 0,
+                    fadeIn = if (bed) 1.5f else if (ambient) minOf(0.8f, sec / 3) else 0f,
+                    fadeOut = if (bed) 2f else if (ambient) minOf(1.2f, sec / 3) else 0f,
                     startSeconds = if (bed) (atSeconds ?: 0.0).toFloat() else if (over) atSeconds!!.toFloat() else null))
                 val where = atSeconds ?: 0.0
                 _ui.update { it.copy(notice = if (bed) "Puse «$label» de fondo desde ${"%d:%02d".format(where.toInt() / 60, where.toInt() % 60)}." else "Puse «$label» en la línea roja.") }
@@ -648,7 +652,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         _ui.update { it.copy(recordingFor = null, recLevel = 0f) }
     }
 
-    /** Termina la grabación y agrega la voz en la línea roja (o a continuación). El silencio de los extremos se saltea sin borrar nada del audio. */
+    /** Termina la grabación y agrega la voz en la línea roja (o a continuación), conservando los extremos de la toma. */
     fun finishRecording(atSeconds: Double? = null) {
         val rec = recorder ?: return
         val at = atSeconds ?: recordAt
@@ -675,7 +679,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         }
         finishing += file.name
         launchSafe {
-            val take = try { withContext(Dispatchers.IO) { takeFrom(file, p.id) } } finally { finishing -= file.name }
+            val take = try { withContext(Dispatchers.IO) { takeFrom(file) } } finally { finishing -= file.name }
             if (take == null) { _ui.update { it.copy(error = "No pude guardar la grabación ahora, pero no se perdió: se recuperará al abrir el cuento otra vez.") }; return@launchSafe }
             val number = nextTakeNumber(_ui.value.current)
             val cue = takeCue(who, "Mi voz $number", take, at)
@@ -717,25 +721,21 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Una toma ya guardada: archivo definitivo, duración total y la parte con voz (sin los silencios de los extremos). */
-    private class Take(val file: String, val total: Float, val from: Float, val length: Float)
+    private class Take(val file: String, val length: Float)
 
-    /** Convierte una toma «grabando_…» en un audio definitivo. Se lee por partes (cabe una toma de 10 min) y nunca se descarta: si no hay silencios que saltear, se usa entera. */
-    private fun takeFrom(grabando: File, projectId: String): Take? {
+    /** Conserva la toma completa. Un umbral de volumen cortaría consonantes suaves y susurros. */
+    private fun takeFrom(grabando: File): Take? {
         val region = WavIo.dataRegion(grabando) ?: return null
-        val rate = region.rate
-        val total = region.frames
-        val bounds = WavIo.scanBounds(grabando) ?: WavIo.scanBounds(grabando, threshold = 150) ?: Triple(0L, total, total)
         val name = "voz_${PrincessLibrary.newId()}.wav"
         if (!grabando.renameTo(File(grabando.parentFile, name))) return null
         val definitivo = File(grabando.parentFile, name)
         definitivo.setLastModified(System.currentTimeMillis())   // el renombre conserva la fecha vieja: así la limpieza no lo confunde con un sobrante
         runCatching { WavIo.repairHeader(definitivo) }
-        return Take(name, total.toFloat() / rate, bounds.first.toFloat() / rate, (bounds.second - bounds.first).toFloat() / rate)
+        return Take(name, region.frames.toFloat() / region.rate)
     }
 
     private fun takeCue(who: String, title: String, t: Take, at: Double?) =
-        Cue(PrincessLibrary.newId(), CueType.VOICE, who, title, t.file, t.total, 0.6f, startSeconds = at?.toFloat(), durationSeconds = t.length, trimStart = t.from)
+        Cue(PrincessLibrary.newId(), CueType.VOICE, who, title, t.file, t.length, 0.6f, startSeconds = at?.toFloat(), durationSeconds = t.length)
 
     private fun nextTakeNumber(p: Project?): Int =
         (p?.cues.orEmpty().mapNotNull { Regex("^Mi voz (\\d+)$").find(it.text)?.groupValues?.get(1)?.toIntOrNull() }.maxOrNull() ?: 0) + 1
@@ -749,7 +749,7 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
             if (f.name in finishing || f.name == recordingFile?.name) continue   // la que se está grabando o guardando ahora no se toca
             if (f.length() < 44 + MicRecorder.RATE / 5 * 2) { f.delete(); continue }   // menos de 0,2 s: no hay nada que recuperar
             val who = f.name.removePrefix("grabando_").substringBeforeLast("_").takeIf { id -> p.characters.any { it.id == id } } ?: first
-            val take = withContext(Dispatchers.IO) { runCatching { takeFrom(f, p.id) }.getOrNull() }
+            val take = withContext(Dispatchers.IO) { runCatching { takeFrom(f) }.getOrNull() }
             if (take == null) continue   // no se borra: se intentará de nuevo la próxima vez
             addTo(p.id, takeCue(who, "Toma recuperada", take, null))
             _ui.update { it.copy(notice = "Recuperé una grabación que quedó a medias. Está al final de tu cuento.") }

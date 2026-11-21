@@ -63,7 +63,7 @@ class ChildStoryPersonaTest {
         rule.onNodeWithContentDescription("Abrir $title").performScrollTo().performClick()
     }
 
-    private fun captureVoice(vm: PrincessViewModel, replace: Cue? = null): Boolean {
+    private fun captureVoice(vm: PrincessViewModel, sentence: String, replace: Cue? = null): Boolean {
         val before = vm.ui.value.current!!.cues.size
         fun changed(): Boolean {
             val cues = vm.ui.value.current!!.cues
@@ -78,10 +78,19 @@ class ChildStoryPersonaTest {
         }
         waitFor("iniciar micrófono") { vm.ui.value.recordingFor != null || vm.ui.value.error != null }
         if (vm.ui.value.recordingFor != null) {
-            waitFor("capturar micrófono") {
-                val state = vm.ui.value
-                state.recordingFor == null || state.recSeconds >= 4f ||
-                    (state.recSeconds >= 1.7f && (!micInjected || state.recPeak >= .015f))
+            if (micInjected) {
+                val token = android.os.SystemClock.elapsedRealtimeNanos().toString()
+                File(output(), "mic-request").writeText("$sentence $token")
+                val complete = File(output(), "mic-complete")
+                waitFor("que el micrófono reciba la frase completa") {
+                    complete.isFile && complete.readText() == token
+                }
+                val after = vm.ui.value.recSeconds + .45f
+                waitFor("capturar la última palabra y su cola") { vm.ui.value.recSeconds >= after }
+            } else {
+                waitFor("capturar micrófono") {
+                    vm.ui.value.recordingFor == null || vm.ui.value.recSeconds >= 1.7f
+                }
             }
             if (vm.ui.value.recordingFor != null) {
                 shot("02-grabando")
@@ -150,14 +159,14 @@ class ChildStoryPersonaTest {
             note("Creé y nombré el cuento por la pantalla, y encontré Escribir junto a Grabar.")
             val first = p.characters.first().id
             val captured = mutableSetOf<String>()
-            if (captureVoice(vm)) captured += first
+            if (captureVoice(vm, "narrador")) captured += first
             rule.onNodeWithContentDescription("Quién habla:", substring = true).performClick()
             click("Personaje nuevo", true)
             rule.onNode(hasSetTextAction()).performTextInput("Rana")
             click("Agregar")
             waitFor("crear a Rana") { vm.ui.value.current!!.characters.any { it.name == "Rana" } }
             val frog = vm.ui.value.current!!.characters.first { it.name == "Rana" }.id
-            if (captureVoice(vm)) captured += frog
+            if (captureVoice(vm, "rana")) captured += frog
             recoverMissingVoices(vm, title, captured)
             assertEquals(setOf(first, frog), vm.ui.value.current!!.cues.filter { it.type == CueType.VOICE }.mapNotNull { it.characterId }.toSet())
             note("Dos personajes conservan su voz en carriles separados.")
@@ -173,6 +182,8 @@ class ChildStoryPersonaTest {
             addRain.performClick()
             val rainCue = awaitCue(vm, CueType.SFX)
             assertEquals(beforeRain, rainCue.startSeconds!!.toDouble(), .11)
+            assertEquals("La lluvia entra de a poco", .8f, rainCue.fadeIn, .001f)
+            assertEquals("La lluvia no termina de golpe", 1.2f, rainCue.fadeOut, .001f)
             note("Escuché y puse Lluvia desde el catálogo incluido, sin descargar ni sembrar el paquete.")
             shot("04-poner-lluvia")
             if (shown("Listo")) click("Listo")
@@ -195,7 +206,7 @@ class ChildStoryPersonaTest {
                 val original = vm.ui.value.current!!
                 val voice = original.cues.first { it.type == CueType.VOICE && it.characterId == frog }
                 val starts = DramaRenderer.layout(original).associate { it.cue.id to it.start }
-                captureVoice(vm, replace = voice)
+                captureVoice(vm, "rana", replace = voice)
                 val current = vm.ui.value.current!!
                 val updatedStarts = DramaRenderer.layout(current).associate { it.cue.id to it.start }
                 assertEquals(starts.keys, updatedStarts.keys)
@@ -235,6 +246,13 @@ class ChildStoryPersonaTest {
             val decoded = AudioDecoder.decode(sent)
             assertTrue("El archivo exportado es audible y conserva la historia", decoded.seconds > 2.0 && decoded.pcm.any { kotlin.math.abs(it.toInt()) > 300 })
             sent.copyTo(File(output(), "nino-la-rana-y-la-lluvia.m4a"), overwrite = true)
+            if (micInjected) for (voice in vm.ui.value.current!!.cues.filter { it.type == CueType.VOICE }) {
+                assertEquals("La toma se oye desde la primera muestra", 0f, voice.trimStart, .0001f)
+                assertEquals(voice.seconds, checkNotNull(voice.durationSeconds), .0001f)
+                val role = if (voice.characterId == frog) "rana" else "narrador"
+                File(PrincessLibrary.dir(rule.activity, p), requireNotNull(voice.file))
+                    .copyTo(File(output(), "grabacion-$role.wav"), overwrite = true)
+            }
             shot("07-enviar")
             note("Enviar generó M4A reproducible (${decoded.seconds} s, ${sent.length()} bytes).")
         } finally {

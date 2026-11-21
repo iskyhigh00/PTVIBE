@@ -194,12 +194,13 @@ object DramaRenderer {
         val sourceStart = min(trimFrames.toInt(), clip.frames - 1)
         val trimFrac = if (trimFrames.toInt() < clip.frames - 1) trimFrames - trimFrames.toInt() else 0.0
         val sourceFrames = clip.frames - sourceStart
+        val playableFrames = sourceFrames - trimFrac
         val first = max(0, from - startF)
         val last = min(len, from + n - startF)
         var pos = first * step
         for (i in first until last) {
             var sp = pos
-            if (loop) sp %= (sourceFrames - trimFrac).coerceAtLeast(1.0) else if (sp >= sourceFrames - 1) break
+            if (loop) sp %= playableFrames else if (sp >= playableFrames) break
             sp += sourceStart + trimFrac
             val i0 = min(sp.toInt(), clip.frames - 1)   // el redondeo de Double no debe dejar pasar al índice del final
             val i1 = if (i0 + 1 < clip.frames) i0 + 1 else if (loop) sourceStart else i0
@@ -213,7 +214,8 @@ object DramaRenderer {
             }
             var e = 1f
             if (fadeInF > 0 && i < fadeInF) e = i.toFloat() / fadeInF
-            if (fadeOutF > 0 && len - i < fadeOutF) e = min(e, (len - i).toFloat() / fadeOutF)
+            val remaining = len - 1 - i
+            if (fadeOutF > 0 && remaining < fadeOutF) e = min(e, remaining.toFloat() / fadeOutF)
             if (c.type == CueType.MUSIC && duck != null) {
                 val pos100 = (startF + i) / (RATE / 100.0)
                 val k = min(duck.size - 1, pos100.toInt()); val k2 = min(duck.size - 1, k + 1)
