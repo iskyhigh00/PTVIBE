@@ -286,11 +286,11 @@ class StoryScreenTest {
         rule.onAllNodesWithText("Gato", substring = true)[0].performClick(); rule.waitForIdle()
         openMore(); rule.onNodeWithText("Silenciar este audio", substring = true).performClick()
         waitFor("silenciado") { cue(vm, "s1").muted }
-        openMore(); rule.onNodeWithText("Que empiece bajito y suba", substring = true).performClick()
+        openMore(); rule.onNodeWithText("Que empiece bajito y suba", substring = true).performScrollTo().assertIsDisplayed().performClick()
         waitFor("entrada suave") { cue(vm, "s1").fadeIn > 0f }
-        openMore(); rule.onNodeWithText("Bajar mientras hay voz").performClick()
+        openMore(); rule.onNodeWithText("Bajar mientras hay voz").performScrollTo().assertIsDisplayed().performClick()
         waitFor("efecto baja bajo voces al activarlo") { cue(vm, "s1").duckUnderVoice }
-        openMore(); rule.onNodeWithText("✓ Bajar mientras hay voz").performClick()
+        openMore(); rule.onNodeWithText("✓ Bajar mientras hay voz").performScrollTo().assertIsDisplayed().performClick()
         waitFor("efecto recupera nivel fijo al desactivarlo") { !cue(vm, "s1").duckUnderVoice }
     }
 

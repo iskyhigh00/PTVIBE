@@ -610,12 +610,12 @@ private fun SelectionBar(cue: Cue, onCut: () -> Unit, onMove: () -> Unit, onVolu
                 item("⤵ Quitar este pedacito y juntar el resto" + (if (cue.type == CueType.VOICE) "" else " (solo en pedacitos de voz)"), CueAction.REMOVE_CLOSE, cue.type == CueType.VOICE)()
                 item("⧉ Hacer una copia", CueAction.DUPLICATE)()
                 item(if (cue.muted) "🔊 Activar este audio" else "🔇 Silenciar este audio (sin borrarlo)", CueAction.MUTE)()
-                if (cue.type == CueType.SFX) {
-                    item((if (cue.duckUnderVoice) "✓ " else "") + "Bajar mientras hay voz", CueAction.DUCK)()
-                }
                 item((if (cue.fadeIn > 0f) "✓ " else "") + "Que empiece bajito y suba", CueAction.FADE_IN)()
                 item((if (cue.fadeOut > 0f) "✓ " else "") + "Que termine bajito", CueAction.FADE_OUT)()
                 item("✎ Cambiar el nombre", CueAction.RENAME)()
+                if (cue.type == CueType.SFX) {
+                    item((if (cue.duckUnderVoice) "✓ " else "") + "Bajar mientras hay voz", CueAction.DUCK)()
+                }
             }
         }
         Button(onClick = onDone, modifier = Modifier.height(48.dp).widthIn(min = 48.dp), contentPadding = pad, shape = storyControlShape,
