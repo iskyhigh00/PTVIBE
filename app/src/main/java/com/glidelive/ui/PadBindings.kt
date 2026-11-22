@@ -53,7 +53,7 @@ object PadBindings {
         K_S to Pads.CRASH, K_D to Pads.RIDE, K_F to Pads.BELL, K_G to Pads.SPLASH,
         K_Q to Pads.GUIRO_SHORT, K_W to Pads.GUIRO_LONG, K_E to Pads.MARACAS, K_R to Pads.CONGA,
         K_T to Pads.QUINTO, K_Y to Pads.TUMBA, K_U to Pads.BONGO, K_I to Pads.COWBELL,
-    ) + (0 until Pads.combos.size).associate { (K_1 + it) to (Pads.COUNT + it) }
+    ) + (Pads.COMBO_KICK_CRASH..Pads.COMBO_KICK_COWBELL).associate { (K_1 + it - Pads.COMBO_KICK_CRASH) to it }
 
     private val _state = MutableStateFlow(State(defaultMidi(), defaultKeys()))
     val state: StateFlow<State> = _state

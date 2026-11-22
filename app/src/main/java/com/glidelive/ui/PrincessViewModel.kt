@@ -928,6 +928,10 @@ class PrincessViewModel(private val app: Application) : AndroidViewModel(app) {
         else moved
     }
 
+    fun resizeCue(id: String, startEdge: Boolean, at: Double) = edit { cur ->
+        TimelineOps.resize(cur, id, startEdge, at.coerceIn(0.0, DramaRenderer.totalSeconds(cur) + 30.0))
+    }
+
     /** Cambia el tono de una grabación sin cambiar su velocidad. [steps]: −2 muy grave … 0 normal … +2 muy aguda. */
     fun setTone(id: String, steps: Int) {
         val p = _ui.value.current ?: return

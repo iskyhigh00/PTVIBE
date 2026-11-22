@@ -91,6 +91,35 @@ object TimelineOps {
         val anchored = DramaRenderer.anchorTimeline(p)
         return anchored.copy(cues = anchored.cues.map { if (it.id == cueId) it.copy(startSeconds = max(0.0, start).toFloat()) else it })
     }
+
+    /** Límites del borde según las muestras disponibles en el archivo original. */
+    fun resizeBounds(place: Placement, pitch: Float, startEdge: Boolean): ClosedFloatingPointRange<Double>? {
+        val cue = place.cue
+        if (cue.file == null || cue.type == CueType.SILENCE || place.end - place.start < MIN_PIECE) return null
+        val repeats = cue.loop || cue.mode == CueMode.BED
+        val speed = DramaRenderer.pitchFactor(pitch)
+        return if (startEdge) {
+            if (repeats) null else (place.start - cue.trimStart / speed).coerceAtLeast(0.0)..(place.end - MIN_PIECE)
+        } else {
+            val sourceEnd = place.start + (cue.seconds - cue.trimStart).coerceAtLeast(0f) / speed
+            (place.start + MIN_PIECE)..(if (repeats) Double.POSITIVE_INFINITY else max(place.end, sourceEnd))
+        }
+    }
+
+    fun resize(p: Project, cueId: String, startEdge: Boolean, at: Double): Project {
+        val anchored = DramaRenderer.anchorTimeline(p)
+        val place = DramaRenderer.layout(anchored).firstOrNull { it.cue.id == cueId } ?: return p
+        val pitch = DramaRenderer.pitchOf(anchored, place.cue)
+        val bounds = resizeBounds(place, pitch, startEdge) ?: return p
+        val edge = at.coerceIn(bounds)
+        if (kotlin.math.abs(edge - if (startEdge) place.start else place.end) < 0.001) return p
+        val start = if (startEdge) edge else place.start
+        val end = if (startEdge) place.end else edge
+        val trim = place.cue.trimStart + (start - place.start) * DramaRenderer.pitchFactor(pitch)
+        val resized = place.cue.copy(startSeconds = start.toFloat(), durationSeconds = (end - start).toFloat(),
+            trimStart = trim.coerceAtLeast(0.0).toFloat())
+        return anchored.copy(cues = anchored.cues.map { if (it.id == cueId) resized else it })
+    }
 }
 
 /** Historial para deshacer y rehacer: guarda versiones completas de la obra (son datos inmutables, copiar es barato). */

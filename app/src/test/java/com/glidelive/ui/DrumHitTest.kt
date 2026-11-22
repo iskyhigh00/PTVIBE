@@ -88,6 +88,23 @@ class DrumHitTest {
         assertEquals(Pads.TOTAL, Pads.names.size)
     }
 
+    @Test fun largeSnareLayoutKeepsHatLocationsAndAddsTwoDifferentCrashes() {
+        val layout = PadLayout.BIG_SNARE
+        assertEquals(Pads.HH_CLOSED, DrumHit.hitTest(layout, 1100f, 300f, 1200, 600))
+        assertEquals(Pads.BELL, DrumHit.hitTest(layout, 900f, 100f, 1200, 600))
+        assertEquals(Pads.HH_OPEN, DrumHit.hitTest(layout, 1100f, 100f, 1200, 600))
+        for (removed in listOf(Pads.RIDE, Pads.RIM, Pads.HH_PEDAL)) assertTrue(!layout.visible(removed))
+        for (wider in listOf(Pads.SNARE, Pads.TOM1, Pads.TOM2, Pads.FLOOR)) {
+            val oldWidth = if (wider == Pads.SNARE) 8 else 4
+            assertTrue(checkNotNull(layout.cells[wider])[2] > oldWidth)
+        }
+        val crashes = listOf(Pads.CRASH, Pads.CRASH_DARK, Pads.CRASH_SHORT)
+        assertEquals(3, crashes.map { Pads.members(it).single() }.distinct().size)
+        assertEquals(listOf(Pads.KICK, Pads.members(Pads.CRASH_SHORT).single()),
+            Pads.members(Pads.COMBO_KICK_CRASH_SHORT).toList())
+        assertEquals(21, Pads.COMBO_KICK_CRASH)
+    }
+
     @Test fun edgesStayInTheirPad() {
         val k = PadLayout.KIT
         assertEquals(DrumHit.hitTest(k, 0f, 0f, 1200, 600), DrumHit.hitTest(k, -5f, -5f, 1200, 600))

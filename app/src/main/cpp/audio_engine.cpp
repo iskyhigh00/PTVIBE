@@ -23,7 +23,7 @@ inline float softClip(float x) {
 
 // Grupo de choke: 1 = hi-hat (cerrado, abierto, pedal).
 constexpr int kGroupOf[kPadCount] = {0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 2, 2, 0, 0, 0, 0, 0, 0};  // 2: güiro (corta al anterior)
-inline bool isCymbal(int pad) { return pad >= 9 && pad <= 12; }
+inline bool isCymbal(int pad) { return (pad >= 9 && pad <= 12) || pad == kDarkCrash || pad == kShortCrash; }
 inline int padVolParam(int pad) { return pad < 13 ? kPadVol + pad : kPadVol2 + (pad - 13); }
 
 }  // namespace
@@ -257,6 +257,7 @@ void AudioEngine::kitCommit(int slot) {
     std::lock_guard<std::mutex> lock(mutex_);
     kitLoading_.store(false, std::memory_order_relaxed);
     if (!pending_ || slot < 0 || slot > 1) return;
+    addSynthCrashes(44100, pending_->samples);
     sampledKits_[slot] = pending_.get();
     kits_.push_back(std::move(pending_));
     if (slot == kitSlot_ && useSampled_) active_.store(sampledKits_[slot], std::memory_order_release);

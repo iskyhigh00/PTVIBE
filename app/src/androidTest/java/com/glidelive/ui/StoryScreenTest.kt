@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -109,6 +110,62 @@ class StoryScreenTest {
         waitFor("movió") { cue(vm, "s1").startSeconds != before }
         assertTrue("debería ir más tarde", cue(vm, "s1").startSeconds!! > before)
         shot("3-movido")
+    }
+
+    @Test fun pellizcarConservaElInstanteBajoLosDedosYPermiteDesplazar() {
+        val vm = prepare(); story(vm)
+        val timeline = rule.onNodeWithTag("story-timeline")
+        fun tap(fraction: Float) {
+            timeline.performTouchInput { click(Offset(width * fraction, 16f)) }
+            rule.waitForIdle()
+        }
+        tap(0.48f)
+        val anchor = vm.ui.value.cursor
+        tap(0.64f)
+        val originalSpan = vm.ui.value.cursor - anchor
+        tap(0.48f)
+        timeline.performTouchInput {
+            down(0, Offset(width * 0.40f, 16f))
+            down(1, Offset(width * 0.56f, 16f))
+            updatePointerTo(0, Offset(width * 0.31f, 16f))
+            updatePointerTo(1, Offset(width * 0.65f, 16f))
+            move()
+            up(1); up(0)
+        }
+        assertEquals(anchor, vm.ui.value.cursor, 0.06)
+        tap(0.48f)
+        assertEquals("El instante queda debajo del centro del pellizco", anchor, vm.ui.value.cursor, 0.06)
+        tap(0.64f)
+        assertTrue("Debe mostrar menos tiempo después de ampliar", vm.ui.value.cursor - anchor < originalSpan * .6)
+        timeline.performTouchInput {
+            down(0, Offset(width * 0.40f, 16f))
+            down(1, Offset(width * 0.56f, 16f))
+            updatePointerTo(0, Offset(width * 0.30f, 16f))
+            updatePointerTo(1, Offset(width * 0.46f, 16f))
+            move()
+            up(1); up(0)
+        }
+        tap(0.48f)
+        assertTrue("Los dos dedos también desplazan la ventana", vm.ui.value.cursor > anchor + .2)
+        rule.onNodeWithContentDescription("Más opciones").performClick()
+        rule.onNodeWithText("Encuadrar cuento completo").performClick()
+        rule.onNodeWithText("Amazing Plan", substring = true).assertIsDisplayed()
+    }
+
+    @Test fun recortarArrastrandoElBordeEsReversible() {
+        val vm = prepare(); story(vm)
+        rule.onNodeWithText("Había una vez", substring = true).performClick()
+        rule.onNodeWithContentDescription("Recortar final", useUnmergedTree = true).performTouchInput {
+            down(center)
+            moveBy(Offset(-60f, 0f), delayMillis = 80)
+            moveBy(Offset(-60f, 0f), delayMillis = 80)
+            up()
+        }
+        waitFor("recorte por borde") { checkNotNull(cue(vm, "v1").durationSeconds) < 5.6f }
+        assertEquals(1f, checkNotNull(cue(vm, "v1").startSeconds), .001f)
+        assertEquals(8f, checkNotNull(cue(vm, "s1").startSeconds), .001f)
+        rule.onNodeWithContentDescription("Deshacer").performClick()
+        waitFor("recorte deshecho") { cue(vm, "v1").durationSeconds == 6f }
     }
 
     @Test fun tocarElegeYMuestraControlesSinTaparLaLinea() {

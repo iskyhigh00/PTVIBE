@@ -65,6 +65,22 @@ class TimelineOpsTest {
         assertNull(TimelineOps.split(p, "a", 0.05, "x"))
     }
 
+    @Test fun edgeResizeCanRecoverAudioWithoutMovingOtherClips() {
+        val original = project(voice("a", 4f, 2f).copy(fadeOut = .3f), voice("b", 2f, null))
+        val shorter = TimelineOps.resize(original, "a", true, 3.0)
+        assertEquals(1f, shorter.cues.first().trimStart, 1e-6f)
+        val shortenedBoth = TimelineOps.resize(shorter, "a", false, 5.5)
+        assertEquals(2.5f, checkNotNull(shortenedBoth.cues.first().durationSeconds), 1e-6f)
+        assertEquals(.3f, shortenedBoth.cues.first().fadeOut, 1e-6f)
+        val recoveredStart = TimelineOps.resize(shortenedBoth, "a", true, 0.0)
+        val recovered = TimelineOps.resize(recoveredStart, "a", false, 10.0)
+        assertEquals(0f, recovered.cues.first().trimStart, 1e-6f)
+        val placements = DramaRenderer.layout(recovered).associateBy { it.cue.id }
+        assertEquals(2.0, placements.getValue("a").start, 1e-6)
+        assertEquals(6.0, placements.getValue("a").end, 1e-6)
+        assertEquals(6.0, placements.getValue("b").start, 1e-6)
+    }
+
     @Test fun historyUndoesAndRedoes() {
         val h = History<Int>(3)
         assertFalse(h.canUndo)

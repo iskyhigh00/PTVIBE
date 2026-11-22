@@ -256,6 +256,14 @@ void testSynthSmoke() {
     int nonEmpty = 0;
     for (auto& s : kit) if (!s.data.empty()) ++nonEmpty;
     CHECK(nonEmpty > 0, "kit sintetico no vacio");
+    std::vector<Sample> acoustic(kPadCount * kLayers * kVariants);
+    addSynthCrashes(44100, acoustic);
+    const Sample& dark = acoustic[sampleIndex(kDarkCrash, 2, 0)];
+    const Sample& shortCrash = acoustic[sampleIndex(kShortCrash, 2, 0)];
+    CHECK(dark.frames() > 3 * shortCrash.frames() && shortCrash.frames() > 0,
+          "los crashes nuevos tienen colas distintas");
+    CHECK(dark.rate == 44100 && shortCrash.rate == 44100, "frecuencia de los crashes en kit acustico");
+    CHECK(!kit[sampleIndex(kShortCrash, 2, 0)].data.empty(), "crash corto disponible en el kit sintetico");
     static SynthEngine eng;
     eng.init(48000);
     SynthParams sp;

@@ -168,6 +168,10 @@ Sample make(int pad, int layer, int var, int sr) {
             return sweep(sr, 0.6f, 175.0f * vr, 150.0f * vr, 30.0f, 7.0f, 0.85f * I, 0.2f * I, 350.0f, seed);
         case 19:  // bongó
             return sweep(sr, 0.3f, 520.0f * vr, 450.0f * vr, 50.0f, 16.0f, 0.7f * I, 0.4f * I, 600.0f, seed);
+        case kDarkCrash:
+            return cymbal(sr, 2.8f, 1.6f, 1.8f, 0.35f, 0.70f, 0.16f + 0.12f * I, 0.73f * vr, 0.68f * I, seed);
+        case kShortCrash:
+            return cymbal(sr, 0.58f, 8.4f, 8.0f, 0.62f, 0.62f, 0.30f + 0.12f * I, 1.18f * vr, 0.73f * I, seed);
         default: {  // campana (cencerro): dos parciales cuadrados
             Sample o;
             const int n = static_cast<int>(sr * 0.35f);
@@ -185,8 +189,18 @@ Sample make(int pad, int layer, int var, int sr) {
         }
     }
 }
+
 }  // namespace
 
+void addSynthCrashes(int sampleRate, std::vector<Sample>& samples) {
+    for (const int pad : {kDarkCrash, kShortCrash})
+        for (int layer = 0; layer < kLayers; ++layer)
+            for (int variant = 0; variant < kVariants; ++variant) {
+                Sample& s = samples[sampleIndex(pad, layer, variant)];
+                s = make(pad, layer, variant, sampleRate);
+                s.rate = sampleRate;
+            }
+}
 void buildSynthKit(int sampleRate, std::vector<Sample>& out) {
     out.clear();
     out.resize(kPadCount * kLayers * kVariants);

@@ -11,10 +11,17 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.rememberScrollableState
+import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.ui.zIndex
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -56,12 +63,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.semantics.contentDescription
@@ -73,8 +83,10 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.glidelive.princess.Cue
@@ -85,7 +97,9 @@ import com.glidelive.princess.Placement
 import com.glidelive.princess.Project
 import com.glidelive.princess.SoundCatalog
 import com.glidelive.princess.SoundStore
+import com.glidelive.princess.TimelineOps
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -228,7 +242,9 @@ private fun StoryEditor(
     val ctx = LocalContext.current
     var panel by remember(project.id) { mutableStateOf<Panel?>(null) }
     var selectedId by rememberSaveable(project.id) { mutableStateOf<String?>(null) }
-    var zoom by rememberSaveable(project.id) { mutableStateOf(30f) }
+    val viewport = rememberSaveable(project.id, saver = TimelineViewport.Saver) { TimelineViewport() }
+    var viewportDp by remember(project.id) { mutableStateOf(0f) }
+    var snap by rememberSaveable(project.id) { mutableStateOf(true) }
     var renaming by remember { mutableStateOf(false) }
     var speaker by rememberSaveable(project.id) { mutableStateOf<String?>(null) }
     var newCharacter by remember { mutableStateOf(false) }
@@ -236,6 +252,8 @@ private fun StoryEditor(
     androidx.compose.runtime.LaunchedEffect(project.cues.map { it.file }) { vm.loadPeaks(project) }
     var micDenied by remember { mutableStateOf(false) }
     val placements = remember(project) { DramaRenderer.layout(project) }
+    val storyEnd = placements.maxOfOrNull { it.end } ?: 0.0
+    val timelineDuration = max(30.0, storyEnd + 30.0)
     val selected = placements.firstOrNull { it.cue.id == selectedId }
     if (selectedId != null && selected == null) selectedId = null
     val speakerId = project.characters.firstOrNull { it.id == speaker }?.id ?: project.characters.firstOrNull()?.id ?: ""
@@ -350,7 +368,7 @@ private fun StoryEditor(
     Box(modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             // ── Barra de arriba (sin deslizar: todo a la vista) ──
-            StoryTopBar(vm, project, u, clk.pos, playing, clk.playing && u.loaded, position, working, { askNotifications() }, onBack, { renaming = true }, { pickFile(CueType.VOICE, speakerId) }, { zoom = (zoom * 1.5f).coerceAtMost(120f) }, { zoom = (zoom / 1.5f).coerceAtLeast(8f) }, onUpdate, onOtherMode)
+            StoryTopBar(vm, project, u, clk.pos, playing, clk.playing && u.loaded, position, working, { askNotifications() }, onBack, { renaming = true }, { pickFile(CueType.VOICE, speakerId) }, { if (viewportDp > 0f) viewport.fit(storyEnd, timelineDuration, viewportDp) }, snap, { snap = !snap }, onUpdate, onOtherMode)
             u.busy?.let { (label, p) ->
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Column(Modifier.weight(1f)) {
@@ -363,9 +381,13 @@ private fun StoryEditor(
 
             // ── La línea de tiempo ──
             Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp)) {
-                StoryTimeline(project, placements, position, playing, selectedId, zoom, enabled = u.busy == null && u.recordingFor == null,
-                    onSelect = { selectedId = it }, onCursor = { vm.setCursor(it) }, onMove = { id, s, who -> vm.moveCueTo(id, s, who) },
-                    onZoom = { f -> zoom = (zoom * f).coerceIn(8f, 120f) }, focusId = u.lastAddedId, peaks = u.peaks)
+                StoryTimeline(
+                    project, placements, storyEnd, timelineDuration, position, playing, selectedId,
+                    viewport, viewportDp, snap, enabled = !working,
+                    onViewportWidth = { viewportDp = it },
+                    onSelect = { selectedId = it }, onCursor = vm::setCursor, onMove = vm::moveCueTo,
+                    onResize = vm::resizeCue, focusId = u.lastAddedId, peaks = u.peaks,
+                )
             }
             StoryNotices(vm, u, micDenied, { micPermission.launch(Manifest.permission.RECORD_AUDIO) })
 
@@ -387,7 +409,7 @@ private fun StoryEditor(
 @Composable
 private fun StoryTopBar(
     vm: PrincessViewModel, project: Project, u: PrincessUi, clkPos: Double, playing: Boolean, sounding: Boolean, position: Double, working: Boolean, beforePlay: () -> Unit,
-    onBack: () -> Unit, onRename: () -> Unit, onImportVoice: () -> Unit, onZoomIn: () -> Unit, onZoomOut: () -> Unit,
+    onBack: () -> Unit, onRename: () -> Unit, onImportVoice: () -> Unit, onFit: () -> Unit, snap: Boolean, onToggleSnap: () -> Unit,
     onUpdate: (() -> Unit)?, onOtherMode: (() -> Unit)?,
 ) {
     val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
@@ -421,8 +443,8 @@ private fun StoryTopBar(
             DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
                 DropdownMenuItem(text = { Text("⏮ Escuchar desde el principio") }, enabled = project.cues.isNotEmpty() && !working, onClick = { more = false; vm.playFromSeconds(0.0) })
                 DropdownMenuItem(text = { Text("Importar una voz desde el teléfono") }, enabled = !working, onClick = { more = false; onImportVoice() })
-                DropdownMenuItem(text = { Text("Alejar (ver todo el cuento)") }, onClick = { more = false; onZoomIn() })
-                DropdownMenuItem(text = { Text("Acercar (ver más detalle)") }, onClick = { more = false; onZoomOut() })
+                DropdownMenuItem(text = { Text("Encuadrar cuento completo") }, onClick = { more = false; onFit() })
+                DropdownMenuItem(text = { Text(if (snap) "✓ Ajuste magnético" else "Ajuste magnético") }, onClick = { more = false; onToggleSnap() })
                 onUpdate?.let { DropdownMenuItem(text = { Text("Buscar una versión nueva de la app") }, onClick = { more = false; it() }) }
                 onOtherMode?.let { DropdownMenuItem(text = { Text("🎸 Ir a la pantalla de hacer música") }, onClick = { more = false; it() }) }
             }
@@ -638,8 +660,11 @@ private fun packRows(clips: List<Placement>): List<List<Placement>> {
 
 @Composable
 private fun StoryTimeline(
-    project: Project, placements: List<Placement>, position: Double, playing: Boolean, selectedId: String?, zoom: Float, enabled: Boolean,
-    onSelect: (String?) -> Unit, onCursor: (Double) -> Unit, onMove: (String, Double, String?) -> Unit, onZoom: (Float) -> Unit, focusId: String? = null, peaks: Map<String, FloatArray> = emptyMap(),
+    project: Project, placements: List<Placement>, storyEnd: Double, duration: Double, position: Double, playing: Boolean,
+    selectedId: String?, viewport: TimelineViewport, viewportDp: Float, snap: Boolean, enabled: Boolean,
+    onViewportWidth: (Float) -> Unit, onSelect: (String?) -> Unit, onCursor: (Double) -> Unit,
+    onMove: (String, Double, String?) -> Unit, onResize: (String, Boolean, Double) -> Unit,
+    focusId: String?, peaks: Map<String, FloatArray>,
 ) {
     val lanes = buildList {
         project.characters.forEach { ch -> add(Lane(ch.name, Color(ch.color), placements.filter { it.cue.type == CueType.VOICE && it.cue.characterId == ch.id }, ch.id)) }
@@ -648,23 +673,50 @@ private fun StoryTimeline(
         add(Lane("Sonidos", Color(0xFF34D399), placements.filter { it.cue.type == CueType.SFX }))
         add(Lane("Música de fondo", Color(0xFFA78BFA), placements.filter { it.cue.type == CueType.MUSIC }))
     }.filter { it.clips.isNotEmpty() || it.label == "Sonidos" || it.label == "Música de fondo" || project.characters.size <= 3 }
-    val duration = max(30.0, DramaRenderer.totalSeconds(project) + 10.0)
-    val widthDp = (duration * zoom).coerceAtMost(30000.0).toFloat()
-    val scale = (widthDp / duration).toFloat()
+    val scale = viewport.scale(duration)
+    val widthDp = maxOf(viewportDp, (duration * scale).toFloat())
     val density = LocalDensity.current.density
-    val hScroll = rememberScrollState()
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     var draggingId by remember { mutableStateOf<String?>(null) }
-    var viewportPx by remember { mutableStateOf(0) }
     val vScroll = rememberScrollState()
     var manualUntil by remember { mutableStateOf(0L) }
-    androidx.compose.runtime.LaunchedEffect(hScroll.isScrollInProgress) { if (hScroll.isScrollInProgress) manualUntil = System.currentTimeMillis() + 4000 }
-    androidx.compose.runtime.LaunchedEffect((position * 5).toInt(), playing, viewportPx) {
-        if (viewportPx > 0 && System.currentTimeMillis() > manualUntil) {   // la línea roja no se sale de la pantalla mientras suena
-            val x = (position * scale * density).toInt()
-            if (x < hScroll.value || x > hScroll.value + viewportPx - 80) hScroll.animateScrollTo((x - viewportPx / 4).coerceAtLeast(0))
+    val scroll = rememberScrollableState { delta ->
+        val left = viewport.left
+        manualUntil = android.os.SystemClock.uptimeMillis() + 4000
+        viewport.scrollTo(left - delta / (density * scale), duration, viewportDp)
+        ((left - viewport.left) * density * scale).toFloat()
+    }
+    val transform = androidx.compose.runtime.rememberUpdatedState(
+        { factor: Float, from: Float, to: Float ->
+            if (viewportDp > 0) {
+                manualUntil = android.os.SystemClock.uptimeMillis() + 4000
+                viewport.transform(factor, from / density, to / density, duration, viewportDp)
+            }
+        }
+    )
+    fun zoomBy(factor: Float) {
+        val cursorX = ((position - viewport.left) * scale).toFloat()
+        val x = if (cursorX in 0f..viewportDp) cursorX else viewportDp / 2
+        transform.value(factor, x * density, x * density)
+    }
+
+    androidx.compose.runtime.LaunchedEffect(viewportDp, duration) {
+        viewport.scrollTo(viewport.left, duration, viewportDp)
+    }
+    androidx.compose.runtime.LaunchedEffect((position * 5).toInt(), playing, viewportDp) {
+        if (viewportDp > 0 && android.os.SystemClock.uptimeMillis() > manualUntil) {
+            val x = (position - viewport.left) * scale
+            if (x < 0 || x > viewportDp - 12) {
+                viewport.scrollTo(position - viewportDp / (4 * scale), duration, viewportDp)
+            }
         }
     }
+    val markers = remember(placements) { placements.flatMap { listOf(it.start to it.cue.id, it.end to it.cue.id) } }
+    val magneticStart = androidx.compose.runtime.rememberUpdatedState(
+        { id: String, start: Double, length: Double ->
+            if (snap) alignTimeline(start, length, position, markers, id, scale) else start
+        }
+    )
     val laneTops = remember(lanes.map { it.label to packRows(it.clips).size }) {
         var y = 0f
         lanes.map { l -> y.also { y += max(1, packRows(l.clips).size) * 56f } }
@@ -681,8 +733,8 @@ private fun StoryTimeline(
     Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp)).padding(6.dp)) {
         Column(Modifier.width(104.dp)) {
             Row(Modifier.height(48.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { onZoom(1f / 1.5f) }, enabled = zoom > 8.5f, modifier = Modifier.size(48.dp).semantics { contentDescription = "Ver más tiempo en pantalla" }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("−", fontSize = 20.sp) }
-                TextButton(onClick = { onZoom(1.5f) }, enabled = zoom < 119f, modifier = Modifier.size(48.dp).semantics { contentDescription = "Acercar: ver menos tiempo, más grande" }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("+", fontSize = 20.sp) }
+                TextButton(onClick = { zoomBy(1f / 1.5f) }, enabled = scale > viewport.minimumZoom(duration, viewportDp) + 0.01f, modifier = Modifier.size(48.dp).semantics { contentDescription = "Ver más tiempo en pantalla" }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("−", fontSize = 20.sp) }
+                TextButton(onClick = { zoomBy(1.5f) }, enabled = scale < minOf(120f, (30000.0 / duration).toFloat()) - 0.01f, modifier = Modifier.size(48.dp).semantics { contentDescription = "Acercar: ver menos tiempo, más grande" }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("+", fontSize = 20.sp) }
             }
             Column(Modifier.weight(1f, fill = false).verticalScroll(vScroll)) {
                 lanes.forEach { lane ->
@@ -696,7 +748,35 @@ private fun StoryTimeline(
                 }
             }
         }
-        Column(Modifier.weight(1f).onSizeChanged { viewportPx = it.width }.horizontalScroll(hScroll)) {
+        Column(
+            Modifier.weight(1f).onSizeChanged { onViewportWidth(it.width / density) }.clipToBounds().testTag("story-timeline")
+                .pointerInput(enabled) {
+                    if (!enabled) return@pointerInput
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                        var transforming = false
+                        do {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            if (event.changes.count { it.pressed } >= 2) transforming = true
+                            if (transforming) {
+                                if (event.changes.count { it.pressed && it.previousPressed } >= 2) {
+                                    transform.value(
+                                        event.calculateZoom(), event.calculateCentroid(useCurrent = false).x,
+                                        event.calculateCentroid(useCurrent = true).x,
+                                    )
+                                }
+                                event.changes.forEach { it.consume() }
+                            }
+                        } while (event.changes.any { it.pressed })
+                    }
+                }
+                .scrollable(scroll, Orientation.Horizontal)
+                .layout { measurable, constraints ->
+                    val content = measurable.measure(constraints.copy(minWidth = 0, maxWidth = Constraints.Infinity))
+                    val offset = (viewport.left.coerceAtMost(viewport.maxLeft(duration, viewportDp)) * scale * density).roundToInt()
+                    layout(constraints.maxWidth, content.height) { content.place(-offset, 0) }
+                },
+        ) {
             Box(Modifier.width(widthDp.dp).height(48.dp)
                 .semantics {
                     contentDescription = "Regla de tiempo. La línea roja está en ${clock(position)}"
@@ -704,11 +784,39 @@ private fun StoryTimeline(
                         androidx.compose.ui.semantics.CustomAccessibilityAction("Línea roja un segundo después") { onCursor(position + 1.0); true },
                         androidx.compose.ui.semantics.CustomAccessibilityAction("Línea roja un segundo antes") { onCursor((position - 1.0).coerceAtLeast(0.0)); true },
                         androidx.compose.ui.semantics.CustomAccessibilityAction("Línea roja al principio") { onCursor(0.0); true },
+                        androidx.compose.ui.semantics.CustomAccessibilityAction("Línea roja al final") { onCursor(storyEnd); true },
                     )
                 }
-                .pointerInput(scale, enabled) { detectTapGestures { at -> if (enabled) onCursor((at.x / density / scale).toDouble()) } }) {
-                val step = listOf(1, 2, 5, 10, 15, 30, 60, 120, 300).firstOrNull { it * scale >= 72f } ?: 600
-                for (s in 0..duration.toInt() step step) Text(clock(s.toDouble()), Modifier.align(Alignment.CenterStart).offset(x = (s * scale).dp), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                .pointerInput(scale, enabled) { detectTapGestures { at -> if (enabled) onCursor((at.x / density / scale).toDouble()) } }
+                .pointerInput(scale, enabled) {
+                    if (!enabled) return@pointerInput
+                    detectHorizontalDragGestures { change, _ ->
+                        change.consume()
+                        onCursor((change.position.x / (density * scale)).toDouble())
+                    }
+                }) {
+                val step = listOf(0.5, 1.0, 2.0, 5.0, 10.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0)
+                    .firstOrNull { it * scale >= 58 } ?: 3600.0
+                val firstTick = (viewport.left / step).toInt()
+                val lastTick = minOf((duration / step).toInt(), ((viewport.left + viewportDp / scale) / step).toInt() + 1)
+                val tickColor = MaterialTheme.colorScheme.onSurfaceVariant
+                for (i in firstTick..lastTick) {
+                    val seconds = i * step
+                    val whole = clock(seconds)
+                    val label = if (step < 1.0) "$whole.${if (i % 2 == 0) 0 else 5}" else whole
+                    Text(label, Modifier.align(Alignment.CenterStart).offset(x = (seconds * scale).dp), color = tickColor, fontSize = 12.sp)
+                }
+                Canvas(Modifier.matchParentSize()) {
+                    val x = (position * scale * density).toFloat()
+                    val w = 5.dp.toPx()
+                    val tip = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(x - w, size.height - w)
+                        lineTo(x + w, size.height - w)
+                        lineTo(x, size.height)
+                        close()
+                    }
+                    drawPath(tip, RED)
+                }
             }
             Column(Modifier.weight(1f, fill = false).verticalScroll(vScroll)) {
                 lanes.forEach { lane ->
@@ -729,12 +837,15 @@ private fun StoryTimeline(
                                 var dragY by remember(place.cue.id, place.start) { mutableStateOf(0f) }
                                 val isSel = place.cue.id == selectedId
                                 val lifted = draggingId == place.cue.id
-                                val start = (place.start + dragX).coerceAtLeast(0.0)
+                                var trim by remember(place.cue.id, place.start, place.end) { mutableStateOf<Pair<Boolean, Double>?>(null) }
+                                val start = trim?.takeIf { it.first }?.second ?: (place.start + dragX).coerceAtLeast(0.0)
+                                val end = trim?.takeUnless { it.first }?.second ?: (place.end + dragX).coerceAtLeast(start)
+                                val pitch = DramaRenderer.pitchOf(project, place.cue)
                                 val curPlace by androidx.compose.runtime.rememberUpdatedState(place)
                                 val curScale by androidx.compose.runtime.rememberUpdatedState(scale)
                                 Box(
                                     Modifier.offset(x = (start * scale).toFloat().dp, y = 4.dp + dragY.dp)
-                                        .width(max(48f, ((place.end - place.start) * scale).toFloat()).dp).height(48.dp)
+                                        .width(max(48f, ((end - start) * scale).toFloat()).dp).height(48.dp)
                                         .background(lane.color.copy(alpha = if (place.cue.muted) 0.7f else if (lifted || isSel) 1f else 0.85f), RoundedCornerShape(8.dp))
                                         .border(if (isSel || lifted) 3.dp else 1.dp, if (isSel || lifted) Color.White else lane.color, RoundedCornerShape(8.dp))
                                         .semantics(mergeDescendants = true) {
@@ -750,7 +861,7 @@ private fun StoryTimeline(
                                         }
                                         .pointerInput(place.cue.id, enabled) {
                                             if (!enabled) return@pointerInput
-                                            detectTapGestures { at -> onSelect(place.cue.id); onCursor(curPlace.start + (at.x / density / curScale).toDouble()) }
+                                            detectTapGestures { at -> onSelect(place.cue.id); onCursor((curPlace.start + at.x / density / curScale).coerceAtMost(curPlace.end)) }
                                         }
                                         .pointerInput(place.cue.id, enabled) {
                                             if (!enabled) return@pointerInput
@@ -762,19 +873,21 @@ private fun StoryTimeline(
                                                     val toLane = laneTops.indexOfLast { it <= yCenter }.coerceAtLeast(0)
                                                     val who = if (curPlace.cue.type == CueType.VOICE && toLane != laneIdx) lanes.getOrNull(toLane)?.characterId else null
                                                     dragX = 0f; dragY = 0f; draggingId = null
-                                                    onMove(curPlace.cue.id, target, who)
+                                                    onMove(curPlace.cue.id, magneticStart.value(curPlace.cue.id, target, curPlace.end - curPlace.start), who)
                                                 },
                                                 onDragCancel = { dragX = 0f; dragY = 0f; draggingId = null },
                                                 onDrag = { change, amount -> change.consume(); dragX += amount.x / density / curScale; dragY += amount.y / density },
                                             )
-                                        }.padding(6.dp),
+                                        },
                                 ) {
                                     val pk = place.cue.file?.let { peaks[it] }
                                     if (pk != null && pk.isNotEmpty() && place.cue.seconds > 0f) {
-                                        Canvas(Modifier.matchParentSize()) {
+                                        Canvas(Modifier.matchParentSize().padding(6.dp)) {
                                             val total = place.cue.seconds
-                                            val from = place.cue.trimStart / total
-                                            val span = ((place.end - place.start).toFloat() / total).coerceAtMost(1f - from)
+                                            val speed = DramaRenderer.pitchFactor(pitch)
+                                            val from = ((place.cue.trimStart + (if (trim?.first == true) start - place.start else 0.0) * speed) / total)
+                                                .coerceIn(0.0, 1.0).toFloat()
+                                            val span = ((end - start) * speed / total).toFloat().coerceAtMost(1f - from)
                                             val barW = 3.dp.toPx()
                                             var x = 0f
                                             while (x < size.width) {
@@ -786,7 +899,23 @@ private fun StoryTimeline(
                                         }
                                     }
                                     Text((if (isSel) "✓ " else "") + (if (place.cue.muted) "🔇 " else "") + (if (place.cue.toneSteps != 0) "🎚 " else "") + place.cue.text.ifBlank { place.cue.type.label },
+                                        Modifier.padding(horizontal = if (isSel && place.cue.file != null) 16.dp else 6.dp, vertical = 6.dp),
                                         fontSize = 12.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, color = Color(0xFF0B1020), fontWeight = FontWeight.SemiBold)
+                                    if (isSel && enabled && !lifted) {
+                                        for (startEdge in listOf(true, false)) {
+                                            val bounds = TimelineOps.resizeBounds(place, pitch, startEdge) ?: continue
+                                            val edge = if (startEdge) place.start else place.end
+                                            TimelineTrimHandle(
+                                                startEdge, edge, bounds, scale * density, duration,
+                                                onPreview = { trim = it?.let { time -> startEdge to time } },
+                                                onCommit = { time ->
+                                                    val target = if (snap) alignTimeline(time, 0.0, position, markers, place.cue.id, scale) else time
+                                                    onResize(place.cue.id, startEdge, target.coerceIn(bounds))
+                                                },
+                                                modifier = Modifier.align(if (startEdge) Alignment.CenterStart else Alignment.CenterEnd),
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -794,5 +923,66 @@ private fun StoryTimeline(
                 }
             }
         }
+    }
+}
+
+
+private fun alignTimeline(
+    value: Double, length: Double, cursor: Double, markers: List<Pair<Double, String>>, movingId: String, scale: Float,
+): Double {
+    val tolerance = minOf(0.25, 10.0 / scale)
+    var offset = tolerance
+    var result = value
+    fun tryMarker(marker: Double) {
+        for (target in listOf(marker, marker - length)) {
+            val distance = abs(value - target)
+            if (target >= 0.0 && distance <= offset) {
+                offset = distance
+                result = target
+            }
+        }
+    }
+    tryMarker(0.0)
+    tryMarker(cursor)
+    for ((marker, id) in markers) if (id != movingId) tryMarker(marker)
+    return result
+}
+
+@Composable
+private fun TimelineTrimHandle(
+    startEdge: Boolean, edge: Double, bounds: ClosedFloatingPointRange<Double>, pxPerSecond: Float, duration: Double,
+    onPreview: (Double?) -> Unit, onCommit: (Double) -> Unit, modifier: Modifier = Modifier,
+) {
+    val label = if (startEdge) "Recortar inicio" else "Recortar final"
+    val latestCommit = androidx.compose.runtime.rememberUpdatedState(onCommit)
+    Box(
+        modifier.width(24.dp).height(48.dp)
+            .semantics {
+                contentDescription = label
+                customActions = listOf(
+                    androidx.compose.ui.semantics.CustomAccessibilityAction("Mover borde 0,1 s antes") {
+                        latestCommit.value((edge - 0.1).coerceIn(bounds)); true
+                    },
+                    androidx.compose.ui.semantics.CustomAccessibilityAction("Mover borde 0,1 s después") {
+                        latestCommit.value((edge + 0.1).coerceIn(bounds)); true
+                    },
+                )
+            }
+            .pointerInput(edge, bounds, pxPerSecond, duration) {
+                var target = edge
+                detectHorizontalDragGestures(
+                    onDragStart = { target = edge },
+                    onHorizontalDrag = { change, amount ->
+                        change.consume()
+                        target = (target + amount / pxPerSecond).coerceIn(bounds.start, minOf(bounds.endInclusive, duration))
+                        onPreview(target)
+                    },
+                    onDragEnd = { onPreview(null); latestCommit.value(target) },
+                    onDragCancel = { onPreview(null) },
+                )
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.size(3.dp, 19.dp).background(Color(0xFF0B1020), RoundedCornerShape(2.dp)))
     }
 }

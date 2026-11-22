@@ -64,22 +64,24 @@ enum class PadLayout(val label: String, val hint: String, val cols: Int, val row
         ),
     ),
     BIG_SNARE(
-        "Caja y bombo grandes", "Lo que más se toca, más grande", 12, 6,
-        arrayOf(
-            intArrayOf(4, 4, 8, 2),   // bombo
-            intArrayOf(4, 2, 4, 2),   // caja
-            intArrayOf(10, 2, 2, 2),  // aros
-            intArrayOf(0, 2, 2, 2),   // hi-hat cerrado
-            intArrayOf(2, 2, 2, 2),   // hi-hat abierto
-            intArrayOf(0, 4, 4, 2),   // pedal hi-hat
-            intArrayOf(4, 0, 2, 2),   // tom 1
-            intArrayOf(6, 0, 2, 2),   // tom 2
-            intArrayOf(8, 2, 2, 2),   // tom de piso
-            intArrayOf(2, 0, 2, 2),   // crash
-            intArrayOf(8, 0, 2, 2),   // ride
-            intArrayOf(10, 0, 2, 2),  // campana
-            intArrayOf(0, 0, 2, 2),   // splash / china
-        ),
+        "Caja y bombo grandes", "Toms anchos y tres crash", 24, 6,
+        arrayOfNulls<IntArray>(Pads.TOTAL).also { a ->
+            a[Pads.SPLASH] = intArrayOf(0, 0, 3, 2)
+            a[Pads.CRASH] = intArrayOf(3, 0, 3, 2)
+            a[Pads.TOM1] = intArrayOf(6, 0, 5, 2)
+            a[Pads.TOM2] = intArrayOf(11, 0, 5, 2)
+            a[Pads.BELL] = intArrayOf(16, 0, 4, 2)
+            a[Pads.HH_OPEN] = intArrayOf(20, 0, 4, 2)
+
+            a[Pads.CRASH_DARK] = intArrayOf(0, 2, 5, 2)
+            a[Pads.SNARE] = intArrayOf(5, 2, 9, 2)
+            a[Pads.FLOOR] = intArrayOf(14, 2, 6, 2)
+            a[Pads.HH_CLOSED] = intArrayOf(20, 2, 4, 2)
+
+            a[Pads.CRASH_SHORT] = intArrayOf(0, 4, 5, 2)
+            a[Pads.COMBO_KICK_CRASH_SHORT] = intArrayOf(5, 4, 5, 2)
+            a[Pads.KICK] = intArrayOf(10, 4, 14, 2)
+        },
     ),
     COMBOS(
         "Kit + combos", "Con toms y botones que tocan dos sonidos juntos (bombo + ride, bombo + crash…)", 12, 8,

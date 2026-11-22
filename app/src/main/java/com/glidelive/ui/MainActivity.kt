@@ -578,7 +578,7 @@ private fun KitPanel(vm: EngineViewModel) {
         )
         Text("Volumen de cada pad", style = MaterialTheme.typography.titleSmall)
         for (i in 0 until Pads.COUNT) {
-            LabeledSlider(Pads.names[i].replace("\n", " "), k.padVolume[i], 0f..1.5f) { v ->
+            LabeledSlider(Pads.names[Pads.padForSound(i)].replace("\n", " "), k.padVolume[i], 0f..1.5f) { v ->
                 vm.editKit { it.copy(padVolume = it.padVolume.toMutableList().also { l -> l[i] = v }) }
             }
         }

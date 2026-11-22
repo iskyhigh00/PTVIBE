@@ -67,7 +67,7 @@ enum Param {
     kMuteMask = 41,
     kBassVol = 42,
     kBassTone = 43,
-    kPadVol2 = 44,   // +pad-13 (pads de percusión 13..20)
+    kPadVol2 = 44,   // +pad-13 (percusión y crashes adicionales, 13..22)
     kParamCount = 64
 };
 

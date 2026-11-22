@@ -1,7 +1,9 @@
 #pragma once
 #include <vector>
 
-constexpr int kPadCount = 21;  // 13 de batería + 8 de percusión (cumbia)
+constexpr int kDarkCrash = 21;
+constexpr int kShortCrash = 22;
+constexpr int kPadCount = 23;
 constexpr int kLayers = 3;    // capas de velocidad
 constexpr int kVariants = 3;  // round-robin
 
@@ -25,3 +27,4 @@ inline int sampleIndex(int pad, int layer, int variant) {
 
 // Kit sintetizado de respaldo (osciladores + ruido filtrado con envolvente).
 void buildSynthKit(int sampleRate, std::vector<Sample>& out);
+void addSynthCrashes(int sampleRate, std::vector<Sample>& samples);

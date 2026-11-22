@@ -15,69 +15,8 @@ import com.glidelive.audio.NativeEngine
 import kotlin.math.max
 import kotlin.math.min
 
-object Pads {
-    const val KICK = 0
-    const val SNARE = 1
-    const val RIM = 2
-    const val HH_CLOSED = 3
-    const val HH_OPEN = 4
-    const val HH_PEDAL = 5
-    const val TOM1 = 6
-    const val TOM2 = 7
-    const val FLOOR = 8
-    const val CRASH = 9
-    const val RIDE = 10
-    const val BELL = 11
-    const val SPLASH = 12
-    const val GUIRO_SHORT = 13
-    const val GUIRO_LONG = 14
-    const val MARACAS = 15
-    const val CONGA = 16
-    const val QUINTO = 17
-    const val TUMBA = 18
-    const val BONGO = 19
-    const val COWBELL = 20
-    const val COUNT = 21
-
-    /** Combos: un pad que toca varios sonidos a la vez (índices COUNT.. en las distribuciones). */
-    val combos: List<IntArray> = listOf(
-        intArrayOf(KICK, CRASH), intArrayOf(KICK, RIDE), intArrayOf(KICK, HH_CLOSED), intArrayOf(SNARE, CRASH),
-        intArrayOf(KICK, SNARE), intArrayOf(KICK, HH_OPEN), intArrayOf(KICK, BELL), intArrayOf(KICK, 20),
-    )
-    const val COMBO_KICK_CRASH = COUNT
-    const val COMBO_KICK_RIDE = COUNT + 1
-    const val COMBO_KICK_HH = COUNT + 2
-    const val COMBO_SNARE_CRASH = COUNT + 3
-    const val COMBO_KICK_SNARE = COUNT + 4
-    const val COMBO_KICK_HH_OPEN = COUNT + 5
-    const val COMBO_KICK_BELL = COUNT + 6
-    const val COMBO_KICK_COWBELL = COUNT + 7
-
-    /** Pads sonoros + combos. */
-    val TOTAL = COUNT + combos.size
-
-    /** Sonidos que dispara el pad [i]. */
-    fun members(i: Int): IntArray = if (i < COUNT) intArrayOf(i) else combos[i - COUNT]
-    fun isCombo(i: Int) = i >= COUNT
-
-    val names = arrayOf(
-        "BOMBO", "CAJA", "AROS\n(rim)", "HI-HAT\nCERRADO", "HI-HAT\nABIERTO", "PEDAL\nHI-HAT",
-        "TOM 1", "TOM 2", "TOM DE\nPISO", "CRASH", "RIDE", "CAMPANA\nRIDE", "SPLASH\n/ CHINA",
-        "GÜIRO\ncorto", "GÜIRO\nlargo", "MARACAS", "CONGA", "QUINTO\n(alegre)", "TUMBA", "BONGÓ", "CAMPANA\n(cencerro)",
-        "BOMBO\n+ CRASH", "BOMBO\n+ RIDE", "BOMBO\n+ HI-HAT", "CAJA\n+ CRASH",
-        "BOMBO\n+ CAJA", "BOMBO\n+ HH ABIERTO", "BOMBO\n+ CAMPANA", "BOMBO\n+ CENCERRO",
-    )
-
-    /** Líneas de cada nombre, calculadas una sola vez (onDraw no debe asignar memoria). */
-    val lines: Array<Array<String>> = Array(names.size) { names[it].split("\n").toTypedArray() }
-
-    fun isCymbal(pad: Int) = pad in CRASH..SPLASH
-    fun isHat(pad: Int) = pad in HH_CLOSED..HH_PEDAL
-    fun isPercussion(pad: Int) = pad in GUIRO_SHORT..COWBELL
-}
-
 /**
- * Batería para los dedos: 13 pads grandes en una cuadrícula que cubre toda la superficie. Todo el pad es zona
+ * Batería para los dedos: pads grandes en una cuadrícula que cubre toda la superficie. Todo el pad es zona
  * sensible; el toque va directo a C++ en ACTION_DOWN / ACTION_POINTER_DOWN, sin pasar por Compose.
  */
 class DrumPadsView(context: Context) : View(context) {
@@ -137,7 +76,7 @@ class DrumPadsView(context: Context) : View(context) {
 
     // Los pads se iluminan con cada golpe real del motor: toques, teclas asignadas, MIDI y bases.
     private val hitListener: (com.glidelive.viz.EngineEvent) -> Unit = { e ->
-        if (e.type == 0 && e.a in 0 until Pads.COUNT) post { flash[e.a] = 1f; invalidate() }
+        if (e.type == 0 && e.a in 0 until Pads.COUNT) post { flash[Pads.padForSound(e.a)] = 1f; invalidate() }
     }
 
     override fun onAttachedToWindow() {
@@ -228,7 +167,7 @@ class DrumPadsView(context: Context) : View(context) {
         val id = e.getPointerId(idx)
         pressed.put(id, i)
         flash[i] = 1f
-        val cymbal = members.firstOrNull { Pads.isCymbal(it) }
+        val cymbal = members.firstOrNull(Pads::isCymbalSound)
         if (cymbal != null) {  // toque largo = choke
             val run = Runnable {
                 if (pressed.get(id, -1) == i) {
