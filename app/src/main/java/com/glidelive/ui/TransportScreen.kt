@@ -175,13 +175,12 @@ private fun RecLabel(vm: TransportViewModel, drum: Boolean, recording: Boolean) 
     Text(if (drum) "● Grabando batería (${pos.drumEvents})" else "● Grabando acordes (${pos.chordEvents})")
 }
 
-/** Variaciones de la base y atajos para el próximo compás. */
+/** Selección del pulso o de la variación de la base actual. */
 @Composable
-fun RowScope.VariationChips(vm: TransportViewModel) {
+fun BaseMenu(vm: TransportViewModel) {
     val u by vm.ui.collectAsState()
     val p = u.pattern
     val pulse = u.pulse
-    var breaks by remember { mutableStateOf(false) }
     var variationsOpen by remember { mutableStateOf(false) }
     val next = u.pendingVariation?.let { p?.variations?.getOrNull(it) }
     val name = next?.let { "${it.name}…" } ?: p?.variations?.getOrNull(u.variation)?.name
@@ -231,7 +230,15 @@ fun RowScope.VariationChips(vm: TransportViewModel) {
             }
         }
     }
-    if (pulse != null || p == null) return
+}
+
+/** Atajos para el próximo compás. */
+@Composable
+fun RowScope.VariationChips(vm: TransportViewModel) {
+    val u by vm.ui.collectAsState()
+    val p = u.pattern ?: return
+    if (u.pulse != null) return
+    var breaks by remember { mutableStateOf(false) }
     FilterChip(selected = u.fillOn && u.activeBreak == null, onClick = vm::fill, label = { Text("Relleno") })
     if (p.breaks.isNotEmpty()) Box {
         FilterChip(selected = u.fillOn && u.activeBreak != null, onClick = { breaks = true }, label = { Text("Break ▾") })

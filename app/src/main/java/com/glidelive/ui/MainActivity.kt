@@ -377,6 +377,7 @@ private fun TopBar(
             CompactBpm(transport, compact = drumMode)
         }
         if (drumMode) {
+            BaseMenu(transport)
             PadLayoutShortcuts(kit.padLayout) { layout -> engine.editKit { it.copy(padLayout = layout) } }
             VariationChips(transport)
         }
