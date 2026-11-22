@@ -94,13 +94,19 @@ class DrumLayoutShortcutsTest {
             assertEquals(bpm, transport.ui.value.bpm)
             checkPulse(EventHub.nowMs(), Pads.HH_CLOSED, bpm)
 
+            // El transporte publica la posición continuamente. Avanza Compose solo para las acciones del menú.
+            rule.mainClock.autoAdvance = false
             base.performClick()
+            rule.mainClock.advanceTimeBy(250)
             rule.onNodeWithText("Ride").performClick()
+            rule.mainClock.advanceTimeBy(250)
             assertEquals(bpm, transport.ui.value.bpm)
             checkPulse(EventHub.nowMs() + 140, Pads.RIDE, bpm)
 
             base.performClick()
+            rule.mainClock.advanceTimeBy(250)
             rule.onNodeWithText("Parar pulso").performClick()
+            rule.mainClock.advanceTimeBy(250)
             rule.waitUntil(timeoutMillis = 5_000) { NativeEngine.seqStatus()[8] < .5 }
             val stopped = EventHub.nowMs() + 100
             SystemClock.sleep(900)
@@ -108,12 +114,14 @@ class DrumLayoutShortcutsTest {
             assertTrue("El resto del transporte sigue en marcha", transport.ui.value.playing)
 
             base.performClick()
+            rule.mainClock.advanceTimeBy(250)
             rule.onNodeWithText("Volver a la base anterior").performClick()
             assertEquals(originalBase, transport.ui.value.patternId)
             assertEquals(bpm, transport.ui.value.bpm)
         } finally {
             EventHub.removeListener(listener)
             scenario.onActivity { transport.stop() }
+            rule.mainClock.autoAdvance = true
         }
     }
 
