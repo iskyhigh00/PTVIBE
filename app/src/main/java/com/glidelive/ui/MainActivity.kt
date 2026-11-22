@@ -374,7 +374,7 @@ private fun TopBar(
         }
         if (!standalone) {
             GradientButton("", { transport.toggleAll(drumMode) }, glyph = if (tu.playing) "■" else "▶")
-            CompactBpm(transport)
+            CompactBpm(transport, compact = drumMode)
         }
         if (drumMode) {
             PadLayoutShortcuts(kit.padLayout) { layout -> engine.editKit { it.copy(padLayout = layout) } }

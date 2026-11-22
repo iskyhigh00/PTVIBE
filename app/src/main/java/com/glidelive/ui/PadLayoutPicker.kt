@@ -1,6 +1,7 @@
 package com.glidelive.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,11 +14,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -59,12 +61,7 @@ private val quickLayouts = listOf(
 @Composable
 internal fun PadLayoutShortcuts(current: PadLayout, onSelect: (PadLayout) -> Unit) {
     for ((layout, label) in quickLayouts) {
-        FilterChip(
-            selected = layout == current,
-            onClick = { onSelect(layout) },
-            modifier = Modifier.semantics { contentDescription = "Pads: ${layout.label}" },
-            label = { Text(label, style = MaterialTheme.typography.labelMedium) },
-        )
+        PadShortcut(label, "Pads: ${layout.label}", layout == current) { onSelect(layout) }
     }
     var expanded by remember { mutableStateOf(false) }
     val otherLayout = current.takeUnless { active -> quickLayouts.any { it.first == active } }
@@ -72,15 +69,10 @@ internal fun PadLayoutShortcuts(current: PadLayout, onSelect: (PadLayout) -> Uni
         PadLayout.KIT_LEFT -> "Zurdo"
         PadLayout.MPC -> "4×4"
         PadLayout.ESSENTIAL -> "9 pads"
-        else -> "Más pads"
+        else -> "Pads"
     }
     Box {
-        FilterChip(
-            selected = otherLayout != null,
-            onClick = { expanded = true },
-            modifier = Modifier.semantics { contentDescription = "Más distribuciones de pads" },
-            label = { Text("$menuLabel ▾", style = MaterialTheme.typography.labelMedium) },
-        )
+        PadShortcut("$menuLabel ▾", "Más distribuciones de pads", otherLayout != null) { expanded = true }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             PadLayout.entries.forEach { layout ->
                 DropdownMenuItem(
@@ -90,6 +82,25 @@ internal fun PadLayoutShortcuts(current: PadLayout, onSelect: (PadLayout) -> Uni
                     onClick = { expanded = false; onSelect(layout) },
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun PadShortcut(label: String, description: String, selected: Boolean, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        selected = selected,
+        onClick = onClick,
+        shape = RoundedCornerShape(10.dp),
+        color = if (selected) colors.secondaryContainer else Color.Transparent,
+        contentColor = if (selected) colors.onSecondaryContainer else colors.onSurfaceVariant,
+        border = if (selected) null else BorderStroke(1.dp, colors.outlineVariant),
+        modifier = Modifier.semantics { contentDescription = description },
+    ) {
+        Box(Modifier.height(32.dp).widthIn(min = 42.dp).padding(horizontal = 6.dp),
+            contentAlignment = Alignment.Center) {
+            Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
         }
     }
 }

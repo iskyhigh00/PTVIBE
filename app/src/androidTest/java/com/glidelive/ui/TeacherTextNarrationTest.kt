@@ -58,8 +58,9 @@ class TeacherTextNarrationTest {
         val add = "Agregar al timeline"
         rule.onNode(hasSetTextAction()).performTextReplacement(text)
         rule.onNodeWithText(generate).assertIsDisplayed().assertIsEnabled().performClick()
-        waitFor("sintetizar el parlamento «$text»", 120_000) { shown(add) || shown(generate) }
-        rule.onNodeWithText(add).assertIsDisplayed().assertIsEnabled().performClick()
+        val addButton = rule.onNodeWithText(add)
+        waitFor("sintetizar el parlamento «$text»", 120_000) { addButton.isDisplayed() }
+        addButton.assertIsEnabled().performClick()
         waitFor("guardar el parlamento «$text»") {
             vm.ui.value.current?.cues?.any { it.type == CueType.VOICE && it.text == text } == true
         }

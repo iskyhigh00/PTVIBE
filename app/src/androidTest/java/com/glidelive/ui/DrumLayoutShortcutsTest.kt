@@ -5,11 +5,15 @@ import android.graphics.Bitmap
 import android.view.View
 import android.view.ViewGroup
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.core.view.children
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ActivityScenario
@@ -35,7 +39,8 @@ class DrumLayoutShortcutsTest {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 rule.onNodeWithText("Acordes ▾").performClick()
                 rule.onNodeWithText("Batería").performClick()
-                rule.onNodeWithContentDescription("Variaciones de la base").performScrollTo().performClick()
+                rule.onNodeWithContentDescription("Más distribuciones de pads").assertIsDisplayed()
+                rule.onNodeWithContentDescription("Variaciones de la base").assertIsDisplayed().performClick()
                 var variationName = ""
                 scenario.onActivity {
                     val transport = ViewModelProvider(it)[TransportViewModel::class.java]
@@ -43,13 +48,15 @@ class DrumLayoutShortcutsTest {
                 }
                 rule.onNodeWithText("Variación $variationName").performClick()
                 rule.onNodeWithText("Batería ▾").performScrollTo()
-                rule.onNodeWithContentDescription("Pads: Caja y bombo grandes").assertIsDisplayed().performClick()
+                val caja = rule.onNodeWithContentDescription("Pads: Caja y bombo grandes")
+                caja.assertIsDisplayed().performClick()
+                caja.assertIsSelected()
                 rule.waitForIdle()
                 scenario.onActivity { activity ->
                     assertEquals(PadLayout.BIG_SNARE, findPads(activity.window.decorView)?.padLayout)
                     assertEquals(1, ViewModelProvider(activity)[TransportViewModel::class.java].ui.value.variation)
                 }
-                val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+                val screenshot = rule.onRoot().captureToImage().asAndroidBitmap()
                 val shots = File(context.getExternalFilesDir(null), "shots").apply { mkdirs() }
                 File(shots, "bateria-atajos-pads.png").outputStream().use {
                     screenshot.compress(Bitmap.CompressFormat.PNG, 100, it)

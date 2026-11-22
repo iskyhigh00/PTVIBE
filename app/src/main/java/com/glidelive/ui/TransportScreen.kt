@@ -90,13 +90,14 @@ fun TransportMore(vm: TransportViewModel, onDemo: () -> Unit) {
 
 /** Tempo en pequeño: − 98 + con la luz del compás; cabe en la fila única de arriba. */
 @Composable
-fun CompactBpm(vm: TransportViewModel) {
+fun CompactBpm(vm: TransportViewModel, compact: Boolean = false) {
     val u by vm.ui.collectAsState()
+    val button = if (compact) Modifier.width(48.dp) else Modifier
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(0.dp)) {
-        TextButton(onClick = { vm.setBpm(u.bpm - 1) }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) { Text("−") }
+        TextButton(onClick = { vm.setBpm(u.bpm - 1) }, modifier = button, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) { Text("−") }
         BeatLight(vm, 14.dp)
         Text("${u.bpm}", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(horizontal = 6.dp))
-        TextButton(onClick = { vm.setBpm(u.bpm + 1) }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) { Text("+") }
+        TextButton(onClick = { vm.setBpm(u.bpm + 1) }, modifier = button, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) { Text("+") }
     }
 }
 
