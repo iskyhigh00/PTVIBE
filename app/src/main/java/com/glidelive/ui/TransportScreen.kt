@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -49,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
@@ -58,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.glidelive.drums.DrumKeys
+import com.glidelive.drums.DrumPulse
 import com.glidelive.theory.NoteNames
 import com.glidelive.ui.components.GradientButton
 import com.glidelive.ui.components.TonalButton
@@ -95,8 +98,17 @@ fun CompactBpm(vm: TransportViewModel, compact: Boolean = false) {
     val button = if (compact) Modifier.width(48.dp) else Modifier
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(0.dp)) {
         TextButton(onClick = { vm.setBpm(u.bpm - 1) }, modifier = button, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) { Text("−") }
-        BeatLight(vm, 14.dp)
-        Text("${u.bpm}", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(horizontal = 6.dp))
+        val tap = if (compact) Modifier.heightIn(min = 48.dp)
+            .clickable(role = Role.Button, onClick = vm::tap)
+            .semantics { contentDescription = "Marcar tempo con Tap" } else Modifier
+        Row(tap.padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            BeatLight(vm, 14.dp)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("${u.bpm}", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                if (compact) Text("Tap", style = MaterialTheme.typography.labelSmall)
+            }
+        }
         TextButton(onClick = { vm.setBpm(u.bpm + 1) }, modifier = button, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) { Text("+") }
     }
 }
@@ -167,17 +179,18 @@ private fun RecLabel(vm: TransportViewModel, drum: Boolean, recording: Boolean) 
 @Composable
 fun RowScope.VariationChips(vm: TransportViewModel) {
     val u by vm.ui.collectAsState()
-    val p = u.pattern ?: return
+    val p = u.pattern
+    val pulse = u.pulse
     var breaks by remember { mutableStateOf(false) }
     var variationsOpen by remember { mutableStateOf(false) }
-    val next = u.pendingVariation?.let(p.variations::getOrNull)
-    val name = next?.let { "${it.name}…" } ?: p.variations.getOrNull(u.variation)?.name
+    val next = u.pendingVariation?.let { p?.variations?.getOrNull(it) }
+    val name = next?.let { "${it.name}…" } ?: p?.variations?.getOrNull(u.variation)?.name
     Box {
         FilterChip(
-            selected = false,
+            selected = pulse != null && u.playing && u.patternOn,
             onClick = { variationsOpen = true },
             label = {
-                Text(if (name == null) "Base ▾" else "Base $name ▾", Modifier.widthIn(max = 122.dp),
+                Text(pulse?.let { "${it.shortLabel} ▾" } ?: if (name == null) "Base ▾" else "Base $name ▾", Modifier.widthIn(max = 122.dp),
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             },
             modifier = Modifier.semantics { contentDescription = "Variaciones de la base" },
@@ -185,18 +198,40 @@ fun RowScope.VariationChips(vm: TransportViewModel) {
                 else FilterChipDefaults.filterChipColors(),
         )
         DropdownMenu(expanded = variationsOpen, onDismissRequest = { variationsOpen = false }) {
-            p.variations.forEachIndexed { i, variation ->
-                val waiting = u.pendingVariation == i
-                val active = u.variation == i && !u.fillOn && !waiting
+            DrumPulse.entries.forEach { option ->
                 DropdownMenuItem(
-                    text = { Text("Variación ${variation.name}" + if (waiting) "…" else "") },
-                    leadingIcon = if (active) { { Text("✓") } } else null,
-                    modifier = Modifier.semantics { selected = active },
-                    onClick = { variationsOpen = false; vm.selectVariation(i) },
+                    text = { Text(option.label) },
+                    leadingIcon = if (pulse == option) { { Text("✓") } } else null,
+                    modifier = Modifier.semantics { selected = pulse == option },
+                    onClick = { variationsOpen = false; vm.playPulse(option) },
                 )
+            }
+            if (pulse != null) {
+                if (u.playing && u.patternOn) {
+                    DropdownMenuItem(text = { Text("Parar pulso") }, onClick = {
+                        variationsOpen = false
+                        vm.togglePattern()
+                    })
+                }
+                DropdownMenuItem(text = { Text("Volver a la base anterior") }, onClick = {
+                    variationsOpen = false
+                    vm.restoreBaseAfterPulse()
+                })
+            } else {
+                p?.variations?.forEachIndexed { i, variation ->
+                    val waiting = u.pendingVariation == i
+                    val active = u.variation == i && !u.fillOn && !waiting
+                    DropdownMenuItem(
+                        text = { Text("Variación ${variation.name}" + if (waiting) "…" else "") },
+                        leadingIcon = if (active) { { Text("✓") } } else null,
+                        modifier = Modifier.semantics { selected = active },
+                        onClick = { variationsOpen = false; vm.selectVariation(i) },
+                    )
+                }
             }
         }
     }
+    if (pulse != null || p == null) return
     FilterChip(selected = u.fillOn && u.activeBreak == null, onClick = vm::fill, label = { Text("Relleno") })
     if (p.breaks.isNotEmpty()) Box {
         FilterChip(selected = u.fillOn && u.activeBreak != null, onClick = { breaks = true }, label = { Text("Break ▾") })
@@ -219,7 +254,7 @@ fun PatternExtras(vm: TransportViewModel, onKeys: () -> Unit) {
     ) {
         Text("Base de batería", style = MaterialTheme.typography.titleSmall)
         Picker("Base: " + (p?.name ?: "—"), u.patterns, { (if (it.factory) "" else "★ ") + it.name + "  (${it.meter})" }) { vm.selectPattern(it) }
-        if (p != null) Text("${p.meter} · ${p.bpmMin}–${p.bpmMax} BPM" + if (p.bass == null) " · inspirada en el estilo de Gavin Harrison" else "",
+        if (p != null && u.pulse == null) Text("${p.meter} · ${p.bpmMin}–${p.bpmMax} BPM" + if (p.bass == null) " · inspirada en el estilo de Gavin Harrison" else "",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { muteMenu = true }) { Text(if (u.muted.isNotEmpty() || u.solo != null) "Silenciar instrumentos ●" else "Silenciar instrumentos…") }

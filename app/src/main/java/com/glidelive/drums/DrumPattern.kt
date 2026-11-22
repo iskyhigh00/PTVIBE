@@ -35,6 +35,32 @@ data class Variation(val name: String, val tracks: Map<String, String>)
 
 class Compiled(val ticks: IntArray, val pads: IntArray, val vels: FloatArray)
 
+enum class DrumPulse(val label: String, val shortLabel: String, key: String) {
+    CLOSED_HAT("Hi-hat cerrado", "Hi-hat", "hc"),
+    RIDE("Ride", "Ride", "rd");
+
+    val pad = DrumKeys.index(key)
+    val pattern = DrumPattern(
+        id = "glidelive_pulse_$key",
+        name = label,
+        meter = "4/4",
+        beats = 4,
+        beatUnit = 4,
+        unit = 96,
+        barSteps = 4,
+        bars = 1,
+        bpmMin = 30,
+        bpmMax = 300,
+        variations = listOf(Variation("Pulso", mapOf(key to "xxxx"))),
+        fill = emptyMap(),
+        end = emptyMap(),
+    )
+
+    companion object {
+        fun fromId(id: String?): DrumPulse? = entries.firstOrNull { it.pattern.id == id }
+    }
+}
+
 data class DrumPattern(
     val id: String,
     val name: String,

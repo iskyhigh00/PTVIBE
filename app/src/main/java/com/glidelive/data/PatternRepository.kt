@@ -2,6 +2,7 @@ package com.glidelive.data
 
 import android.content.Context
 import com.glidelive.drums.DrumPattern
+import com.glidelive.drums.DrumPulse
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
@@ -23,7 +24,7 @@ object PatternRepository {
         publish()
     }
 
-    private fun publish() { _all.value = factory + user }
+    private fun publish() { _all.value = factory + DrumPulse.entries.map { it.pattern } + user }
 
     @Synchronized
     fun saveUser(ctx: Context, p: DrumPattern) {
