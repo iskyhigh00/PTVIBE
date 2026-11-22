@@ -355,6 +355,7 @@ private fun TopBar(
     val tu by transport.ui.collectAsState()
     val cap by session.capture.collectAsState()
     val st by engine.stats.collectAsState()
+    val kit by engine.kit.collectAsState()
     val drumMode = mode == Mode.BATERIA || mode == Mode.MIXTO
     val chordMode = mode == Mode.ACORDES || mode == Mode.VOCES || mode == Mode.DUO || mode == Mode.MIXTO
     val standalone = mode == Mode.PRINCESS
@@ -375,7 +376,10 @@ private fun TopBar(
             GradientButton("", { transport.toggleAll(drumMode) }, glyph = if (tu.playing) "■" else "▶")
             CompactBpm(transport)
         }
-        if (drumMode) VariationChips(transport)
+        if (drumMode) {
+            PadLayoutShortcuts(kit.padLayout) { layout -> engine.editKit { it.copy(padLayout = layout) } }
+            VariationChips(transport)
+        }
         if (mode == Mode.MIXTO) FilterChip(selected = soloLayer, onClick = onSoloLayer, label = { Text("Solista") })
         if (chordMode) FilterChip(selected = false, onClick = { chords.stopAll() }, label = { Text("■ Acordes") })
         if (mode != Mode.BATERIA && mode != Mode.PISTAS && mode != Mode.PRINCESS) KeyControls(chords)

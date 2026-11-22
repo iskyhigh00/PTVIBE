@@ -16,12 +16,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
@@ -43,8 +45,10 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
@@ -158,20 +162,39 @@ private fun RecLabel(vm: TransportViewModel, drum: Boolean, recording: Boolean) 
     Text(if (drum) "● Grabando batería (${pos.drumEvents})" else "● Grabando acordes (${pos.chordEvents})")
 }
 
-/** Variaciones de la base para tocar: A–D, relleno, break y final. Van dentro de la fila única de arriba. */
+/** Variaciones de la base y atajos para el próximo compás. */
 @Composable
 fun RowScope.VariationChips(vm: TransportViewModel) {
     val u by vm.ui.collectAsState()
     val p = u.pattern ?: return
     var breaks by remember { mutableStateOf(false) }
-    p.variations.forEachIndexed { i, v ->
-        val waiting = u.pendingVariation == i
+    var variationsOpen by remember { mutableStateOf(false) }
+    val next = u.pendingVariation?.let(p.variations::getOrNull)
+    val name = next?.let { "${it.name}…" } ?: p.variations.getOrNull(u.variation)?.name
+    Box {
         FilterChip(
-            selected = u.variation == i && !u.fillOn && !waiting,
-            onClick = { vm.selectVariation(i) },
-            label = { Text(if (waiting) "${v.name}…" else v.name, fontWeight = FontWeight.Bold) },
-            colors = if (waiting) FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer) else FilterChipDefaults.filterChipColors(),
+            selected = false,
+            onClick = { variationsOpen = true },
+            label = {
+                Text(if (name == null) "Base ▾" else "Base $name ▾", Modifier.widthIn(max = 122.dp),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            },
+            modifier = Modifier.semantics { contentDescription = "Variaciones de la base" },
+            colors = if (next != null) FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+                else FilterChipDefaults.filterChipColors(),
         )
+        DropdownMenu(expanded = variationsOpen, onDismissRequest = { variationsOpen = false }) {
+            p.variations.forEachIndexed { i, variation ->
+                val waiting = u.pendingVariation == i
+                val active = u.variation == i && !u.fillOn && !waiting
+                DropdownMenuItem(
+                    text = { Text("Variación ${variation.name}" + if (waiting) "…" else "") },
+                    leadingIcon = if (active) { { Text("✓") } } else null,
+                    modifier = Modifier.semantics { selected = active },
+                    onClick = { variationsOpen = false; vm.selectVariation(i) },
+                )
+            }
+        }
     }
     FilterChip(selected = u.fillOn && u.activeBreak == null, onClick = vm::fill, label = { Text("Relleno") })
     if (p.breaks.isNotEmpty()) Box {

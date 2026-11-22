@@ -28,7 +28,8 @@ class DrumPadsView(context: Context) : View(context) {
         set(v) {
             if (field == v) return
             field = v
-            pressed.clear(); flash.fill(0f)
+            clearTouches()
+            flash.fill(0f)
             if (width > 0) relayout(width, height)
             invalidate()
         }
@@ -133,9 +134,8 @@ class DrumPadsView(context: Context) : View(context) {
             MotionEvent.ACTION_DOWN -> { requestUnbufferedDispatch(e); down(e, 0) }
             MotionEvent.ACTION_POINTER_DOWN -> down(e, e.actionIndex)
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                for (i in 0 until chokeRunnables.size()) removeCallbacks(chokeRunnables.valueAt(i))
-                chokeRunnables.clear()
-                pressed.clear(); invalidate()
+                clearTouches()
+                invalidate()
             }
             MotionEvent.ACTION_POINTER_UP -> {
                 val id = e.getPointerId(e.actionIndex)
@@ -145,6 +145,12 @@ class DrumPadsView(context: Context) : View(context) {
             }
         }
         return true
+    }
+
+    private fun clearTouches() {
+        for (i in 0 until chokeRunnables.size()) removeCallbacks(chokeRunnables.valueAt(i))
+        chokeRunnables.clear()
+        pressed.clear()
     }
 
     private fun isPressed(pad: Int): Boolean {

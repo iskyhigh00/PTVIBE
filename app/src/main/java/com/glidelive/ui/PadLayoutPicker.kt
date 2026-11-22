@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -14,8 +15,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -24,6 +32,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.unit.dp
 
 private val PINK = Color(0xFFFF6B9D)
@@ -38,6 +47,51 @@ private fun padColor(p: Int) = when {
     Pads.isHat(p) -> MINT
     p == Pads.KICK -> PINK
     else -> VIOLET
+}
+
+private val quickLayouts = listOf(
+    PadLayout.KIT to "Kit",
+    PadLayout.BIG_SNARE to "Caja",
+    PadLayout.COMBOS to "Combos",
+    PadLayout.CUMBIA to "Cumbia",
+)
+
+@Composable
+internal fun PadLayoutShortcuts(current: PadLayout, onSelect: (PadLayout) -> Unit) {
+    for ((layout, label) in quickLayouts) {
+        FilterChip(
+            selected = layout == current,
+            onClick = { onSelect(layout) },
+            modifier = Modifier.semantics { contentDescription = "Pads: ${layout.label}" },
+            label = { Text(label, style = MaterialTheme.typography.labelMedium) },
+        )
+    }
+    var expanded by remember { mutableStateOf(false) }
+    val otherLayout = current.takeUnless { active -> quickLayouts.any { it.first == active } }
+    val menuLabel = when (otherLayout) {
+        PadLayout.KIT_LEFT -> "Zurdo"
+        PadLayout.MPC -> "4×4"
+        PadLayout.ESSENTIAL -> "9 pads"
+        else -> "Más pads"
+    }
+    Box {
+        FilterChip(
+            selected = otherLayout != null,
+            onClick = { expanded = true },
+            modifier = Modifier.semantics { contentDescription = "Más distribuciones de pads" },
+            label = { Text("$menuLabel ▾", style = MaterialTheme.typography.labelMedium) },
+        )
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            PadLayout.entries.forEach { layout ->
+                DropdownMenuItem(
+                    text = { Text(layout.label) },
+                    leadingIcon = if (current == layout) { { Text("✓") } } else null,
+                    modifier = Modifier.semantics { selected = current == layout },
+                    onClick = { expanded = false; onSelect(layout) },
+                )
+            }
+        }
+    }
 }
 
 /** Vista previa de cada distribución de pads; tocar una la aplica al instante. */
