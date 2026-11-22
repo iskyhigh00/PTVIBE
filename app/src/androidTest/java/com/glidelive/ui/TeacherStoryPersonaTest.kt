@@ -150,7 +150,7 @@ class TeacherStoryPersonaTest {
             SoundStore.clips(context, "rain").any { it.parentFile?.name == "included-v1" } &&
                 SoundStore.musicFiles(context).any { (track, file) ->
                     track.label == musicTitle && file.parentFile?.name == "included-v1"
-                }
+                } && vm.ui.value.soundGroups.any { group -> group.sounds.any { it.id == "rain" } }
         }
         rule.runOnIdle { vm.setCursor(2.0) }
         rule.onNodeWithText("🔊 Sonido").performClick()

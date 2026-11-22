@@ -125,6 +125,14 @@ class StoryScreenTest {
         val originalSpan = vm.ui.value.cursor - anchor
         tap(0.48f)
         timeline.performTouchInput {
+            down(Offset(width * 0.48f, 16f))
+            moveTo(Offset(width * 0.56f, 16f), delayMillis = 80)
+            moveTo(Offset(width * 0.64f, 16f), delayMillis = 80)
+            up()
+        }
+        assertEquals("Arrastrar en la regla mueve el cursor", anchor + originalSpan, vm.ui.value.cursor, 0.06)
+        tap(0.48f)
+        timeline.performTouchInput {
             down(0, Offset(width * 0.40f, 16f))
             down(1, Offset(width * 0.56f, 16f))
             updatePointerTo(0, Offset(width * 0.31f, 16f))
@@ -149,6 +157,8 @@ class StoryScreenTest {
         assertTrue("Los dos dedos también desplazan la ventana", vm.ui.value.cursor > anchor + .2)
         rule.onNodeWithContentDescription("Más opciones").performClick()
         rule.onNodeWithText("Encuadrar cuento completo").performClick()
+        tap(0.98f)
+        assertEquals("El final del cuento cabe en la ventana", 20.09, vm.ui.value.cursor, 0.18)
         rule.onNodeWithText("Amazing Plan", substring = true).assertIsDisplayed()
     }
 
